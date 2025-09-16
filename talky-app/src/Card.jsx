@@ -12,11 +12,11 @@ function Card (props){
 
     const navigate = useNavigate();
     const handleCardClick = () => {
-        navigate(`/lesson`);
+        navigate(`/lessons/${props.id}`);
     }
 
     return (
-        <div ref={tilt} {...rest} className="card" onClick={handleCardClick}>
+        <div ref={tilt} {...rest} className="card" id={props.id} onClick={handleCardClick}>
             <img src={profilePic} alt="profile pic"></img>
             <h3>{props.name}</h3>
             <p>{props.description}</p>

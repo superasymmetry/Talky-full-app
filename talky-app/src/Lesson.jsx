@@ -1,9 +1,9 @@
 import React from 'react';
 
-function Lesson() {
+function Lesson(props) {
     return (
         <div>
-            <h1>Lesson</h1>
+            <h1>Lesson {props.id}</h1>
         </div>
     )
 }
