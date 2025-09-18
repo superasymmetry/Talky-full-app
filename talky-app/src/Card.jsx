@@ -15,6 +15,14 @@ function Card (props){
         navigate(`/lessons/${props.id}`);
     }
 
+    // get backend data
+    const [cardData, setCardData] = useState(null);
+    useEffect(() => {
+        fetch("http://localhost:8080/api/lessons")
+            .then(response => response.json())
+            .then(data => setCardData(data));
+    }, [])
+
     return (
         <div ref={tilt} {...rest} className="card" id={props.id} onClick={handleCardClick}>
             <img src={profilePic} alt="profile pic"></img>

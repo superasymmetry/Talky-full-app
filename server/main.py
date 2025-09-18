@@ -6,8 +6,7 @@ cors = CORS(app, origin="*")
 
 @app.route('/lessons', methods=['GET'])
 def lessons():
-    data = request.get_json()
-    print(data)
+    data = [{"id": 1, "title": "lorem ipsum", "content": "blah"}]
     return jsonify(data)
     
 if __name__ == '__main__':
