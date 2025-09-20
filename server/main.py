@@ -4,7 +4,7 @@ from flask_cors import CORS
 app = Flask(__name__)
 cors = CORS(app, origin="*")
 
-@app.route('/lessons', methods=['GET'])
+@app.route('/api/lessons', methods=['GET'])
 def lessons():
     data = [{"id": 1, "title": "lorem ipsum", "content": "blah"}]
     return jsonify(data)

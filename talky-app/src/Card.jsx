@@ -1,6 +1,6 @@
 import profilePic from './assets/meltingrubix.png'
 import VanillaTilt from 'vanilla-tilt';
-import React, {useRef, useEffect} from 'react';
+import React, {useRef, useEffect, useState} from 'react';
 import { useNavigate } from 'react-router-dom';
 
 function Card (props){
@@ -20,7 +20,8 @@ function Card (props){
     useEffect(() => {
         fetch("http://localhost:8080/api/lessons")
             .then(response => response.json())
-            .then(data => setCardData(data));
+            .then(data => setCardData(data))
+            .catch(error => console.error('Error fetching data:', error));
     }, [])
 
     return (
@@ -28,6 +29,7 @@ function Card (props){
             <img src={profilePic} alt="profile pic"></img>
             <h3>{props.name}</h3>
             <p>{props.description}</p>
+            <p>{props.content}</p>
         </div>
     )
 }

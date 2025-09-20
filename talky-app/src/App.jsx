@@ -1,4 +1,4 @@
-import Header from './Header.jsx'
+import Header from './Header/Header.jsx'
 import Footer from './Footer.jsx'
 import Card from './Card.jsx'
 import Button from './Button/Button.jsx'
@@ -13,14 +13,21 @@ function App() {
     {"id":2, "name": "Lesson 2", "description": "lorem ipsum 2", "img": "alice.png"},
     {"id":3, "name": "Lesson 3", "description": "lorem ipsum 3", "img": "bob.png"}
   ]
+  
+  function handleSearch() {
+    console.log("searching...");
+  }
 
   return (
     <>
       <Header/>
-      {cards.map(function(card, i){
-        return <Card key={i} id={card.id} name={card.name} description={card.description}/>
-      })}
-      <Button/>
+      <input type="text" className="search-container" placeholder="Search..."></input>
+      <button className="search-button" onClick={handleSearch}></button>
+      <div className='card-container'>
+        {cards.map(function(card, i){
+          return <Card key={i} id={card.id} name={card.name} description={card.description}/>
+        })}
+      </div>
       <Footer/>
     </>
   );
