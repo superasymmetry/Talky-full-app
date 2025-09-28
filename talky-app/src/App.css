@@ -1,3 +1,8 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+
 #root {
   max-width: 1280px;
   margin: 0 auto;
@@ -44,8 +49,10 @@
 .card-container {
   display: grid;
   padding: 20px;
-  max-width: 80%;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  max-width: 1280px;      /* allow full sane layout width */
+  margin: 0 auto;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); /* responsive columns */
+  gap: 1rem;               /* spacing between cards */
 }
 
 .search-container {
@@ -63,3 +70,4 @@
 .search-button:hover {
   background-color: lightgray;
 }
+
