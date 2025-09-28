@@ -4,6 +4,7 @@ import Header from '../Header/Header.jsx'
 import Footer from '../Footer.jsx'
 import Card from '../Card.jsx'
 
+
 const categories = [
   { id: 'l-sounds', name: 'L SOUNDS' },
   { id: 'r-sounds', name: 'R SOUNDS' },

@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import Header from '../Header/Header.jsx'
 import Footer from '../Footer.jsx'
 import Card from '../Card.jsx'
+import { generateWords } from "../genWords.js";
 
 const samplePads = [
   'Ladybug','Elephant','Sleep','Baseball','Leaf','Lemon','Planet','Leg','Eleven','Letter','Laugh','Llama'
@@ -14,14 +15,21 @@ export default function SoundBankCategory(){
   const [words, setWords] = useState(samplePads)
   const tiltOptions = { max: 6, speed: 300, scale: 1.01 }
 
-  async function refreshWords(){
+  async function refreshWords() {
     try {
-      const res = await fetch('/api/generate-words')
-      if (!res.ok) throw new Error('no gen')
-      const json = await res.json()
-      if (json.words && json.words.length) setWords(json.words)
+      const newWords = await generateWords(id || "general words");
+
+      console.log("Generated words from Gemini:", newWords);
+      alert("Generated words:\n" + newWords.join(", "));
+
+      if (newWords && newWords.length) {
+        setWords(newWords);
+      } else {
+        console.warn("No words generated, keeping old list.");
+      }
     } catch (e) {
-      console.warn('refresh failed, using sample pads', e)
+      console.error("Failed to generate words", e);
+      alert("❌ Failed to generate words.\nCheck console for details.\nError: " + e.message);
     }
   }
 
@@ -35,7 +43,7 @@ export default function SoundBankCategory(){
           <button onClick={() => navigate('/soundbank')} className="text-2xl text-primary font-bold">❮</button>
           <h2 className="text-3xl font-extrabold text-primary tracking-wider">{(id || '').replace('-', ' ').toUpperCase()}</h2>
           <div className="flex items-center gap-3">
-            <button onClick={refreshWords} className="px-4 py-2 bg-primary text-white rounded-lg shadow">Refresh words</button>
+            <button onClick={refreshWords} className="px-4 py-2 bg-primary rounded-lg shadow">Refresh words</button>
           </div>
         </div>
 
