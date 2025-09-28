@@ -8,7 +8,7 @@ import { useNavigate } from 'react-router-dom';
 function Card (props){
     const tilt = useRef(null);
     // accept className and titleClass so callers can style the container and title
-    const { options, to, id, className = '', titleClass = '', ...rest } = props;
+    const { options, to, id, className = '', titleClass = '', noNavigate = false, ...rest } = props;
 
     useEffect(() => {
         if (tilt.current) VanillaTilt.init(tilt.current, options)
@@ -16,6 +16,8 @@ function Card (props){
 
     const navigate = useNavigate();
     const handleCardClick = () => {
+        if (noNavigate) return; // do nothing if navigation is disabled
+        
         if (to && typeof to === 'string') {
             const path = to.startsWith('/') ? to : `/${to}`;
             navigate(path);
