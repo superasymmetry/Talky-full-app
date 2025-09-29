@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
+from groq import Groq
 
 app = Flask(__name__)
 cors = CORS(app, origin="*")
@@ -8,6 +9,27 @@ cors = CORS(app, origin="*")
 def lessons():
     data = [{"id": 1, "title": "lorem ipsum", "content": "blah"}]
     return jsonify(data)
-    
+
+@app.route('/api/wordbank', methods=['GET', 'POST'])
+def wordbank(category: str):
+    model = "llama-3.1-8b-instant"
+    prompt = "Your task is to generate words for someone to practice speech therapy. Please generate a list of words in json format used to practice the category: " + category
+
+    client = Groq(
+        api_key=os.environ.get("GROQ_API_KEY"),
+    )
+
+    chat_completion = client.chat.completions.create(
+        messages=[
+            {
+                "role": "user",
+                "content": prompt,
+            }
+        ],
+        model=model,
+    )
+
+    return jsonify(chat_completion.choices[0].message.content)
+
 if __name__ == '__main__':
     app.run(port=8080, debug=True)
