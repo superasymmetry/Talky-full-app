@@ -86,15 +86,10 @@ export default function SoundBankCategory() {
   const [isRandomizing, setIsRandomizing] = useState(false);
 
   const refreshWords = async () => {
-    try {
-      const newWords = await generateWords(id || "general words");
-      console.log("Generated words:", newWords);
-      if (newWords && newWords.length) setWords(newWords);
-      else console.warn("No words generated, keeping old list.");
-    } catch (e) {
-      console.error("Failed to generate words", e);
-      alert("❌ Failed to generate words.\nCheck console for details.\nError: " + e.message);
-    }
+    const words = await fetch(`http://localhost:8080/api/wordbank?category=${id}`)
+    const data = await words.json();
+    console.log(data);
+    setWords(data);
   };
 
   const handleRandomize = () => {
