@@ -20,13 +20,15 @@ function App() {
       <Header/>
 
       <div className="max-w-6xl mx-auto px-4">
+        {/*}
         <div className="my-6 flex items-center gap-3">
           <input type="text" className="search-container flex-1" placeholder="Search..."/>
           <button className="search-button" onClick={handleSearch}>Search</button>
         </div>
+        */}
 
         {/* FORCE 3 columns for lessons (will always be 3 columns) */}
-        <section aria-labelledby="lessons-heading" className="mb-8">
+        <section aria-labelledby="lessons-heading" className="mb-5 mt-10">
           <h2 id="lessons-heading" className="sr-only">Lessons</h2>
 
           {/* important: grid-cols-3 forces three columns; change to sm:grid-cols-3 if you want responsive */}
