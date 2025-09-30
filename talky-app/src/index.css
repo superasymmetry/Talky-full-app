@@ -14,3 +14,17 @@
   width: 100%;
   border-radius: 50%;
 }
+
+.html, body {
+  margin: 0;
+  min-height: 100vh;
+  background-color: white;
+  background-attachment: fixed; /* makes gradient stay in place on scroll */
+  font-family: "Lucida Console", sans-serif;
+}
+
+@keyframes borderGlow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}

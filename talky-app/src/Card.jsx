@@ -1,13 +1,13 @@
 // React card component used across the app to display a clickable card (lessons, soundbank categories, etc.)
 
-import profilePic from './assets/meltingrubix.png'
+import profilePic from './assets/meltingrubix.png';
+import talkyRocket from './assets/logo.png';
 import VanillaTilt from 'vanilla-tilt';
 import React, {useRef, useEffect, useState} from 'react';
 import { useNavigate } from 'react-router-dom';
 
 function Card (props){
     const tilt = useRef(null);
-    // accept className and titleClass so callers can style the container and title
     const { options, to, id, className = '', titleClass = '', noNavigate = false, ...rest } = props;
 
     useEffect(() => {
@@ -16,7 +16,7 @@ function Card (props){
 
     const navigate = useNavigate();
     const handleCardClick = () => {
-        if (noNavigate) return; // do nothing if navigation is disabled
+        if (noNavigate) return;
         
         if (to && typeof to === 'string') {
             const path = to.startsWith('/') ? to : `/${to}`;
@@ -40,20 +40,6 @@ function Card (props){
             .catch(error => console.error('Error fetching data:', error));
     }, [])
 
-    const base = `
-        w-full h-full
-        bg-gradient-to-br from-electric/30 to-white
-        rounded-2xl
-        shadow-pokemon
-        p-6
-        cursor-pointer
-        transform hover:-translate-y-2 hover:scale-105
-        transition-all duration-300 ease-out
-        border-4 border-electric
-    `;
-
-    const mergedClass = `${base} ${className}`.trim();
-
     return (
         <div
           ref={tilt}
@@ -63,13 +49,39 @@ function Card (props){
           role="button"
           tabIndex={0}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleCardClick(); }}
-          className={mergedClass}
+          className={`relative group cursor-pointer ${className}`}
         >
-            <img src={profilePic} alt="profile pic" className="block max-w-[64px] w-full h-auto object-contain rounded-md mx-auto" />
-            {/* use titleClass when provided, otherwise fallback to default */}
-            <h3 className={titleClass || "mt-3 text-lg font-semibold text-center"}>{props.name}</h3>
-            <p className="text-sm text-gray-600 text-center">{props.description}</p>
-            <p className="text-xs text-gray-500 mt-2 text-center">{props.content}</p>
+          {/* Gradient border only appears on hover */}
+          <div className="
+            absolute inset-0 rounded-2xl p-[2px] 
+            bg-transparent
+            group-hover:bg-gradient-to-r group-hover:from-cyan-400 group-hover:via-blue-500 group-hover:to-sky-600
+            group-hover:bg-[length:200%_200%] group-hover:animate-[borderGlow_6s_linear_infinite]
+            transition-all duration-300
+          "></div>
+
+          {/* Inner card */}
+          <div
+            className="
+              relative rounded-2xl p-6
+              bg-white/75
+              backdrop-blur-md
+              shadow-[0_8px_20px_rgba(0,120,255,0.4)]
+              transition-all duration-300
+              group-hover:bg-white/90
+              group-hover:shadow-[0_0_10px_rgba(0,180,255,0.6),0_0_20px_rgba(0,120,255,0.4),0_0_30px_rgba(0,120,255,0.25)]
+              transform group-hover:-translate-y-2 group-hover:scale-105
+            "
+          >
+            <img
+              src={talkyRocket}
+              alt="talky rocket"
+              className="block max-w-[64px] w-full h-auto object-contain rounded-md mx-auto"
+            />
+            <h3 className={titleClass || "mt-3 text-lg font-semibold text-center text-slate-900"}>{props.name}</h3>
+            <p className="text-sm text-slate-700 text-center">{props.description}</p>
+            <p className="text-xs text-slate-600 mt-2 text-center">{props.content}</p>
+          </div>
         </div>
     )
 }
