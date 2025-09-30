@@ -88,8 +88,10 @@ export default function SoundBankCategory() {
   const refreshWords = async () => {
     const words = await fetch(`http://localhost:8080/api/wordbank?category=${id}`)
     const data = await words.json();
-    console.log(data);
-    setWords(data);
+    const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
+    const wordsArray = Object.values(parsedData);
+    console.log("Words array:", wordsArray);
+    setWords(wordsArray);
   };
 
   const handleRandomize = () => {
