@@ -26,7 +26,6 @@ function App() {
           <button className="search-button" onClick={handleSearch}>Search</button>
         </div>
         */}
-        <br></br><br></br><br></br>
         {/* FORCE 3 columns for lessons (will always be 3 columns) */}
         <section aria-labelledby="lessons-heading" className="mb-5 mt-10">
           <h2 id="lessons-heading" className="sr-only">Lessons</h2>
