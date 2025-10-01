@@ -126,7 +126,7 @@ export default function SoundBankCategory() {
       <main className="max-w-7xl mx-auto px-6 py-10">
         <div className="flex items-center justify-between mb-6">
           <button onClick={() => navigate('/soundbank')} className="text-2xl text-primary font-bold">❮</button>
-          <h2 className="text-3xl font-extrabold text-primary tracking-wider">{(id || '').replace('-', ' ').toUpperCase()}</h2>
+          <h2 className="text-3xl font-extrabold text-orange-600 tracking-wider">{(id || '').replace('-', ' ').toUpperCase()}</h2>
           <div className="flex items-center gap-3">
             <button onClick={refreshWords} className="px-4 py-2 bg-primary rounded-lg shadow">Refresh words</button>
             <button 
