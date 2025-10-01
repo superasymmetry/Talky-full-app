@@ -21,8 +21,7 @@ def wordbank():
     else:
         category = request.args.get('category', 'general')
     model = "llama-3.1-8b-instant"
-    prompt = f'Your task is to generate words for someone to practice speech therapy. Please generate a list of 15 words in only json and in the json format {{1: "first word", 2: "second word", 3: "third word", ...}} used to practice the category: {category}'
-    print(os.environ.get("GROQ_API_KEY"))
+    prompt = f'Your task is to generate words for someone to practice speech therapy. Please generate a list of 16 words in only json and in the json format {{1: "first word", 2: "second word", 3: "third word", ...}} used to practice the category: {category}'
     client = Groq(
         api_key=os.environ.get("GROQ_API_KEY"),
     )
@@ -35,8 +34,10 @@ def wordbank():
             }
         ],
         model=model,
+        response_format={
+            "type": "json_object",
+        }
     )
-
     return jsonify(chat_completion.choices[0].message.content)
 
 if __name__ == '__main__':
