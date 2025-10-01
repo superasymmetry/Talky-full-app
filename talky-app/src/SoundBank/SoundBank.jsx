@@ -1,19 +1,50 @@
-import React, { useEffect } from 'react'
+import React from 'react'
 import { useNavigate } from 'react-router-dom'
 import Header from '../Header/Header.jsx'
 import Footer from '../Footer.jsx'
 import Card from '../Card.jsx'
 
-
 const categories = [
-  { id: 'l-sounds', name: 'L SOUNDS' },
-  { id: 'r-sounds', name: 'R SOUNDS' },
-  { id: '2-syllables', name: '2 SYLLABLES' },
-  { id: '3-syllables', name: '3 SYLLABLES' },
-  { id: 'th-sounds', name: 'TH SOUNDS' },
-  { id: 's-sounds', name: 'S SOUNDS' },
-  { id: 'z-sounds', name: 'Z SOUNDS' },
-  { id: 'rhymes', name: 'RHYMES' },
+  { 
+    id: 'l-sounds', 
+    name: 'L Sounds', 
+    description: 'Words like "lion", "leaf", and "lamp"!' 
+  },
+  { 
+    id: 'r-sounds', 
+    name: 'R Sounds', 
+    description: 'Words like "rabbit", "rose", and "rain".' 
+  },
+  { 
+    id: '2-syllables', 
+    name: '2 Syllables', 
+    description: 'Words like "pencil", "apple", and "rocket".' 
+  },
+  { 
+    id: '3-syllables', 
+    name: '3 Syllables', 
+    description: 'Words like "elephant", "banana", and "tomato".' 
+  },
+  { 
+    id: 'th-sounds', 
+    name: 'TH Sounds', 
+    description: 'Words like "think", "bath", and "mother".' 
+  },
+  { 
+    id: 's-sounds', 
+    name: 'S Sounds', 
+    description: 'Words like "sun", "sand", and "socks".' 
+  },
+  { 
+    id: 'z-sounds', 
+    name: 'Z Sounds', 
+    description: 'Words like "zebra", "zip", and "buzz".' 
+  },
+  { 
+    id: 'rhymes', 
+    name: 'Rhymes', 
+    description: 'Words like "cat/hat", "dog/frog", and "tree/bee".' 
+  },
 ]
 
 export default function SoundBank() {
@@ -28,29 +59,25 @@ export default function SoundBank() {
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-4">
             <button onClick={() => navigate('/')} className="text-3xl text-primary font-extrabold">❮❮</button>
-            <h1 className="text-4xl sm:text-5xl font-extrabold text-primary tracking-widest drop-shadow-md">
-              SUPER SOUND BANK
+            <h1 className="ml-2 text-3xl sm:text-4xl font-extrabold text-primary tracking-widest drop-shadow-md">
+              Super Sound Bank
             </h1>
           </div>
         </div>
 
-        {/* match the category page grid / tile sizing */}
+        {/* grid for categories */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
           {categories.map(cat => (
-            <div key={cat.id} className="relative">
-              {/* increased backplate offset so shadow is more visible */}
-              <div className="absolute inset-0 transform translate-x-2 translate-y-2 bg-sky-50 rounded-xl"></div>
-
-              {/* taller front tile; pass titleClass to make label larger & centered */}
-              <Card
-                id={cat.id}
-                name={cat.name}
-                to={`/soundbank/${cat.id}`}
-                options={tiltOptions}
-                titleClass="mt-0 text-xl sm:text-2xl font-extrabold text-orange-500 tracking-wider text-center"
-                className="relative z-10 w-full rounded-xl bg-surface p-6 h-32 flex items-center justify-center shadow-md hover:shadow-lg transition"
-              />
-            </div>
+            <Card
+              key={cat.id}
+              id={cat.id}
+              name={cat.name}
+              description={cat.description}
+              to={`/soundbank/${cat.id}`}
+              options={tiltOptions}
+              titleClass="mt-0 text-xl sm:text-2xl font-extrabold text-orange-600 tracking-wider text-center"
+              className="w-full h-32 flex items-center justify-center"
+            />
           ))}
         </div>
       </main>

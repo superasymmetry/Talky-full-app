@@ -34,7 +34,7 @@ function App() {
           <div className="grid grid-cols-3 gap-6 items-stretch">
             {lessons.map((card) => (
               <div className="w-full" key={card.id}>
-                <Card {...card} />
+                <Card {...card} showRocket={true}/>
               </div>
             ))}
           </div>
