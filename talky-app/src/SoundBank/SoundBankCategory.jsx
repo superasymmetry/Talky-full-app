@@ -1,24 +1,21 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Header from '../Header/Header.jsx';
 import Footer from '../Footer.jsx';
 import Card from '../Card.jsx';
-import { generateWords } from "../genWords.js";
 
-// Default words if no generated words
 const samplePads = [
   'Ladybug','Elephant','Sleep','Baseball','Leaf','Lemon','Planet','Leg','Eleven','Letter','Laugh','Llama'
 ];
 
 // ----- Randomizer Tile Component -----
 function SoundBank({ tiles, highlightedIndex, selectedIndex, setHighlightedIndex, setSelectedIndex, isRandomizing }) {
-
   const tiltOptions = { max: 6, speed: 300, scale: 1.01 };
 
   const speakWord = (word) => {
     if (!window.speechSynthesis) return;
-
     window.speechSynthesis.cancel();
+
     const utterance = new SpeechSynthesisUtterance(word);
     utterance.lang = "en-US";
     utterance.rate = 1;
@@ -56,10 +53,16 @@ function SoundBank({ tiles, highlightedIndex, selectedIndex, setHighlightedIndex
               }
             }}
           >
+            {/* highlight ring */}
             <div
-              className={`absolute inset-0 rounded-xl transition-all duration-150
-                ${isHighlighted ? "bg-yellow-300 scale-105 shadow-[0_0_12px_rgba(20,0,0,0.8)] animate-pulse" : ""}
-                ${isSelected ? "bg-pink-400 scale-110 shadow-[0_0_18px_rgba(0,255,0,0.9)]" : ""}`}
+              className={`absolute inset-0 rounded-xl pointer-events-none transition-all duration-150
+                ${isHighlighted ? `
+                  ring-8 ring-yellow-400
+                  shadow-lg shadow-yellow-400/70
+                  hover:shadow-orange-400/70
+                  animate-pulse
+                ` : ""}
+                ${isSelected ? "ring-4 ring-pink-400 shadow-pink-400/70" : ""}`}
             ></div>
 
             <Card
@@ -67,7 +70,7 @@ function SoundBank({ tiles, highlightedIndex, selectedIndex, setHighlightedIndex
               name={tile}
               options={tiltOptions}
               noNavigate={true}
-              className="relative z-10 w-full rounded-xl bg-surface p-6 h-32 flex flex-col items-center justify-center shadow-md hover:shadow-lg transition text-primary"
+              className="relative z-10 w-full h-32 flex flex-col items-center justify-center"
             />
           </div>
         );
@@ -136,7 +139,6 @@ export default function SoundBankCategory() {
           </div>
         </div>
 
-        {/* --- SoundBank Tiles --- */}
         <SoundBank 
           tiles={words} 
           highlightedIndex={highlightedIndex} 
@@ -145,7 +147,6 @@ export default function SoundBankCategory() {
           setSelectedIndex={setSelectedIndex} 
           isRandomizing={isRandomizing}
         />
-
       </main>
       <Footer />
     </div>
