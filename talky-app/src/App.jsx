@@ -3,8 +3,13 @@ import Header from './Header/Header.jsx'
 import Footer from './Footer.jsx'
 import Card from './Card.jsx'
 import './App.css'
+import { useAuth0 } from '@auth0/auth0-react'
+import LoginButton from './components/LoginButton.jsx'
 
 function App() {
+
+  const { user, isAuthenticated } = useAuth0();
+
   const lessons = [
     { id:1, name: "Lesson 1", description: "lorem ipsum 1", img: "meltingrubix.png" },
     { id:2, name: "Lesson 2", description: "lorem ipsum 2", img: "alice.png" },
@@ -14,6 +19,15 @@ function App() {
   const soundBankCard = { id: "soundbank", name: "Sound Bank", description: "Browse sound categories", to: "/soundbank" }
 
   function handleSearch() { console.log("searching..."); }
+
+  if (!isAuthenticated) {
+    return (
+      <div>
+        <p>Please log in to access the lessons.</p>
+        <LoginButton />
+      </div>
+    )
+  }
 
   return (
     <>
