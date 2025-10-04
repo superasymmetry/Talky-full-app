@@ -23,8 +23,9 @@ function App() {
   if (!isAuthenticated) {
     return (
       <div>
+        <Header/>
         <p>Please log in to access the lessons.</p>
-        <LoginButton />
+        <LoginButton/>
       </div>
     )
   }

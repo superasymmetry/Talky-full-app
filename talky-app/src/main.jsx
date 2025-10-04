@@ -18,7 +18,7 @@ createRoot(document.getElementById('root')).render(
     <Auth0Provider
       domain={domain}
       clientId={clientId}
-      authorizationParams={{ redirect_uri: `http://localhost:5173/callback`, audience: "http://localhost:5173/" }}
+      authorizationParams={{ redirect_uri: `http://localhost:5173/callback` }}
     > 
     <BrowserRouter>
       <Routes>
