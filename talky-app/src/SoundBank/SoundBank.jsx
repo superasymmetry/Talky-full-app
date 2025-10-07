@@ -36,14 +36,14 @@ const categories = [
     description: 'Words like "sun", "sand", and "socks".' 
   },
   { 
-    id: 'z-sounds', 
-    name: 'Z Sounds', 
-    description: 'Words like "zebra", "zip", and "buzz".' 
+    id: 'ch-sounds', 
+    name: 'CH Sounds', 
+    description: 'Words like "children", "chin", and "pinch".' 
   },
   { 
-    id: 'rhymes', 
-    name: 'Rhymes', 
-    description: 'Words like "cat/hat", "dog/frog", and "tree/bee".' 
+    id: 'sh-sounds', 
+    name: 'SH Sounds', 
+    description: 'Words like "bash", "shadow", and "shift".' 
   },
 ]
 
