@@ -3,11 +3,18 @@ from flask_cors import CORS
 from groq import Groq
 import os
 from dotenv import load_dotenv
+from database import users_collection
+from user_routes import user_bp
+from score_routes import score_bp
 
 load_dotenv()
 
 app = Flask(__name__)
 cors = CORS(app, origin="*")
+
+# Register routes
+app.register_blueprint(user_bp)
+app.register_blueprint(score_bp)
 
 @app.route('/api/lessons', methods=['GET'])
 def lessons():
@@ -39,6 +46,17 @@ def wordbank():
         }
     )
     return jsonify(chat_completion.choices[0].message.content)
+
+@app.route("/")
+def home():
+    users = list(users_collection.find({}, {"_id": 0}))  # exclude MongoDB's _id field for readability
+    return jsonify(users)
+
+@app.route("/add_user", methods=["POST"])
+def add_user():
+    data = request.get_json()
+    users_collection.insert_one(data)
+    return jsonify({"message": "User added successfully!"})
 
 if __name__ == '__main__':
     app.run(port=8080, debug=True)
