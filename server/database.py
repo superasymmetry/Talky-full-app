@@ -10,4 +10,4 @@ client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
 db = client["talky"]
 users_collection = db["users"]
 
-print("✅ Connected to MongoDB successfully!")
+print("Connected to MongoDB successfully!")
