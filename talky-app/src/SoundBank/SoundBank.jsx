@@ -21,9 +21,9 @@ const categories = [
     description: 'Words like "pencil", "apple", and "rocket".' 
   },
   { 
-    id: '3-syllables', 
-    name: '3 Syllables', 
-    description: 'Words like "elephant", "banana", and "tomato".' 
+    id: '1-syllable', 
+    name: '1 Syllable', 
+    description: 'Words like "grass", "corn", and "kite".' 
   },
   { 
     id: 'th-sounds', 
@@ -76,7 +76,7 @@ export default function SoundBank() {
               to={`/soundbank/${cat.id}`}
               options={tiltOptions}
               titleClass="mt-0 text-xl sm:text-2xl font-extrabold text-orange-600 tracking-wider text-center"
-              className="w-full h-32 flex items-center justify-center"
+              className="w-full h-35 flex flex-col items-center justify-center"
             />
           ))}
         </div>
