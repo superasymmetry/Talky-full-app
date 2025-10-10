@@ -1,6 +1,9 @@
 import styles from "./Header.module.css";
 import talkyLogo from "../assets/talky.png";
 
+import LoginButton from "../Auth0/LoginButton";
+import LogoutButton from "../Auth0/LogoutButton";
+
 function Header() {
   return (
     <header className={styles.header}>
@@ -17,7 +20,8 @@ function Header() {
             <a href="#" className={styles.navLink}>Products</a>
           </li>
           <li className={styles.navItem}>
-            <a href="#" className={styles.navLink}>Login</a>
+            <LoginButton />
+            <LogoutButton />
           </li>
         </ul>
       </nav>
