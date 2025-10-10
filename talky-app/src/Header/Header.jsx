@@ -1,23 +1,26 @@
+import { Link } from "react-router-dom";
 import styles from "./Header.module.css";
 import talkyLogo from "../assets/talky.png";
 
 import LoginButton from "../Auth0/LoginButton";
 import LogoutButton from "../Auth0/LogoutButton";
 
+import Profile from "../Auth0/Profile";
+
 function Header() {
   return (
     <header className={styles.header}>
-      <a href="#">
+      <Link to="/">
         <img src={talkyLogo} alt="Talky logo" className={styles.logo} />
-      </a>
+      </Link>
 
       <nav className={styles.nav}>
         <ul className={styles.navList}>
           <li className={styles.navItem}>
-            <a href="#" className={styles.navLink}>Home</a>
+            <Link to="/" className={styles.navLink}>Home</Link>
           </li>
           <li className={styles.navItem}>
-            <a href="#" className={styles.navLink}>Products</a>
+            <Link to="/profile" className={styles.navLink}>Profile</Link>
           </li>
           <li className={styles.navItem}>
             <LoginButton />
