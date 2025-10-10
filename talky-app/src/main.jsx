@@ -6,8 +6,8 @@ import App from './App.jsx'
 import Lesson from './Lesson.jsx'
 import SoundBank from './SoundBank/SoundBank.jsx'
 import SoundBankCategory from './SoundBank/SoundBankCategory.jsx'
+import Profile from './Auth0/Profile.jsx'
 
-// Auth0 Provider stuff
 import { Auth0Provider } from '@auth0/auth0-react';
 
 const domain = import.meta.env.VITE_AUTH0_DOMAIN;
@@ -26,6 +26,7 @@ createRoot(document.getElementById('root')).render(
           <Route path="/lessons/:id" element={<Lesson/>}/>
           <Route path="/soundbank" element={<SoundBank/>}/>
           <Route path="/soundbank/:id" element={<SoundBankCategory/>}/>
+          <Route path="/profile" element={<Profile/>}/>
         </Routes>
       </BrowserRouter>
     </Auth0Provider>
