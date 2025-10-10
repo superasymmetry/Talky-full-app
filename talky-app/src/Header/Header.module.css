@@ -38,10 +38,13 @@
   list-style: none;
   margin: 0;
   padding: 0;
+  align-items: center; /* added: vertically center items in the row */
 }
 
 .navItem {
   margin: 0;
+  display: flex;       /* added: make each list item a flex container */
+  align-items: center; /* added: center children (links/buttons) vertically */
 }
 
 .navLink {
@@ -56,6 +59,13 @@
   box-shadow: none;              /* no glow by default */
   backdrop-filter: none;         /* no blur by default */
   position: relative;
+  cursor: pointer; /* added so buttons show pointer like links */
+
+  display: inline-flex;   /* added: make anchors and buttons behave the same */
+  align-items: center;    /* vertically center label inside control */
+  line-height: 1;         /* normalize line-height across elements */
+  vertical-align: middle; /* keep inline alignment consistent */
+  font: inherit;          /* ensure buttons use same font metrics as anchors */
 }
 
 .navLink:hover {
