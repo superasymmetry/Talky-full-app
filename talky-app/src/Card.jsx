@@ -1,14 +1,25 @@
-// React card component used across the app to display a clickable card (lessons, soundbank categories, etc.)
-
 import profilePic from './assets/meltingrubix.png';
 import talkyRocket from './assets/logo.png';
 import VanillaTilt from 'vanilla-tilt';
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 function Card(props) {
     const tilt = useRef(null);
-    const { options, to, id, className = '', titleClass = '', noNavigate = false, showRocket = false, ...rest } = props;
+    const {
+        options,
+        to,
+        id,
+        className = '',
+        titleClass = '',
+        noNavigate = false,
+        showRocket = false,
+        isLoading = false,
+        name = '',
+        description,
+        content,
+        ...rest
+    } = props;
 
     useEffect(() => {
         if (tilt.current) VanillaTilt.init(tilt.current, options)
@@ -32,13 +43,8 @@ function Card(props) {
         }
     }
 
-    const [cardData, setCardData] = useState(null);
-    useEffect(() => {
-        fetch("http://localhost:8080/api/lessons")
-            .then(response => response.json())
-            .then(data => setCardData(data))
-            .catch(error => console.error('Error fetching data:', error));
-    }, [])
+    // helper to detect if content is a single emoji
+    const isEmoji = (str) => /\p{Emoji}/u.test(str);
 
     return (
         <div
@@ -63,18 +69,16 @@ function Card(props) {
 
             {/* Inner card */}
             <div
-                className="
+                className={`
                     relative rounded-2xl p-6 w-full h-full
-                    bg-white/75
-                    backdrop-blur-md
-                    shadow-[0_8px_20px_rgba(0,120,255,0.4)]
+                    bg-white/75 backdrop-blur-md shadow-[0_8px_20px_rgba(0,120,255,0.4)]
                     transition-all duration-300
                     group-hover:bg-white/90
                     group-hover:shadow-[0_0_10px_rgba(0,180,255,0.6),0_0_20px_rgba(0,120,255,0.4),0_0_30px_rgba(0,120,255,0.25)]
                     transform group-hover:-translate-y-2 group-hover:scale-105
-                "
+                    ${isLoading ? 'opacity-50' : 'opacity-100'}
+                `}
             >
-                {/* Only show rocket if showRocket is true */}
                 {showRocket && (
                     <img
                         src={talkyRocket}
@@ -82,9 +86,17 @@ function Card(props) {
                         className="block max-w-[64px] w-full h-auto object-contain rounded-md mx-auto"
                     />
                 )}
-                <h3 className={titleClass || "mt-3 text-lg font-semibold text-center text-slate-900"}>{props.name}</h3>
-                <p className="text-sm text-slate-700 text-center">{props.description}</p>
-                <p className="text-xs text-slate-600 mt-2 text-center">{props.content}</p>
+                <h3 className={titleClass || "mt-3 text-lg font-semibold text-center text-slate-900"}>
+                    {name || '\u00A0'}
+                </h3>
+                <p className="text-sm text-slate-700 text-center">{description}</p>
+
+                {/* emoji content */}
+                {content && (
+                    <p className={`mt-2 text-center ${isEmoji(content) ? 'text-4xl' : 'text-xs'} select-none`}>
+                        {content}
+                    </p>
+                )}
             </div>
         </div>
     )
