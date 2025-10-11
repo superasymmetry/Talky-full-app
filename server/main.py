@@ -16,10 +16,32 @@ cors = CORS(app, origin="*")
 app.register_blueprint(user_bp)
 app.register_blueprint(score_bp)
 
-@app.route('/api/lessons', methods=['GET'])
+@app.route('/api/lessons', methods=['GET', 'POST'])
 def lessons():
-    data = [{"id": 1, "title": "lorem ipsum", "content": "blah"}]
-    return jsonify(data)
+    # dummy word list. would replace with actual list from db or request
+    word_list = ["rainbow", "racecar", "rocket", "rabbit", "ring", "road", "rose"]
+    
+    prompt = f"""
+    Your tasks is to generate a list of 7 sentences for speech therapy practice. 
+    Please generate ethe sentences based on these words: {word_list}.
+    Each sentence should be between 5-10 words long. Please return the sentences in JSON format as follows:
+    {{
+        1: "first sentence",
+        2: "second sentence",
+        ...
+        7: "seventh sentence"
+        }}
+    """
+    client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+
+    chat_completion = client.chat.completions.create(
+        messages=[{"role": "user", "content": prompt}],
+        model="llama-3.1-8b-instant",
+        response_format={"type": "json_object"}
+    )
+
+    sentences = jsonify(chat_completion.choices[0].message.content)
+    return sentences
 
 @app.route('/api/wordbank', methods=['GET', 'POST'])
 def wordbank():
