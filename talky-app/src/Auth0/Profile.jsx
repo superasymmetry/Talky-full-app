@@ -6,10 +6,12 @@ import talkyRocket from '../assets/logo.png';
 const Profile = () => {
   const { user, isAuthenticated, isLoading } = useAuth0();
 
-  // Temporary state for editable fields
-  const [nickname, setNickname] = useState(user?.nickname || '');
-  const [age, setAge] = useState('16'); // default value
-  const [role, setRole] = useState('Student');
+  // Temporary state for editable fields — start as null so we can show a loading state
+  const [nickname, setNickname] = useState(null);
+  const [age, setAge] = useState(null);
+  const [role, setRole] = useState(null);
+  const [profileLoaded, setProfileLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     // When user logs in, ensure they exist in the app DB then fetch server profile
@@ -20,9 +22,10 @@ const Profile = () => {
       const payload = {
         userId,
         name: user.name || user.nickname || user.email || 'Unnamed',
-        age: parseInt(age, 10) || 16,
-        nickname: nickname || (user.nickname || ""),
-        role: role || "Student"
+        // Do not rely on local state defaults here; server will be authoritative.
+        age: parseInt(age, 10) || undefined,
+        nickname: nickname ?? user.nickname ?? "",
+        role: role ?? "Student"
       };
 
       try {
@@ -40,11 +43,22 @@ const Profile = () => {
           setNickname(profile.nickname ?? profile.name ?? '');
           setAge(String(profile.age ?? 16));
           setRole(profile.role ?? 'Student');
+          setProfileLoaded(true);
         } else {
           console.warn('Failed to fetch profile from server', profileRes.status);
+          // still mark loaded so UI won't hang indefinitely
+          setNickname(user.nickname ?? '');
+          setAge(String(16));
+          setRole('Student');
+          setProfileLoaded(true);
         }
       } catch (err) {
         console.error('Failed to create/confirm user or fetch profile', err);
+        // fallback to some sensible defaults
+        setNickname(user.nickname ?? '');
+        setAge(String(16));
+        setRole('Student');
+        setProfileLoaded(true);
       }
     }
 
@@ -53,6 +67,7 @@ const Profile = () => {
 
   if (isLoading) return <p>Loading profile...</p>;
   if (!isAuthenticated) return <p>Please log in to view your profile.</p>;
+  if (!profileLoaded) return <p>Loading profile...</p>;
 
   const handleSave = async () => {
     const payload = {
@@ -63,6 +78,7 @@ const Profile = () => {
     };
 
     try {
+      setSaving(true);
       const res = await fetch('http://localhost:8080/api/updateUserProfile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -70,12 +86,23 @@ const Profile = () => {
       });
       const json = await res.json();
       console.log('updateUserProfile', res.status, json);
+      // re-fetch authoritative profile so UI always matches DB
+      const userId = user.sub || user.email;
+      const profileRes = await fetch(`http://localhost:8080/api/getUserProfile?userId=${encodeURIComponent(userId)}`);
+      if (profileRes.ok) {
+        const profile = await profileRes.json();
+        setNickname(profile.nickname ?? profile.name ?? '');
+        setAge(String(profile.age ?? 16));
+        setRole(profile.role ?? 'Student');
+      }
+      setSaving(false);
       if (res.ok) {
         alert('Profile saved');
       } else {
         alert('Failed to save profile: ' + (json.message || res.status));
       }
     } catch (err) {
+      setSaving(false);
       console.error('Failed to save profile', err);
       alert('Error saving profile');
     }
@@ -138,7 +165,7 @@ const Profile = () => {
             <label style={{ display: 'block', fontWeight: 600, color: '#334155', marginBottom: '0.25rem' }}>Nickname:</label>
             <input
               type="text"
-              value={nickname}
+              value={nickname === null ? '' : nickname}
               onChange={(e) => setNickname(e.target.value)}
               style={{ width: '100%', padding: '0.5rem', borderRadius: '0.5rem', border: '1px solid #cbd5e1', marginBottom: '0.75rem' }}
             />
@@ -146,14 +173,14 @@ const Profile = () => {
             <label style={{ display: 'block', fontWeight: 600, color: '#334155', marginBottom: '0.25rem' }}>Age:</label>
             <input
               type="number"
-              value={age}
+              value={age === null ? '' : age}
               onChange={(e) => setAge(e.target.value)}
               style={{ width: '100%', padding: '0.5rem', borderRadius: '0.5rem', border: '1px solid #cbd5e1', marginBottom: '0.75rem' }}
             />
 
             <label style={{ display: 'block', fontWeight: 600, color: '#334155', marginBottom: '0.25rem' }}>Role:</label>
             <select
-              value={role}
+              value={role === null ? '' : role}
               onChange={(e) => setRole(e.target.value)}
               style={{ width: '100%', padding: '0.5rem', borderRadius: '0.5rem', border: '1px solid #cbd5e1', marginBottom: '0.75rem' }}
             >
@@ -164,6 +191,7 @@ const Profile = () => {
 
           <button 
             onClick={handleSave} 
+            disabled={saving}
             className="px-4 py-2 bg-blue-500 text-white rounded-lg shadow hover:bg-blue-600 cursor-pointer"
           >
             Save Changes
