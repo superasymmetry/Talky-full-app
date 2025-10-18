@@ -12,38 +12,73 @@ const Profile = () => {
   const [role, setRole] = useState('Student');
 
   useEffect(() => {
-    // When user logs in, ensure they exist in the app DB
-    async function ensureUserInDb() {
+    // When user logs in, ensure they exist in the app DB then fetch server profile
+    async function ensureUserInDbAndSync() {
       if (!isAuthenticated || !user) return;
 
+      const userId = user.sub || user.email;
       const payload = {
-        userId: user.sub || user.email, // use Auth0 sub (or fallback to email)
+        userId,
         name: user.name || user.nickname || user.email || 'Unnamed',
-        age: parseInt(age, 10) || 16
+        age: parseInt(age, 10) || 16,
+        nickname: nickname || (user.nickname || ""),
+        role: role || "Student"
       };
 
       try {
-        const res = await fetch('http://localhost:8080/api/createUser', {
+        // create/upsert
+        await fetch('http://localhost:8080/api/createUser', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
-        const json = await res.json();
-        console.log('createUser response:', res.status, json);
+
+        // fetch authoritative profile from server and sync local state
+        const profileRes = await fetch(`http://localhost:8080/api/getUserProfile?userId=${encodeURIComponent(userId)}`);
+        if (profileRes.ok) {
+          const profile = await profileRes.json();
+          setNickname(profile.nickname ?? profile.name ?? '');
+          setAge(String(profile.age ?? 16));
+          setRole(profile.role ?? 'Student');
+        } else {
+          console.warn('Failed to fetch profile from server', profileRes.status);
+        }
       } catch (err) {
-        console.error('Failed to create/confirm user on server', err);
+        console.error('Failed to create/confirm user or fetch profile', err);
       }
     }
 
-    ensureUserInDb();
-  }, [isAuthenticated, isLoading, user, age]);
+    ensureUserInDbAndSync();
+  }, [isAuthenticated, isLoading, user]);
 
   if (isLoading) return <p>Loading profile...</p>;
   if (!isAuthenticated) return <p>Please log in to view your profile.</p>;
 
-  const handleSave = () => {
-    console.log({ nickname, age, role });
-    alert('Profile updated!');
+  const handleSave = async () => {
+    const payload = {
+      userId: user.sub || user.email,
+      nickname,
+      age: parseInt(age, 10) || 16,
+      role
+    };
+
+    try {
+      const res = await fetch('http://localhost:8080/api/updateUserProfile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const json = await res.json();
+      console.log('updateUserProfile', res.status, json);
+      if (res.ok) {
+        alert('Profile saved');
+      } else {
+        alert('Failed to save profile: ' + (json.message || res.status));
+      }
+    } catch (err) {
+      console.error('Failed to save profile', err);
+      alert('Error saving profile');
+    }
   }
 
   return (
