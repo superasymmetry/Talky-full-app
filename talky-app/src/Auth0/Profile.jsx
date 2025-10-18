@@ -4,7 +4,18 @@ import Header from '../Header/Header';
 import talkyRocket from '../assets/logo.png';
 
 const Profile = () => {
-  const { user, isAuthenticated, isLoading } = useAuth0();
+  const { user, isAuthenticated, isLoading, getAccessTokenSilently } = useAuth0();
+  
+  // helper to add Authorization header
+  async function authFetch(url, options = {}) {
+    const token = await getAccessTokenSilently();
+    const headers = {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...(options.headers || {})
+    };
+    return fetch(url, { ...options, headers });
+  }
 
   // Temporary state for editable fields — start as null so we can show a loading state
   const [nickname, setNickname] = useState(null);
@@ -30,14 +41,12 @@ const Profile = () => {
 
       try {
         // create/upsert
-        await fetch('http://localhost:8080/api/createUser', {
+        await authFetch('http://localhost:8080/api/createUser', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+          body: JSON.stringify({ userId, name: user.name || user.nickname || user.email || 'Unnamed' })
         });
 
-        // fetch authoritative profile from server and sync local state
-        const profileRes = await fetch(`http://localhost:8080/api/getUserProfile?userId=${encodeURIComponent(userId)}`);
+        const profileRes = await authFetch(`http://localhost:8080/api/getUserProfile?userId=${encodeURIComponent(userId)}`);
         if (profileRes.ok) {
           const profile = await profileRes.json();
           setNickname(profile.nickname ?? profile.name ?? '');
@@ -79,16 +88,15 @@ const Profile = () => {
 
     try {
       setSaving(true);
-      const res = await fetch('http://localhost:8080/api/updateUserProfile', {
+      const res = await authFetch('http://localhost:8080/api/updateUserProfile', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
       const json = await res.json();
       console.log('updateUserProfile', res.status, json);
       // re-fetch authoritative profile so UI always matches DB
       const userId = user.sub || user.email;
-      const profileRes = await fetch(`http://localhost:8080/api/getUserProfile?userId=${encodeURIComponent(userId)}`);
+      const profileRes = await authFetch(`http://localhost:8080/api/getUserProfile?userId=${encodeURIComponent(userId)}`);
       if (profileRes.ok) {
         const profile = await profileRes.json();
         setNickname(profile.nickname ?? profile.name ?? '');
