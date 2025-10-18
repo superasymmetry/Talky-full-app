@@ -25,30 +25,35 @@ def create_default_progress():
 
 @user_bp.route("/api/createUser", methods=["POST"])
 def create_user():
-    data = request.get_json()
+    data = request.get_json() or {}
     user_id = data.get("userId")
-    name = data.get("name")
+    name = data.get("name") or ""
+    # optional fields with defaults
+    nickname = data.get("nickname") or ""
+    role = data.get("role") or "Student"
     age = data.get("age")
-    nickname = data.get("nickname")  # optional
-    role = data.get("role")  # optional
 
-    # return bad request instead of empty response
-    if not user_id or not name or age is None:
-        return jsonify({"message": "Missing userId, name, or age"}), 400
+    if not user_id:
+        return jsonify({"message": "Missing userId"}), 400
+
+    # coerce age to int when provided, otherwise use default 16
+    try:
+        age_val = int(age) if age is not None and age != "" else 16
+    except (ValueError, TypeError):
+        age_val = 16
 
     new_user = {
         "userId": user_id,
-        "name": name,
-        "age": age,
-        "nickname": nickname or "",
-        "role": role or "Student",
+        "name": name or nickname or "Unnamed",
+        "nickname": nickname,
+        "role": role,
+        "age": age_val,
         "progress": create_default_progress(),
         "history": [],
         "lastUpdated": datetime.now().strftime("%Y-%m-%d")
     }
 
     try:
-        # Use $setOnInsert with upsert to make this operation idempotent and race-safe.
         result = users_collection.update_one(
             {"userId": user_id},
             {"$setOnInsert": new_user},
@@ -57,7 +62,6 @@ def create_user():
     except Exception as e:
         return jsonify({"message": "Database error", "error": str(e)}), 500
 
-    # If upserted_id exists, a new document was created; otherwise it already existed.
     if getattr(result, "upserted_id", None):
         return jsonify({"message": "User created successfully"}), 201
     else:
