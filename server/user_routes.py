@@ -30,12 +30,9 @@ def create_user():
     name = data.get("name")
     age = data.get("age")
 
-    if not user_id or not name or not age:
-        return jsonify({"message": "Missing required fields"}), 400
-
-    user = users_collection.find_one({"userId": user_id})
-    if user:
-        return jsonify({"message": "User already exists"}), 200
+    # return bad request instead of empty response
+    if not user_id or not name or age is None:
+        return jsonify({"message": "Missing userId, name, or age"}), 400
 
     new_user = {
         "userId": user_id,
@@ -46,8 +43,22 @@ def create_user():
         "lastUpdated": datetime.now().strftime("%Y-%m-%d")
     }
 
-    users_collection.insert_one(new_user)
-    return jsonify({"message": "User created successfully"}), 201
+    try:
+        # Use $setOnInsert with upsert to make this operation idempotent and race-safe.
+        result = users_collection.update_one(
+            {"userId": user_id},
+            {"$setOnInsert": new_user},
+            upsert=True
+        )
+    except Exception as e:
+        # If a duplicate key or other DB error occurs, return 500 (index will normally prevent duplicates)
+        return jsonify({"message": "Database error", "error": str(e)}), 500
+
+    # If upserted_id exists, a new document was created; otherwise it already existed.
+    if getattr(result, "upserted_id", None):
+        return jsonify({"message": "User created successfully"}), 201
+    else:
+        return jsonify({"message": "User already exists"}), 200
 
 
 @user_bp.route("/api/getUserProgress", methods=["GET"])

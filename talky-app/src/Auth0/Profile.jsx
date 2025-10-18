@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useAuth0 } from '@auth0/auth0-react';
 import Header from '../Header/Header';
 import talkyRocket from '../assets/logo.png';
@@ -10,6 +10,33 @@ const Profile = () => {
   const [nickname, setNickname] = useState(user?.nickname || '');
   const [age, setAge] = useState('16'); // default value
   const [role, setRole] = useState('Student');
+
+  useEffect(() => {
+    // When user logs in, ensure they exist in the app DB
+    async function ensureUserInDb() {
+      if (!isAuthenticated || !user) return;
+
+      const payload = {
+        userId: user.sub || user.email, // use Auth0 sub (or fallback to email)
+        name: user.name || user.nickname || user.email || 'Unnamed',
+        age: parseInt(age, 10) || 16
+      };
+
+      try {
+        const res = await fetch('http://localhost:8080/api/createUser', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const json = await res.json();
+        console.log('createUser response:', res.status, json);
+      } catch (err) {
+        console.error('Failed to create/confirm user on server', err);
+      }
+    }
+
+    ensureUserInDb();
+  }, [isAuthenticated, isLoading, user, age]);
 
   if (isLoading) return <p>Loading profile...</p>;
   if (!isAuthenticated) return <p>Please log in to view your profile.</p>;
