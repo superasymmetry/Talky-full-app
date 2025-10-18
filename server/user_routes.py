@@ -1,8 +1,8 @@
 from flask import Blueprint, request, jsonify
 from database import users_collection
 from datetime import datetime
-import os
 from groq import Groq
+import os
 
 user_bp = Blueprint("user_bp", __name__)
 
@@ -29,6 +29,8 @@ def create_user():
     user_id = data.get("userId")
     name = data.get("name")
     age = data.get("age")
+    nickname = data.get("nickname")  # optional
+    role = data.get("role")  # optional
 
     # return bad request instead of empty response
     if not user_id or not name or age is None:
@@ -38,6 +40,8 @@ def create_user():
         "userId": user_id,
         "name": name,
         "age": age,
+        "nickname": nickname or "",
+        "role": role or "Student",
         "progress": create_default_progress(),
         "history": [],
         "lastUpdated": datetime.now().strftime("%Y-%m-%d")
@@ -51,7 +55,6 @@ def create_user():
             upsert=True
         )
     except Exception as e:
-        # If a duplicate key or other DB error occurs, return 500 (index will normally prevent duplicates)
         return jsonify({"message": "Database error", "error": str(e)}), 500
 
     # If upserted_id exists, a new document was created; otherwise it already existed.
@@ -59,6 +62,44 @@ def create_user():
         return jsonify({"message": "User created successfully"}), 201
     else:
         return jsonify({"message": "User already exists"}), 200
+
+
+@user_bp.route("/api/updateUserProfile", methods=["POST"])
+def update_user_profile():
+    """
+    Update editable profile fields for a user (nickname, age, role, name).
+    Expects JSON: { userId, nickname?, age?, role?, name? }
+    """
+    data = request.get_json() or {}
+    user_id = data.get("userId")
+    if not user_id:
+        return jsonify({"message": "Missing userId"}), 400
+
+    update_fields = {}
+    if "nickname" in data:
+        update_fields["nickname"] = data.get("nickname", "")
+    if "age" in data:
+        update_fields["age"] = data.get("age")
+    if "role" in data:
+        update_fields["role"] = data.get("role")
+    if "name" in data:
+        update_fields["name"] = data.get("name")
+
+    if not update_fields:
+        return jsonify({"message": "No updatable fields provided"}), 400
+
+    try:
+        result = users_collection.update_one(
+            {"userId": user_id},
+            {"$set": update_fields}
+        )
+    except Exception as e:
+        return jsonify({"message": "Database error", "error": str(e)}), 500
+
+    if result.matched_count == 0:
+        return jsonify({"message": "User not found"}), 404
+
+    return jsonify({"message": "Profile updated"}), 200
 
 
 @user_bp.route("/api/getUserProgress", methods=["GET"])
@@ -77,6 +118,20 @@ def get_user_progress():
         "progress": user["progress"],
         "lastUpdated": user["lastUpdated"]
     }), 200
+
+
+# Add this new endpoint to return the user's profile data (no _id)
+@user_bp.route("/api/getUserProfile", methods=["GET"])
+def get_user_profile():
+    user_id = request.args.get("userId")
+    if not user_id:
+        return jsonify({"message": "Missing userId query parameter"}), 400
+
+    user = users_collection.find_one({"userId": user_id}, {"_id": 0})
+    if not user:
+        return jsonify({"message": "User not found"}), 404
+
+    return jsonify(user), 200
 
 
 def get_weak_areas(progress):
