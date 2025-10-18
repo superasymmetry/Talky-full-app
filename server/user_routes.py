@@ -1,7 +1,8 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, g
 from database import users_collection
 from datetime import datetime
 from groq import Groq
+from auth import requires_auth
 import os
 
 user_bp = Blueprint("user_bp", __name__)
@@ -24,23 +25,22 @@ def create_default_progress():
 
 
 @user_bp.route("/api/createUser", methods=["POST"])
+@requires_auth
 def create_user():
     data = request.get_json() or {}
-    user_id = data.get("userId")
-    name = data.get("name") or ""
-    # optional fields with defaults
+    token_payload = getattr(g, "current_user", {}) or {}
+    user_id = token_payload.get("sub") or data.get("userId")
+    name = data.get("name") or token_payload.get("name") or ""
     nickname = data.get("nickname") or ""
     role = data.get("role") or "Student"
     age = data.get("age")
-
-    if not user_id:
-        return jsonify({"message": "Missing userId"}), 400
-
-    # coerce age to int when provided, otherwise use default 16
     try:
         age_val = int(age) if age is not None and age != "" else 16
     except (ValueError, TypeError):
         age_val = 16
+
+    if not user_id:
+        return jsonify({"message": "Missing userId"}), 400
 
     new_user = {
         "userId": user_id,
@@ -52,7 +52,6 @@ def create_user():
         "history": [],
         "lastUpdated": datetime.now().strftime("%Y-%m-%d")
     }
-
     try:
         result = users_collection.update_one(
             {"userId": user_id},
@@ -69,40 +68,29 @@ def create_user():
 
 
 @user_bp.route("/api/updateUserProfile", methods=["POST"])
+@requires_auth
 def update_user_profile():
-    """
-    Update editable profile fields for a user (nickname, age, role, name).
-    Expects JSON: { userId, nickname?, age?, role?, name? }
-    """
     data = request.get_json() or {}
-    user_id = data.get("userId")
+    token_payload = getattr(g, "current_user", {}) or {}
+    user_id = token_payload.get("sub") or data.get("userId")
     if not user_id:
         return jsonify({"message": "Missing userId"}), 400
 
     update_fields = {}
-    if "nickname" in data:
-        update_fields["nickname"] = data.get("nickname", "")
-    if "age" in data:
-        update_fields["age"] = data.get("age")
-    if "role" in data:
-        update_fields["role"] = data.get("role")
-    if "name" in data:
-        update_fields["name"] = data.get("name")
+    for k in ("nickname", "age", "role", "name"):
+        if k in data:
+            update_fields[k] = data.get(k)
 
     if not update_fields:
         return jsonify({"message": "No updatable fields provided"}), 400
 
     try:
-        result = users_collection.update_one(
-            {"userId": user_id},
-            {"$set": update_fields}
-        )
+        result = users_collection.update_one({"userId": user_id}, {"$set": update_fields})
     except Exception as e:
         return jsonify({"message": "Database error", "error": str(e)}), 500
 
     if result.matched_count == 0:
         return jsonify({"message": "User not found"}), 404
-
     return jsonify({"message": "Profile updated"}), 200
 
 
@@ -126,15 +114,16 @@ def get_user_progress():
 
 # Add this new endpoint to return the user's profile data (no _id)
 @user_bp.route("/api/getUserProfile", methods=["GET"])
+@requires_auth
 def get_user_profile():
-    user_id = request.args.get("userId")
+    token_payload = getattr(g, "current_user", {}) or {}
+    user_id = token_payload.get("sub") or request.args.get("userId")
     if not user_id:
-        return jsonify({"message": "Missing userId query parameter"}), 400
+        return jsonify({"message": "Missing userId"}), 400
 
     user = users_collection.find_one({"userId": user_id}, {"_id": 0})
     if not user:
         return jsonify({"message": "User not found"}), 404
-
     return jsonify(user), 200
 
 
