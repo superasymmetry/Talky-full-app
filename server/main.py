@@ -54,17 +54,26 @@ def wordbank():
 
     # Updated prompt: include emojis for each word
     prompt = f"""
-    Your task is to generate words for speech therapy practice. Please return exactly 16 words in JSON format, each paired with an emoji that best represents the word and logiclaly makes sense to users. The format should be:
+    Your task is to generate 16 words for speech therapy practice. 
+    Return your output **only** as a JSON object in this format:
+
     {{
-      1: {{"word": "first word", "emoji": "🍎"}},
-      2: {{"word": "second word", "emoji": "🐶"}},
-      ...
-      16: {{"word": "sixteenth word", "emoji": "🚀"}}
+    1: {{"word": "first word", "emoji": "🍎"}},
+    2: {{"word": "second word", "emoji": "🐶"}},
+    ...
+    16: {{"word": "sixteenth word", "emoji": "🚀"}}
     }}
-    Follow these rules:
+
+    Follow these strict rules:
     - The words must fit the category: {category}.
-    - For phoneme-specific categories (ex: L-sounds), vary syllable count (1-3) and phoneme position (initial, medial, final).
-    - Each word must have a relevant emoji that visually represents it.
+    - For phoneme-specific categories (e.g., "L-sounds"), vary the number of syllables (1-3) and the phoneme position (initial, medial, final).
+    - Each emoji **must directly represent** the word — for example:
+    - "cat" → 🐱
+    - "apple" → 🍎
+    - "rain" → 🌧️
+    - "star" → ⭐
+    - Do not use abstract words or emojis that don't visually match.
+    - Output must be valid JSON, with no text outside the JSON.
     """
 
     client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
