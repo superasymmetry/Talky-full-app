@@ -1,8 +1,9 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, g
 from database import users_collection
 from datetime import datetime
-import os
 from groq import Groq
+from auth import requires_auth
+import os
 
 user_bp = Blueprint("user_bp", __name__)
 
@@ -24,30 +25,73 @@ def create_default_progress():
 
 
 @user_bp.route("/api/createUser", methods=["POST"])
+@requires_auth
 def create_user():
-    data = request.get_json()
-    user_id = data.get("userId")
-    name = data.get("name")
+    data = request.get_json() or {}
+    token_payload = getattr(g, "current_user", {}) or {}
+    user_id = token_payload.get("sub") or data.get("userId")
+    name = data.get("name") or token_payload.get("name") or ""
+    nickname = data.get("nickname") or ""
+    role = data.get("role") or "Student"
     age = data.get("age")
+    try:
+        age_val = int(age) if age is not None and age != "" else 16
+    except (ValueError, TypeError):
+        age_val = 16
 
-    if not user_id or not name or not age:
-        return jsonify({"message": "Missing required fields"}), 400
-
-    user = users_collection.find_one({"userId": user_id})
-    if user:
-        return jsonify({"message": "User already exists"}), 200
+    if not user_id:
+        return jsonify({"message": "Missing userId"}), 400
 
     new_user = {
         "userId": user_id,
-        "name": name,
-        "age": age,
+        "name": name or nickname or "Unnamed",
+        "nickname": nickname,
+        "role": role,
+        "age": age_val,
         "progress": create_default_progress(),
         "history": [],
         "lastUpdated": datetime.now().strftime("%Y-%m-%d")
     }
+    try:
+        result = users_collection.update_one(
+            {"userId": user_id},
+            {"$setOnInsert": new_user},
+            upsert=True
+        )
+    except Exception as e:
+        return jsonify({"message": "Database error", "error": str(e)}), 500
 
-    users_collection.insert_one(new_user)
-    return jsonify({"message": "User created successfully"}), 201
+    if getattr(result, "upserted_id", None):
+        return jsonify({"message": "User created successfully"}), 201
+    else:
+        return jsonify({"message": "User already exists"}), 200
+
+
+@user_bp.route("/api/updateUserProfile", methods=["POST"])
+@requires_auth
+def update_user_profile():
+    data = request.get_json() or {}
+    token_payload = getattr(g, "current_user", {}) or {}
+    user_id = token_payload.get("sub") or data.get("userId")
+    if not user_id:
+        return jsonify({"message": "Missing userId"}), 400
+
+    update_fields = {}
+    for k in ("nickname", "age", "role", "name"):
+        if k in data:
+            update_fields[k] = data.get(k)
+
+    if not update_fields:
+        return jsonify({"message": "No updatable fields provided"}), 400
+
+    try:
+        result = users_collection.update_one({"userId": user_id}, {"$set": update_fields})
+    except Exception as e:
+        return jsonify({"message": "Database error", "error": str(e)}), 500
+
+    if result.matched_count == 0:
+        return jsonify({"message": "User not found"}), 404
+    return jsonify({"message": "Profile updated"}), 200
 
 
 @user_bp.route("/api/getUserProgress", methods=["GET"])
@@ -66,6 +110,21 @@ def get_user_progress():
         "progress": user["progress"],
         "lastUpdated": user["lastUpdated"]
     }), 200
+
+
+# Add this new endpoint to return the user's profile data (no _id)
+@user_bp.route("/api/getUserProfile", methods=["GET"])
+@requires_auth
+def get_user_profile():
+    token_payload = getattr(g, "current_user", {}) or {}
+    user_id = token_payload.get("sub") or request.args.get("userId")
+    if not user_id:
+        return jsonify({"message": "Missing userId"}), 400
+
+    user = users_collection.find_one({"userId": user_id}, {"_id": 0})
+    if not user:
+        return jsonify({"message": "User not found"}), 404
+    return jsonify(user), 200
 
 
 def get_weak_areas(progress):
