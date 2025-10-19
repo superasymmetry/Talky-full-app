@@ -7,6 +7,7 @@ import Lesson from './Lesson/Lesson.jsx'
 import SoundBank from './SoundBank/SoundBank.jsx'
 import SoundBankCategory from './SoundBank/SoundBankCategory.jsx'
 import Profile from './Auth0/Profile.jsx'
+import Game from './Lesson/Game.jsx'
 
 import { Auth0Provider } from '@auth0/auth0-react';
 
@@ -25,6 +26,7 @@ createRoot(document.getElementById('root')).render(
           <Route path="/" element={<App/>}/>
           <Route path="/lessons/:id" element={<Lesson/>}/>
           <Route path="/soundbank" element={<SoundBank/>}/>
+          <Route path="/game" element={<Game/>}/>
           <Route path="/soundbank/:id" element={<SoundBankCategory/>}/>
           <Route path="/profile" element={<Profile/>}/>
         </Routes>

@@ -9,6 +9,7 @@ function App() {
     { id:1, name: "Lesson 1", description: "lorem ipsum 1", img: "meltingrubix.png" },
     { id:2, name: "Lesson 2", description: "lorem ipsum 2", img: "alice.png" },
     { id:3, name: "Lesson 3", description: "lorem ipsum 3", img: "bob.png" },
+    { id:4, name: "Game", description: "a fun game", img: "gamecontroller.png" },
   ]
 
   const soundBankCard = { id: "soundbank", name: "Sound Bank", description: "Browse sound categories", to: "/soundbank" }
