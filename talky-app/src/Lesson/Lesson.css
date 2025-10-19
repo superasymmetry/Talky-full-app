@@ -65,3 +65,18 @@ body {
   text-align: center;
   letter-spacing: 1.5px;
 }
+
+/* Record button using image assets */
+.record-button {
+  background: transparent;
+  border: none;
+  padding: 6px;
+  cursor: pointer;
+}
+
+.record-button img {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  display: block;
+}

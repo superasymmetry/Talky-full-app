@@ -1,11 +1,23 @@
 import React, {useState, useEffect} from 'react';
 import { useParams } from 'react-router-dom';
+import { useAudioRecorder } from "react-use-audio-recorder";
 import './Lesson.css';
 
 function Lesson() {
     const { id } = useParams();
     // get backend data
     const [cardData, setCardData] = useState(null);
+    const {
+        recordingStatus,
+        recordingTime,
+        startRecording,
+        stopRecording,
+        pauseRecording,
+        resumeRecording,
+        getBlob,
+        saveRecording,
+    } = useAudioRecorder();
+
     useEffect(() => {
         fetch("http://localhost:8080/api/lessons")
             .then(response => response.json())
@@ -33,8 +45,24 @@ function Lesson() {
 
     return (
         <div>
-            <h1 className='lesson-title'>Welcome to Talky's lesson {id}!</h1>
-            <img className='talking-man' src="../assets/talking-man.gif" alt="Talking man" />
+            <div>
+                <img className='talking-man' src="../assets/talking-man.gif" alt="Talking man" />
+            </div>
+            <div>
+                {recordingStatus === 'recording' ? (
+                    <button
+                        className='record-button'
+                        onClick={() => stopRecording((blob) => { saveRecording(); })}
+                        aria-label="Stop recording"
+                    >
+                        <img src="../assets/stop-record-button.webp" alt="Stop" />
+                    </button>
+                ) : (
+                    <button className='record-button' onClick={startRecording} aria-label="Start recording">
+                        <img src="../assets/start-record-button.png" alt="Start" />
+                    </button>
+                )}
+            </div>
         </div>
     )
 }
