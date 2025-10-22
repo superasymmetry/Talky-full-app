@@ -25,16 +25,21 @@ function SoundBank({
     window.speechSynthesis.cancel();
 
     const utterance = new SpeechSynthesisUtterance(word);
+    // kid-friendly defaults
     utterance.lang = "en-US";
-    utterance.rate = 1;
-    utterance.pitch = 1;
+    utterance.rate = 0.95;
+    utterance.pitch = 1.2;
 
-    const voices = window.speechSynthesis.getVoices();
-    const femaleVoice =
-      voices.find((v) => v.lang === "en-US" && /female/i.test(v.name)) ||
-      voices.find((v) => v.lang === "en-US") ||
+    // prefer saved voice name, then common female candidates, then first available
+    const savedVoiceName = localStorage.getItem('ttsVoice'); // name string or null
+    const voices = window.speechSynthesis.getVoices() || [];
+    let chosen =
+      (savedVoiceName && voices.find((v) => v.name === savedVoiceName)) ||
+      voices.find((v) => (v.lang || '').startsWith('en') && /female|woman|girl/i.test(v.name)) ||
+      voices.find((v) => (v.lang || '').startsWith('en')) ||
       voices[0];
-    utterance.voice = femaleVoice;
+
+    if (chosen) utterance.voice = chosen;
 
     utterance.onend = () => {
       setSelectedIndex(null);
