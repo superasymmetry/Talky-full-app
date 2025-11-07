@@ -3,14 +3,18 @@ from flask_cors import CORS
 from groq import Groq
 import os
 from dotenv import load_dotenv
-from database import users_collection
+import database
 from user_routes import user_bp
 from score_routes import score_bp
+from gop_eval import compute_pronunciation_score
 
 load_dotenv()
 
 app = Flask(__name__)
 cors = CORS(app, origin="*")
+
+# placeholder for collection; will be initialised in child process
+users_collection = None
 
 # Register routes
 app.register_blueprint(user_bp)
@@ -41,6 +45,7 @@ def lessons():
     )
 
     sentences = jsonify(chat_completion.choices[0].message.content)
+    print(sentences)
     return sentences
 
 @app.route('/api/wordbank', methods=['GET', 'POST'])
@@ -88,14 +93,45 @@ def wordbank():
 
 @app.route("/")
 def home():
+    # ensure collection is initialized
+    global users_collection
+    if users_collection is None:
+        users_collection = database.get_users_collection()
     users = list(users_collection.find({}, {"_id": 0}))
     return jsonify(users)
 
 @app.route("/add_user", methods=["POST"])
 def add_user():
     data = request.get_json()
+    global users_collection
+    if users_collection is None:
+        users_collection = database.get_users_collection()
     users_collection.insert_one(data)
     return jsonify({"message": "User added successfully!"})
 
+@app.route('/api/evaluate', methods=['POST'])
+def evaluate():
+    audio = request.files.get('audio')
+
+    if not audio:
+        return jsonify({"error": "No audio file provided"}), 400
+
+    # Define the path to save the audio file
+    audio_path = "audio.wav"
+    try:
+        # Call the compute_pronunciation_score function
+        transcription, score = compute_pronunciation_score(audio_path, "hello")
+        return jsonify({"score": score, "transcription": transcription})
+    except Exception as e:
+        # Log the error for debugging
+        print(f"Error during evaluation: {e}")
+        return jsonify({"error": str(e)}), 500
+    
+
 if __name__ == '__main__':
+    # In debug mode Flask spawns a reloader process; only initialise DB in the child.
+    # The reloader sets WERKZEUG_RUN_MAIN='true' in the child process.
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not os.environ.get("WERKZEUG_RUN_MAIN"):
+        # do not force connection here; let before_first_request or route trigger lazy init
+        pass
     app.run(port=8080, debug=True)

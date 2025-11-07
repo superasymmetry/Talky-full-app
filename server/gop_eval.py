@@ -38,6 +38,7 @@ def compute_pronunciation_score(audio_path, expected_text):
 if __name__ == "__main__":
     sentence = input("Input sentence:").strip()
     filename = pyaudio_recording.record_audio(record_seconds=5)
+    print("saved to", filename)
     transcription, gop_score = compute_pronunciation_score(filename, sentence)
 
     print(f"Recorded: {sentence}")
