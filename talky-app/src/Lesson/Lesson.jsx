@@ -89,27 +89,53 @@ function Lesson() {
     };
 
     return (
-        <div>
-            <div>
-                <img className="talking-man" src="../assets/talking-man.gif" alt="Talking man" />
+        <div className="lesson-container">
+            <div className="lesson-header">
+                <h1>Lesson {id}</h1>
+                <p>Listen and repeat the sentence</p>
             </div>
-            <div>
-                {!isRecording ? (
-                    <button className="record-button" onClick={startRecording} aria-label="Start recording">
-                        <img src="../assets/start-record-button.png" alt="Start" />
-                    </button>
-                ) : (
-                    <button className="record-button" onClick={stopRecording} aria-label="Stop recording">
-                        <img src="../assets/stop-record-button.webp" alt="Stop" />
-                    </button>
-                )}
-            </div>
-            {audioURL && (
-                <div>
-                    <audio controls src={audioURL}></audio>
-                    <button onClick={uploadRecording}>Upload Recording</button>
+
+            <div className="lesson-content">
+                <div className="avatar-section">
+                    <img className='talking-man' src="../assets/talking-man.gif" alt="Talking man" />
                 </div>
-            )}
+
+                <div className="recording-section">
+                    <div className="recording-controls">
+                        {!isRecording ? (
+                            <button
+                                className='record-button start'
+                                onClick={startRecording}
+                                aria-label="Start recording"
+                            >
+                                <img src="../assets/start-record-button.png" alt="Start" />
+                                <span>Start Recording</span>
+                            </button>
+                        ) : (
+                            <button
+                                className='record-button stop'
+                                onClick={stopRecording}
+                                aria-label="Stop recording"
+                            >
+                                <img src="../assets/stop-record-button.webp" alt="Stop" />
+                                <span>Stop Recording</span>
+                            </button>
+                        )}
+                    </div>
+
+                    {audioURL && (
+                        <div className="playback-section">
+                            <audio controls src={audioURL}></audio>
+                            <button
+                                className="upload-button"
+                                onClick={uploadRecording}
+                            >
+                                Submit Recording
+                            </button>
+                        </div>
+                    )}
+                </div>
+            </div>
         </div>
     );
 }
