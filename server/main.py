@@ -7,6 +7,12 @@ from dotenv import load_dotenv
 from user_routes import user_bp
 from score_routes import score_bp
 from gop_eval import compute_pronunciation_score
+import threading
+import torch
+import difflib
+import torchaudio
+import soundfile as sf
+from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 
 load_dotenv()
 
@@ -16,6 +22,46 @@ cors = CORS(app, origin="*")
 # Register routes
 app.register_blueprint(user_bp)
 app.register_blueprint(score_bp)
+
+_processor = None
+_model = None
+_load_lock = threading.Lock()
+
+def _load_model_once():
+    global _processor, _model
+    if _processor is None or _model is None:
+        with _load_lock:
+            if _processor is None or _model is None:
+                _processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
+                _model = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base-960h").eval()
+    return _processor, _model
+
+def compute_pronunciation_score(audio_path, expected_text):
+    processor, model = _load_model_once()
+
+    waveform, rate = sf.read(audio_path)
+    waveform = torch.tensor(waveform, dtype=torch.float32).unsqueeze(0)
+    if rate != 16000:
+        waveform = torchaudio.functional.resample(waveform, rate, 16000)
+
+    input_values = processor(waveform.squeeze(), sampling_rate=16000, return_tensors="pt").input_values
+    with torch.no_grad():
+        logits = model(input_values).logits
+
+    probs = torch.nn.functional.softmax(logits, dim=-1)
+    conf_score = float(torch.mean(torch.max(probs, dim=-1).values).item())
+
+    predicted_ids = torch.argmax(logits, dim=-1)
+    transcription = processor.batch_decode(predicted_ids)[0].lower()
+
+    expected_text = expected_text.lower().strip()
+    transcription = transcription.lower().strip()
+    seq = difflib.SequenceMatcher(None, expected_text, transcription)
+    similarity = seq.ratio()
+
+    gop_score = (similarity * 0.6 + conf_score * 0.4) * 100
+    return transcription, gop_score
+
 
 @app.route('/api/lessons', methods=['GET', 'POST'])
 def lessons():
@@ -44,6 +90,17 @@ def lessons():
     sentences = jsonify(chat_completion.choices[0].message.content)
     print(sentences)
     return sentences
+
+@app.route('/api/record', methods=['POST', 'GET'])
+def backend_record():
+    if request.method == 'POST':
+        import pyaudio_recording
+        sentence = request.get_json().get("data", "")
+        print(sentence)
+        filename = pyaudio_recording.record_audio(record_seconds=5)
+        score = compute_pronunciation_score(filename, sentence)
+        print(score)
+        return jsonify({"filename": filename, "score": score}), 200
 
 @app.route('/api/wordbank', methods=['GET', 'POST'])
 def wordbank():
@@ -98,25 +155,6 @@ def add_user():
     data = request.get_json()
     users_collection.insert_one(data)
     return jsonify({"message": "User added successfully!"})
-
-@app.route('/api/evaluate', methods=['POST'])
-def evaluate():
-    audio = request.files.get('audio')
-
-    if not audio:
-        return jsonify({"error": "No audio file provided"}), 400
-
-    # Define the path to save the audio file
-    audio_path = "audio.wav"
-    try:
-        # Call the compute_pronunciation_score function
-        transcription, score = compute_pronunciation_score(audio_path, "hello")
-        return jsonify({"score": score, "transcription": transcription})
-    except Exception as e:
-        # Log the error for debugging
-        print(f"Error during evaluation: {e}")
-        return jsonify({"error": str(e)}), 500
-    
 
 if __name__ == '__main__':
     app.run(port=8080, debug=True, use_reloader=False)
