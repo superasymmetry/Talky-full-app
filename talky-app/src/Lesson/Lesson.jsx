@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import "./Lesson.css";
+import TestCube from "../TestCube";
 
 function Lesson() {
     const { id } = useParams();
@@ -42,7 +43,7 @@ function Lesson() {
         };
 
         mediaRecorder.onstop = () => {
-            const blob = new Blob(chunks, { type: "audio/wav" });
+            const blob = new Blob(chunks, { type: "audio/webm" });
             setAudioBlob(blob);
             const url = URL.createObjectURL(blob);
             setAudioURL(url);
@@ -53,7 +54,6 @@ function Lesson() {
         mediaRecorderRef.current = mediaRecorder;
     };
 
-    // Stop recording
     const stopRecording = () => {
         if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
             mediaRecorderRef.current.stop();
@@ -62,7 +62,6 @@ function Lesson() {
         }
     };
 
-    // Upload the audio to the backend
     const uploadRecording = async () => {
         if (audioBlob) {
             const formData = new FormData();
@@ -81,7 +80,6 @@ function Lesson() {
 
                 const result = await response.json();
                 console.log("Evaluation result:", result);
-                // Handle the result (e.g., display the score)
             } catch (error) {
                 console.error("Error uploading recording:", error);
             }
@@ -96,9 +94,10 @@ function Lesson() {
             </div>
 
             <div className="lesson-content">
-                <div className="avatar-section">
+                {/* <div className="avatar-section">
                     <img className='talking-man' src="../assets/talking-man.gif" alt="Talking man" />
-                </div>
+                </div> */}
+                <TestCube />
 
                 <div className="recording-section">
                     <div className="recording-controls">
