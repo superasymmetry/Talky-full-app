@@ -3,13 +3,15 @@ import Header from './Header/Header.jsx'
 import Footer from './Footer.jsx'
 import Card from './Card.jsx'
 import './App.css'
+import TestPerson from './TestCube.jsx'
+import TestCube from './TestCube.jsx'
 
 function App() {
   const lessons = [
-    { id:1, name: "Lesson 1", description: "lorem ipsum 1", img: "meltingrubix.png" },
-    { id:2, name: "Lesson 2", description: "lorem ipsum 2", img: "alice.png" },
-    { id:3, name: "Lesson 3", description: "lorem ipsum 3", img: "bob.png" },
-    { id:4, name: "Game", description: "a fun game", img: "gamecontroller.png" },
+    { id: 1, name: "Lesson 1", description: "lorem ipsum 1", img: "meltingrubix.png" },
+    { id: 2, name: "Lesson 2", description: "lorem ipsum 2", img: "alice.png" },
+    { id: 3, name: "Lesson 3", description: "lorem ipsum 3", img: "bob.png" },
+    { id: 4, name: "Game", description: "a fun game", img: "gamecontroller.png" },
   ]
 
   const soundBankCard = { id: "soundbank", name: "Sound Bank", description: "Browse sound categories", to: "/soundbank" }
@@ -18,8 +20,7 @@ function App() {
 
   return (
     <>
-      <Header/>
-
+      <Header />
       <div className="max-w-6xl mx-auto px-4">
         {/*}
         <div className="my-6 flex items-center gap-3">
@@ -35,7 +36,7 @@ function App() {
           <div className="grid grid-cols-3 gap-6 items-stretch">
             {lessons.map((card) => (
               <div className="w-full" key={card.id}>
-                <Card {...card} showRocket={true}/>
+                <Card {...card} showRocket={true} />
               </div>
             ))}
           </div>
@@ -51,7 +52,7 @@ function App() {
         </section>
       </div>
       <br></br><br></br>
-      <Footer/>
+      <Footer />
     </>
   );
 }
