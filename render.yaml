@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: talky-backend
+    env: python
+    buildCommand: "cd server && pip install -r requirements.txt"
+    startCommand: "cd server && python main.py"
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false

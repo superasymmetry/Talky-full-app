@@ -96,7 +96,6 @@ def backend_record():
     if request.method == 'POST':
         import pyaudio_recording
         sentence = request.get_json()['card']
-        print(sentence)
         filename = pyaudio_recording.record_audio(record_seconds=5)
         score = compute_pronunciation_score(filename, sentence)
         return jsonify({"filename": filename, "score": score, "passed": score[1] > 70}), 200

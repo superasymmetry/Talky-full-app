@@ -6,7 +6,8 @@ import VoiceSettings from '../SoundBank/VoiceSettings';
 
 const Profile = () => {
   const { user, isAuthenticated, isLoading, getAccessTokenSilently } = useAuth0();
-  
+  const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8080';
+
   // helper to add Authorization header
   async function authFetch(url, options = {}) {
     const token = await getAccessTokenSilently();
@@ -42,12 +43,12 @@ const Profile = () => {
 
       try {
         // create/upsert
-        await authFetch('http://localhost:8080/api/createUser', {
+        await authFetch(`${API_BASE}/api/createUser`, {
           method: 'POST',
           body: JSON.stringify({ userId, name: user.name || user.nickname || user.email || 'Unnamed' })
         });
 
-        const profileRes = await authFetch(`http://localhost:8080/api/getUserProfile?userId=${encodeURIComponent(userId)}`);
+        const profileRes = await authFetch(`${API_BASE}/api/getUserProfile?userId=${encodeURIComponent(userId)}`);
         if (profileRes.ok) {
           const profile = await profileRes.json();
           setNickname(profile.nickname ?? profile.name ?? '');
@@ -89,7 +90,7 @@ const Profile = () => {
 
     try {
       setSaving(true);
-      const res = await authFetch('http://localhost:8080/api/updateUserProfile', {
+      const res = await authFetch(`${API_BASE}/api/updateUserProfile`, {
         method: 'POST',
         body: JSON.stringify(payload)
       });
@@ -97,7 +98,7 @@ const Profile = () => {
       console.log('updateUserProfile', res.status, json);
       // re-fetch authoritative profile so UI always matches DB
       const userId = user.sub || user.email;
-      const profileRes = await authFetch(`http://localhost:8080/api/getUserProfile?userId=${encodeURIComponent(userId)}`);
+      const profileRes = await authFetch(`${API_BASE}/api/getUserProfile?userId=${encodeURIComponent(userId)}`);
       if (profileRes.ok) {
         const profile = await profileRes.json();
         setNickname(profile.nickname ?? profile.name ?? '');
