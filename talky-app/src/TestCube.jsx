@@ -1,4 +1,3 @@
-import * as THREE from 'three'
 import { Suspense, useRef, useState, useEffect } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls, useGLTF, useAnimations, Sky, Environment, ContactShadows } from '@react-three/drei'
@@ -38,7 +37,8 @@ function Model(props) {
       firstAction.play()
     }
     scene.traverse((obj) => obj.isMesh && (obj.receiveShadow = obj.castShadow = true))
-  }, [actions, scene, animations])
+    if (props.onActionsReady) props.onActionsReady(actions)
+  }, [actions, scene, animations, props])
 
   return <primitive object={scene} {...props} />
 }
@@ -49,7 +49,12 @@ export default function TestCube() {
   const [isRecordingBackend, setIsRecordingBackend] = useState(false)
   const [backendFilename, setBackendFilename] = useState(null)
   const [cardData, setCardData] = useState(null);
+  const [actions, setActions] = useState(null);
+  const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
+  const [isFinished, setIsFinished] = useState(false);
 
+
+  // Fetch lesson data
   useEffect(() => {
     fetch("http://localhost:8080/api/lessons")
       .then((response) => response.json())
@@ -60,6 +65,16 @@ export default function TestCube() {
       .catch((error) => console.error("Error fetching data:", error));
   }, []);
 
+  // Speak the first sentence
+  useEffect(() => {
+    if (cardData) {
+      console.log(cardData);
+      const currentSentence = cardData[currentSentenceIndex.toString()];
+      const utterance = new SpeechSynthesisUtterance(currentSentence);
+      window.speechSynthesis.speak(utterance);
+    }
+  }, [cardData, currentSentenceIndex]);
+
   const startBackendRecording = async (seconds = 5) => {
     setIsRecordingBackend(true)
     setBackendFilename(null)
@@ -67,12 +82,17 @@ export default function TestCube() {
       const res = await fetch('http://localhost:8080/api/record', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ card: cardData }),
+        body: JSON.stringify({ card: cardData[currentSentenceIndex.toString()] }),
       })
       const data = await res.json()
+      console.log('Backend record response:', data)
       if (!res.ok) throw new Error(data.error || 'Record failed')
       setBackendFilename(data.filename)
-      console.log('Recorded on server:', data.filename)
+      if (data.passed) {
+        actions && actions.ThumbsUp.play()
+      } else {
+        actions && actions.No.play()
+      }
     } catch (err) {
       console.error('Backend record error:', err)
       alert('Record failed: ' + err.message)
@@ -80,6 +100,60 @@ export default function TestCube() {
       setIsRecordingBackend(false)
     }
   }
+
+  const goToNextSentence = () => {
+    if (cardData && cardData[(currentSentenceIndex + 1).toString()]) {
+      setCurrentSentenceIndex(prev => prev + 1);
+      if (actions) {
+        Object.values(actions).forEach(action => action.stop());
+        actions.Idle && actions.Idle.play();
+      }
+    } else {
+      console.log('No more sentences');
+      setIsFinished(true);
+      if (actions) {
+        Object.values(actions).forEach(action => action.stop());
+        actions.Dance && actions.Dance.play();
+      }
+    }
+  }
+
+  if (isFinished) {
+    return (
+      <div style={{ 
+        position: 'fixed', 
+        inset: 0, 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        color: 'white',
+        textAlign: 'center'
+      }}>
+        <div>
+          <h1 style={{ fontSize: '3rem', marginBottom: '1rem' }}>🎉 Lesson Complete!</h1>
+          <p style={{ fontSize: '1.2rem', marginBottom: '2rem' }}>Great job practicing your pronunciation!</p>
+          <button 
+            onClick={() => window.location.href = '/'} 
+            style={{
+              padding: '12px 24px',
+              borderRadius: 25,
+              border: 'none',
+              background: 'linear-gradient(90deg, #6dd3ff 0%, #6b73ff 100%)',
+              color: 'white',
+              fontSize: '1.1rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              boxShadow: '0 8px 20px rgba(0,0,0,0.2)'
+            }}
+          >
+            Back to Home
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ position: 'fixed', inset: 0, margin: 0, padding: 0, overflow: 'hidden' }}>
       <Canvas
@@ -105,7 +179,7 @@ export default function TestCube() {
           {/* soft contact shadow under model */}
           <ContactShadows position={[0, -1, 0]} opacity={0.6} width={4} height={4} blur={2} far={2} />
 
-          <Model position={[0, -1, 0]} scale={0.5} rotation={[0, 0, 0]} />
+          <Model position={[0, -1, 0]} scale={0.5} rotation={[0, 0, 0]} onActionsReady={setActions} />
 
           <OrbitControls enablePan={true} enableZoom={true} maxPolarAngle={Math.PI / 2.1} />
         </Suspense>
@@ -125,7 +199,7 @@ export default function TestCube() {
           aria-label="Next lesson"
           onMouseEnter={() => setNextHover(true)}
           onMouseLeave={() => setNextHover(false)}
-          onClick={() => console.log('Next pressed')}
+          onClick={goToNextSentence}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -142,8 +216,6 @@ export default function TestCube() {
             transform: nextHover ? 'translateY(-2px)' : 'translateY(0)',
             transition: 'all 180ms ease',
             backdropFilter: 'blur(6px)',
-            display: 'flex',
-            alignItems: 'center',
           }}
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -176,6 +248,25 @@ export default function TestCube() {
             Saved: {backendFilename}
           </div>
         )}
+      </div>
+
+      {/* Current sentence display */}
+      <div style={{
+        position: 'absolute',
+        top: 24,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        zIndex: 30,
+        background: 'rgba(0,0,0,0.7)',
+        color: 'white',
+        padding: '12px 20px',
+        borderRadius: 12,
+        backdropFilter: 'blur(6px)'
+      }}>
+        <div>Sentence {currentSentenceIndex}:</div>
+        <div style={{ fontWeight: 'bold', marginTop: 4 }}>
+          {cardData ? cardData[currentSentenceIndex.toString()] || 'End of lesson' : 'Loading...'}
+        </div>
       </div>
     </div>
   )
