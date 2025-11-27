@@ -95,12 +95,11 @@ def lessons():
 def backend_record():
     if request.method == 'POST':
         import pyaudio_recording
-        sentence = request.get_json().get("data", "")
+        sentence = request.get_json()['card']
         print(sentence)
         filename = pyaudio_recording.record_audio(record_seconds=5)
         score = compute_pronunciation_score(filename, sentence)
-        print(score)
-        return jsonify({"filename": filename, "score": score}), 200
+        return jsonify({"filename": filename, "score": score, "passed": score[1] > 70}), 200
 
 @app.route('/api/wordbank', methods=['GET', 'POST'])
 def wordbank():

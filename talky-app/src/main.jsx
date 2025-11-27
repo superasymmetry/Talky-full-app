@@ -10,6 +10,7 @@ import Profile from './Auth0/Profile.jsx'
 import Game from './Lesson/Game.jsx'
 
 import { Auth0Provider } from '@auth0/auth0-react'
+import TestCube from './TestCube.jsx'
 
 const domain = import.meta.env.VITE_AUTH0_DOMAIN;
 const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID;
@@ -25,7 +26,7 @@ createRoot(document.getElementById('root')).render(
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<App/>}/>
-          <Route path="/lessons/:id" element={<Lesson/>}/>
+          <Route path="/lessons/:id" element={<TestCube/>}/>
           <Route path="/soundbank" element={<SoundBank/>}/>
           <Route path="/game" element={<Game/>}/>
           <Route path="/soundbank/:id" element={<SoundBankCategory/>}/>
