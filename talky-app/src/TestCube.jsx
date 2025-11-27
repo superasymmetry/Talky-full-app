@@ -52,11 +52,11 @@ export default function TestCube() {
   const [actions, setActions] = useState(null);
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
   const [isFinished, setIsFinished] = useState(false);
-
+  const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8080'
 
   // Fetch lesson data
   useEffect(() => {
-    fetch("http://localhost:8080/api/lessons")
+    fetch(`${API_BASE}/api/lessons`)
       .then((response) => response.json())
       .then((data) => {
         const parsedData = JSON.parse(data);
@@ -79,7 +79,7 @@ export default function TestCube() {
     setIsRecordingBackend(true)
     setBackendFilename(null)
     try {
-      const res = await fetch('http://localhost:8080/api/record', {
+      const res = await fetch(`${API_BASE}/api/record`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ card: cardData[currentSentenceIndex.toString()] }),
@@ -120,11 +120,11 @@ export default function TestCube() {
 
   if (isFinished) {
     return (
-      <div style={{ 
-        position: 'fixed', 
-        inset: 0, 
-        display: 'flex', 
-        alignItems: 'center', 
+      <div style={{
+        position: 'fixed',
+        inset: 0,
+        display: 'flex',
+        alignItems: 'center',
         justifyContent: 'center',
         background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
         color: 'white',
@@ -133,8 +133,8 @@ export default function TestCube() {
         <div>
           <h1 style={{ fontSize: '3rem', marginBottom: '1rem' }}>🎉 Lesson Complete!</h1>
           <p style={{ fontSize: '1.2rem', marginBottom: '2rem' }}>Great job practicing your pronunciation!</p>
-          <button 
-            onClick={() => window.location.href = '/'} 
+          <button
+            onClick={() => window.location.href = '/'}
             style={{
               padding: '12px 24px',
               borderRadius: 25,

@@ -114,11 +114,12 @@ export default function SoundBankCategory() {
   const [selectedIndex, setSelectedIndex] = useState(null);
   const [isRandomizing, setIsRandomizing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8080';
 
   const refreshWords = async (signal) => {
     setIsLoading(true);
     try {
-      const res = await fetch(`http://localhost:8080/api/wordbank?category=${id}`, { signal });
+      const res = await fetch(`${API_BASE}/api/wordbank?category=${id}`, { signal });
       if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
       const data = await res.json();
       const parsedData = typeof data === 'string' ? JSON.parse(data) : data;

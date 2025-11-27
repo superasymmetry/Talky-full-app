@@ -10,10 +10,11 @@ function Lesson() {
     const [audioBlob, setAudioBlob] = useState(null);
     const [audioURL, setAudioURL] = useState("");
     const mediaRecorderRef = useRef(null);
+    const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8080';
 
     // Fetch lesson data
     useEffect(() => {
-        fetch("http://localhost:8080/api/lessons")
+        fetch(`${API_BASE}/api/lessons`)
             .then((response) => response.json())
             .then((data) => {
                 const parsedData = JSON.parse(data);
@@ -69,7 +70,7 @@ function Lesson() {
             formData.append("audio", audioBlob, `lesson_${id}.webm`);
 
             try {
-                const response = await fetch("http://localhost:8080/api/evaluate", {
+                const response = await fetch(`${API_BASE}/api/evaluate`, {
                     method: "POST",
                     body: formData,
                 });
