@@ -10,7 +10,7 @@ RUN apt-get update && \
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir torch==2.9.0 torchaudio==2.9.0 -f --index-url https://download.pytorch.org/whl/cpu
+RUN pip3 install torch==1.9.0+cpu torchaudio==0.9.0 -f https://download.pytorch.org/whl/torch_stable.html
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
