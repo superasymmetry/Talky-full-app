@@ -50,7 +50,7 @@ export default function TestCube() {
   const [backendFilename, setBackendFilename] = useState(null)
   const [cardData, setCardData] = useState(null);
   const [actions, setActions] = useState(null);
-  const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
+  const [currentSentenceIndex, setCurrentSentenceIndex] = useState(1);
   const [isFinished, setIsFinished] = useState(false);
   const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8080'
 
@@ -61,6 +61,7 @@ export default function TestCube() {
       .then((data) => {
         const parsedData = JSON.parse(data);
         setCardData(parsedData);
+        console.log('Fetched lesson data:', parsedData);
       })
       .catch((error) => console.error("Error fetching data:", error));
   }, []);
@@ -68,10 +69,15 @@ export default function TestCube() {
   // Speak the first sentence
   useEffect(() => {
     if (cardData) {
-      console.log(cardData);
-      const currentSentence = cardData[currentSentenceIndex.toString()];
-      const utterance = new SpeechSynthesisUtterance(currentSentence);
-      window.speechSynthesis.speak(utterance);
+      try{
+        const currentSentence = cardData[currentSentenceIndex];
+        const utterance = new SpeechSynthesisUtterance(currentSentence);
+        window.speechSynthesis.speak(utterance);
+      } catch(e){
+        const currentSentence = cardData[currentSentenceIndex.toString()];
+        const utterance = new SpeechSynthesisUtterance(currentSentence);
+        window.speechSynthesis.speak(utterance);
+      }
     }
   }, [cardData, currentSentenceIndex]);
 

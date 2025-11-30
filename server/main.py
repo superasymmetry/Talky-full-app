@@ -4,8 +4,8 @@ from groq import Groq
 import os
 from dotenv import load_dotenv
 # import database
-from user_routes import user_bp
-from score_routes import score_bp
+# from user_routes import user_bp
+# from score_routes import score_bp
 from gop_eval import compute_pronunciation_score
 import threading
 import torch
@@ -20,8 +20,8 @@ app = Flask(__name__)
 cors = CORS(app, origin="*")
 
 # Register routes
-app.register_blueprint(user_bp)
-app.register_blueprint(score_bp)
+# app.register_blueprint(user_bp)
+# app.register_blueprint(score_bp)
 
 _processor = None
 _model = None
