@@ -52,7 +52,7 @@ export default function TestCube() {
   const [actions, setActions] = useState(null);
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(1);
   const [isFinished, setIsFinished] = useState(false);
-  const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8080'
+  const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
 
   // Fetch lesson data
   useEffect(() => {
