@@ -18,7 +18,8 @@
     "react-dom": "18.2.0",
     "react-router-dom": "^6.30.1",
     "react-use-audio-recorder": "^0.4.2",
-    "three": "^0.165.0"
+    "three": "^0.165.0",
+    "vanilla-tilt": "^1.8.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.33.0",
