@@ -1,4 +1,4 @@
-# Talky Full App
+# Talky
 
 A full-stack gamified speech therapy application with:
 - React frontend (Vite, Three.js, Auth0, audio recording)
