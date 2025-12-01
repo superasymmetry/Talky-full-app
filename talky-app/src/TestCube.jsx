@@ -53,7 +53,7 @@ export default function TestCube() {
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(1);
   const [isFinished, setIsFinished] = useState(false);
   const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
-
+  console.log('API_BASE:', API_BASE);
   // Fetch lesson data
   useEffect(() => {
     fetch(`${API_BASE}/api/lessons`)
