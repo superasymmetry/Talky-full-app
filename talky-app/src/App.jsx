@@ -3,8 +3,7 @@ import Header from './Header/Header.jsx'
 import Footer from './Footer.jsx'
 import Card from './Card.jsx'
 import './App.css'
-import TestPerson from './TestCube.jsx'
-import TestCube from './TestCube.jsx'
+
 
 function App() {
   const lessons = [
