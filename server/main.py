@@ -25,19 +25,21 @@ cors = CORS(app, origin="*")
 
 _processor = None
 _model = None
+_feedback_model = None
 _load_lock = threading.Lock()
 
 def _load_model_once():
-    global _processor, _model
+    global _processor, _model, _feedback_model
     if _processor is None or _model is None:
         with _load_lock:
             if _processor is None or _model is None:
                 _processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
                 _model = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base-960h").eval()
-    return _processor, _model
+                _feedback_model = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+    return _processor, _model, _feedback_model
 
 def compute_pronunciation_score(audio_path, expected_text):
-    processor, model = _load_model_once()
+    processor, model, feedback_model = _load_model_once()
 
     waveform, rate = sf.read(audio_path)
     waveform = torch.tensor(waveform, dtype=torch.float32).unsqueeze(0)
@@ -60,7 +62,16 @@ def compute_pronunciation_score(audio_path, expected_text):
     similarity = seq.ratio()
 
     gop_score = (similarity * 0.6 + conf_score * 0.4) * 100
-    return transcription, gop_score
+    if gop_score > 80:
+        feedback = "Great job!"
+    else:
+        _feedback_prompt = f"This is the transcription of a spoken sentence that I spoke: '{transcription}'. The expected sentence was: '{expected_text}'. Based on common speech impediments (r, w, l, th, f, s, v, b, ch, sh sounds), please deduce which sounds were mispronounced, as well as the words that were mispronounced, and provide me constructive feedback on how to improve the pronunciation. Output one sentence of feedback and ONLY the one sentence."
+        feedback = _feedback_model.chat.completions.create(
+            messages=[{"role": "user", "content": _feedback_prompt}],
+            model="llama-3.1-8b-instant",
+        ).choices[0].message.content.strip()
+        feedback += "Hmm, try again. "
+    return (transcription, feedback, gop_score)
 
 
 @app.route('/api/lessons', methods=['GET', 'POST'])
@@ -97,8 +108,8 @@ def backend_record():
         import pyaudio_recording
         sentence = request.get_json()['card']
         filename = pyaudio_recording.record_audio(record_seconds=5)
-        score = compute_pronunciation_score(filename, sentence)
-        return jsonify({"filename": filename, "score": score, "passed": score[1] > 70}), 200
+        transcription, feedback, score = compute_pronunciation_score(filename, sentence)
+        return jsonify({"filename": filename, "score": score, "feedback": feedback, "passed": score > 90}), 200
 
 @app.route('/api/wordbank', methods=['GET', 'POST'])
 def wordbank():
