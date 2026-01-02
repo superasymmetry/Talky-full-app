@@ -32,8 +32,10 @@ export default function Lesson() {
   const [actions, setActions] = useState(null);
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(1);
   const [isFinished, setIsFinished] = useState(false);
+  const [doneSentence, setDoneSentence] = useState(false);
+  const [feedbackText, setFeedbackText] = useState('');
+
   const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
-  console.log('API_BASE:', API_BASE);
   // Fetch lesson data
   useEffect(() => {
     fetch(`${API_BASE}/api/lessons`)
@@ -51,10 +53,15 @@ export default function Lesson() {
     if (cardData) {
       try{
         const currentSentence = cardData[currentSentenceIndex];
+        console.log("cardData", cardData);
+        const utterance1 = new SpeechSynthesisUtterance("Please speak after me.");
+        window.speechSynthesis.speak(utterance1);
         const utterance = new SpeechSynthesisUtterance(currentSentence);
         window.speechSynthesis.speak(utterance);
       } catch(e){
         const currentSentence = cardData[currentSentenceIndex.toString()];
+        const utterance1 = new SpeechSynthesisUtterance("Please speak after me.");
+        window.speechSynthesis.speak(utterance1);
         const utterance = new SpeechSynthesisUtterance(currentSentence);
         window.speechSynthesis.speak(utterance);
       }
@@ -75,9 +82,21 @@ export default function Lesson() {
       if (!res.ok) throw new Error(data.error || 'Record failed')
       setBackendFilename(data.filename)
       if (data.passed) {
-        actions && actions.ThumbsUp.play()
+        actions && actions.ThumbsUp.play();
+        const utter = new SpeechSynthesisUtterance("Great job!");
+        window.speechSynthesis.speak(utter);
+        setDoneSentence(true);
       } else {
-        actions && actions.No.play()
+        console.log("no")
+        actions && actions.No.play();
+        // give feedback (text to speech)
+        console.log('Feedback data:', data)
+        const feedbackMsg = Array.isArray(data.feedback)
+          ? data.feedback.map(f => (typeof f === 'string' ? f : `${f.word || ''} ${f.issue || ''}`.trim())).join(' ')
+          : String(data.feedback || 'No, try again.')
+        setFeedbackText(feedbackMsg)
+        const utter = new SpeechSynthesisUtterance(feedbackMsg)
+        window.speechSynthesis.speak(utter)
       }
     } catch (err) {
       console.error('Backend record error:', err)
@@ -88,6 +107,7 @@ export default function Lesson() {
   }
 
   const goToNextSentence = () => {
+    setDoneSentence(false);
     if (cardData && cardData[(currentSentenceIndex + 1).toString()]) {
       setCurrentSentenceIndex(prev => prev + 1);
       if (actions) {
@@ -180,35 +200,86 @@ export default function Lesson() {
           pointerEvents: 'auto',
         }}
       >
-        {/* next button */}
-        <button
-          aria-label="Next lesson"
-          onMouseEnter={() => setNextHover(true)}
-          onMouseLeave={() => setNextHover(false)}
-          onClick={goToNextSentence}
-          style={{
+
+      {/* feedback modal */}
+      {feedbackText && (
+          <div style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 100,
             display: 'flex',
             alignItems: 'center',
-            gap: 10,
-            padding: '12px 18px',
-            borderRadius: 999,
-            cursor: 'pointer',
-            background: nextHover
-              ? 'linear-gradient(90deg, #ff8a00 0%, #e52e71 100%)'
-              : 'linear-gradient(90deg, #6dd3ff 0%, #6b73ff 100%)',
-            color: '#fff',
-            fontWeight: 700,
-            boxShadow: nextHover ? '0 10px 30px rgba(229,46,113,0.35)' : '0 8px 24px rgba(107,115,255,0.18)',
-            transform: nextHover ? 'translateY(-2px)' : 'translateY(0)',
-            transition: 'all 180ms ease',
-            backdropFilter: 'blur(6px)',
-          }}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <path d="M5 12h14" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M12 5l7 7-7 7" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
+            justifyContent: 'center',
+            background: 'rgba(0,0,0,0.5)',
+            backdropFilter: 'blur(4px)'
+          }}>
+            <div style={{
+              width: '50%',
+              maxWidth: 600,
+              background: 'white',
+              borderRadius: 16,
+              padding: 24,
+              boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+              position: 'relative'
+            }}>
+              <button
+                onClick={() => {
+                  setFeedbackText('')
+                  window.speechSynthesis.cancel()
+                }}
+                style={{
+                  position: 'absolute',
+                  top: 12,
+                  right: 12,
+                  background: 'transparent',
+                  border: 'none',
+                  fontSize: 24,
+                  cursor: 'pointer',
+                  color: '#666'
+                }}
+              >
+                ×
+              </button>
+              <h3 style={{ marginTop: 0, marginBottom: 16, color: '#333' }}>Feedback</h3>
+              <div style={{ color: '#555', lineHeight: 1.6 }}>{feedbackText}</div>
+            </div>
+          </div>
+        )}
+
+        {/* next button - only show when finished*/}
+        {doneSentence && (
+          <button
+            aria-label="Next lesson"
+            onMouseEnter={() => setNextHover(true)}
+            onMouseLeave={() => setNextHover(false)}
+            onClick={() => {
+              goToNextSentence();
+              window.speechSynthesis.cancel()
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              padding: '12px 18px',
+              borderRadius: 999,
+              cursor: 'pointer',
+              background: nextHover
+                ? 'linear-gradient(90deg, #ff8a00 0%, #e52e71 100%)'
+                : 'linear-gradient(90deg, #6dd3ff 0%, #6b73ff 100%)',
+              color: '#fff',
+              fontWeight: 700,
+              boxShadow: nextHover ? '0 10px 30px rgba(229,46,113,0.35)' : '0 8px 24px rgba(107,115,255,0.18)',
+              transform: nextHover ? 'translateY(-2px)' : 'translateY(0)',
+              transition: 'all 180ms ease',
+              backdropFilter: 'blur(6px)',
+            }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <path d="M5 12h14" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M12 5l7 7-7 7" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        )}
       </div>
 
       {/* record button */}
