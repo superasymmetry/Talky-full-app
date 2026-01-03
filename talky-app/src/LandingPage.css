@@ -1,0 +1,61 @@
+@import url("https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300&display=swap");
+
+:root {
+  --font-sora: "Sora", sans-serif;
+  --font-code: "Source Code Pro", monospace;
+  --font-grotesk: "Space Grotesk", sans-serif;
+  color-scheme: dark;
+}
+
+* {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: #0E0C15;
+  color: #FFFFFF;
+  font-family: var(--font-sora);
+}
+
+/* Typography utilities */
+.h1 { font-size: 3.75rem; line-height: 1.2; font-weight: 600; }
+.h2 { font-size: 3rem; line-height: 1.167; font-weight: 600; }
+.h3 { font-size: 2rem; line-height: 1; }
+.h4 { font-size: 2rem; line-height: 1; }
+.h5 { font-size: 1.5rem; line-height: 1; }
+.h6 { font-size: 1.125rem; font-weight: 600; }
+.body-1 { font-size: 1.25rem; line-height: 2rem; }
+.body-2 { font-size: 0.875rem; line-height: 1.5rem; font-weight: 300; }
+.caption { font-size: 0.875rem; }
+.tagline { font-family: var(--font-grotesk); font-weight: 300; font-size: 0.75rem; letter-spacing: 0.15em; text-transform: uppercase; }
+
+/* Text colors */
+.text-n-1 { color: #FFFFFF; }
+.text-n-2 { color: #CAC6DD; }
+.text-n-3 { color: #ADA8C3; }
+.text-n-4 { color: #757185; }
+
+/* Background colors */
+.bg-n-8 { background-color: #0E0C15; }
+.bg-n-9 { background-color: #474060; }
+.bg-n-10 { background-color: #43435C; }
+
+/* Rotation utilities */
+.rotate-45 { transform: rotate(45deg); }
+.rotate-90 { transform: rotate(90deg); }
+.rotate-135 { transform: rotate(135deg); }
+.rotate-180 { transform: rotate(180deg); }
+.rotate-225 { transform: rotate(225deg); }
+.rotate-270 { transform: rotate(270deg); }
+.rotate-315 { transform: rotate(315deg); }
+.rotate-360 { transform: rotate(360deg); }
+.-rotate-45 { transform: rotate(-45deg); }
+.-rotate-90 { transform: rotate(-90deg); }
+.-rotate-135 { transform: rotate(-135deg); }
+.-rotate-180 { transform: rotate(-180deg); }
+.-rotate-225 { transform: rotate(-225deg); }
+.-rotate-270 { transform: rotate(-270deg); }
+.-rotate-315 { transform: rotate(-315deg); }
+.-rotate-360 { transform: rotate(-360deg); }
