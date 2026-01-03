@@ -58,8 +58,8 @@ export default function SoundBank() {
         {/* top title row */}
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-4">
-            <button onClick={() => navigate('/')} className="text-3xl text-primary font-extrabold">❮❮</button>
-            <h1 className="ml-2 text-3xl sm:text-4xl font-extrabold text-primary tracking-widest drop-shadow-md">
+            <button onClick={() => navigate('/')} className="text-white text-3xl text-primary font-extrabold">❮❮</button>
+            <h1 className="text-white ml-2 text-3xl sm:text-4xl font-extrabold text-primary tracking-widest drop-shadow-md">
               Super Sound Bank
             </h1>
           </div>

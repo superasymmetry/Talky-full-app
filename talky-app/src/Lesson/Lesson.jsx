@@ -1,12 +1,13 @@
-import { Suspense, useRef, useState, useEffect } from 'react'
+import { Suspense, useRef, useState, useEffect, forwardRef } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls, useGLTF, useAnimations, Sky, Environment, ContactShadows } from '@react-three/drei'
 
 useGLTF.preload('/robot-draco.glb')
 
-function Model(props) {
-  const { scene, animations } = useGLTF('/robot-draco.glb')
-  const { actions } = useAnimations(animations, scene)
+const Model = forwardRef(function Model(props, ref) {
+  const { scene, animations } = useGLTF('/robot-draco.glb');
+  const robot = scene.getObjectByName('Robot');
+  const { actions } = useAnimations(animations, scene);
 
   useEffect(() => {
     console.log('Available actions:', Object.keys(actions))
@@ -20,8 +21,8 @@ function Model(props) {
     if (props.onActionsReady) props.onActionsReady(actions)
   }, [actions, scene, animations, props])
 
-  return <primitive object={scene} {...props} />
-}
+  return <primitive ref={ref} object={scene} {...props} />
+})
 
 
 export default function Lesson() {
@@ -34,6 +35,8 @@ export default function Lesson() {
   const [isFinished, setIsFinished] = useState(false);
   const [doneSentence, setDoneSentence] = useState(false);
   const [feedbackText, setFeedbackText] = useState('');
+  const [robotPos, setRobotPos] = useState([-10, -1, 0]);
+  const robotRef = useRef(null);
 
   const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
   // Fetch lesson data
@@ -54,14 +57,10 @@ export default function Lesson() {
       try{
         const currentSentence = cardData[currentSentenceIndex];
         console.log("cardData", cardData);
-        const utterance1 = new SpeechSynthesisUtterance("Please speak after me.");
-        window.speechSynthesis.speak(utterance1);
         const utterance = new SpeechSynthesisUtterance(currentSentence);
         window.speechSynthesis.speak(utterance);
       } catch(e){
         const currentSentence = cardData[currentSentenceIndex.toString()];
-        const utterance1 = new SpeechSynthesisUtterance("Please speak after me.");
-        window.speechSynthesis.speak(utterance1);
         const utterance = new SpeechSynthesisUtterance(currentSentence);
         window.speechSynthesis.speak(utterance);
       }
@@ -82,10 +81,19 @@ export default function Lesson() {
       if (!res.ok) throw new Error(data.error || 'Record failed')
       setBackendFilename(data.filename)
       if (data.passed) {
-        actions && actions.ThumbsUp.play();
+        actions?.ThumbsUp?.play?.();
         const utter = new SpeechSynthesisUtterance("Great job!");
         window.speechSynthesis.speak(utter);
         setDoneSentence(true);
+        actions?.Walking?.play?.();
+        // Move robot forward along its facing
+        if (robotRef.current) {
+          robotRef.current.translateZ(30 / 7);
+          robotRef.current.updateMatrixWorld();
+          const p = robotRef.current.position;
+          setRobotPos([p.x, p.y, p.z]);
+        }
+        actions?.Idle?.play?.();
       } else {
         console.log("no")
         actions && actions.No.play();
@@ -164,7 +172,7 @@ export default function Lesson() {
     <div style={{ position: 'fixed', inset: 0, margin: 0, padding: 0, overflow: 'hidden' }}>
       <Canvas
         style={{ width: '100%', height: '100%' }}
-        camera={{ position: [0, 1.6, 3], fov: 50 }}
+        camera={{ position: [-15, 8, 10], fov: 50 }}
         shadows
         gl={{ antialias: true }}
       >
@@ -182,10 +190,34 @@ export default function Lesson() {
             <meshStandardMaterial color="#6aa84f" roughness={1} metalness={0} />
           </mesh>
 
-          {/* soft contact shadow under model */}
-          <ContactShadows position={[0, -1, 0]} opacity={0.6} width={4} height={4} blur={2} far={2} />
+          {/* road and finish flag */}
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[5, -1.0, 0]} receiveShadow>
+            <planeGeometry args={[30, 4]} />
+            <meshStandardMaterial color="#333" roughness={0.9} metalness={0.1} />
+          </mesh>
 
-          <Model position={[0, -1, 0]} scale={0.5} rotation={[0, 0, 0]} onActionsReady={setActions} />
+          <group position={[20, -1, 0]}>
+            {/* pole */}
+            <mesh position={[0, 1, 0]} castShadow>
+              <cylinderGeometry args={[0.03, 0.03, 2, 8]} />
+              <meshStandardMaterial color="#444" />
+            </mesh>
+            {/* flag */}
+            <mesh position={[0, 1.7, 0.45]} rotation={[0, Math.PI / 2, 0]} castShadow>
+              <planeGeometry args={[1, 0.6]} />
+              <meshStandardMaterial color="#e53935" side={2} />
+            </mesh>
+          </group>
+          {/* soft contact shadow under model */}
+          <ContactShadows position={robotPos} opacity={0.6} width={4} height={4} blur={2} far={2} />
+
+          <Model
+            ref={robotRef}
+            position={robotPos}
+            scale={0.5}
+            rotation={[0, Math.PI / 2, 0]}
+            onActionsReady={setActions}
+          />
 
           <OrbitControls enablePan={true} enableZoom={true} maxPolarAngle={Math.PI / 2.1} />
         </Suspense>
@@ -320,7 +352,7 @@ export default function Lesson() {
         borderRadius: 12,
         backdropFilter: 'blur(6px)'
       }}>
-        <div>Sentence {currentSentenceIndex}:</div>
+        <div>Say this sentence:</div>
         <div style={{ fontWeight: 'bold', marginTop: 4 }}>
           {cardData ? cardData[currentSentenceIndex.toString()] || 'End of lesson' : 'Loading...'}
         </div>
