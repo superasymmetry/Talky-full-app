@@ -20,7 +20,6 @@ function Card(props) {
         content,
         ...rest
     } = props;
-    console.log(`Card ${name}: disabled=${disabled}`)
 
     useEffect(() => {
         if (disabled || !tilt.current) return;
