@@ -1,4 +1,3 @@
-import profilePic from './assets/meltingrubix.png';
 import talkyRocket from './assets/logo.png';
 import VanillaTilt from 'vanilla-tilt';
 import React, { useRef, useEffect } from 'react';
