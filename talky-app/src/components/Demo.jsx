@@ -27,7 +27,7 @@ const Demo = () => {
 
         <div className="relative z-1 max-w-[62rem] mx-auto text-center mb-[3.875rem] md:mb-20 lg:mb-[6.25rem] flex items-center justify-center">
           <a href="https://talkyrocket.streamlit.app/" target="_blank" rel="noreferrer">
-            <Button className="lg:flex px-12 py-6 text-2xl">
+            <Button className="lg:flex px-12 py-6 text-2xl" href={"/app"}>
               Click Here to Try Our Demo
             </Button>
           </a>

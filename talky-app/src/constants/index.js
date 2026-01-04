@@ -52,14 +52,14 @@ export const navigation = [
   },
   {
     id: "1",
-    title: "Pricing",
-    url: "#pricing",
+    title: "Vision",
+    url: "#vision",
   },
-  {
-    id: "2",
-    title: "How to use",
-    url: "#how-to-use",
-  },
+  // {
+  //   id: "2",
+  //   title: "How to use",
+  //   url: "#how-to-use",
+  // },
   {
     id: "3",
     title: "Roadmap",
