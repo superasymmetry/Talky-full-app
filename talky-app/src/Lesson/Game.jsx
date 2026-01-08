@@ -1,85 +1,113 @@
-import React, { useRef } from "react";
+import React, { useMemo, useRef, useEffect } from "react";
+import * as THREE from "three";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { OrbitControls, Html } from "@react-three/drei";
+import { OrbitControls, useGLTF } from "@react-three/drei";
+import Back from "./Back.jsx";
 
-// Basic rotating box component
-function RotatingBox({ position = [0, 0.7, 0], color = "#7c3aed" }) {
-  const ref = useRef();
-  // rotate the box each frame
-  useFrame((state, delta) => {
-    ref.current.rotation.x += delta * 0.6;
-    ref.current.rotation.y += delta * 0.8;
+function Robot({ position, scale }) {
+  const { scene } = useGLTF('/robot-draco.glb');
+  return <primitive object={scene} position={position} scale={scale} />;
+}
+
+const Tree = ({ position, size }) => {
+  const direction = new THREE.Vector3(...position).normalize();
+  const up = new THREE.Vector3(0, 1, 0);
+  const quaternion = new THREE.Quaternion().setFromUnitVectors(up, direction);
+
+  return (
+    <group position={position} quaternion={quaternion}>
+      {/* Trunk */}
+      <mesh position={[0, 0.5 * size, 0]}>
+        <cylinderGeometry args={[0.1 * size, 0.15 * size, 1 * size, 8]} />
+        <meshStandardMaterial color="#8B6F47" />
+      </mesh>
+      {/* Leaves */}
+      <mesh position={[0, 1.2 * size, 0]}>
+        <coneGeometry args={[0.5 * size, 1 * size, 8]} />
+        <meshStandardMaterial color="#4CAF50" />
+      </mesh>
+    </group>
+  );
+};
+
+function Planet() {
+  const groupRef = useRef();
+  const keysPressed = useRef({});
+
+  const trees = useMemo(() => {
+    const NUMTREES = 20;
+    const r = 1.5;
+    const treels = [];
+    
+    for(let i = 0; i < NUMTREES; i++) {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      treels.push({
+        position: [r * Math.sin(phi) * Math.cos(theta), r * Math.sin(phi) * Math.sin(theta), r * Math.cos(phi)],
+        size: 0.1 + Math.random() * 0.15
+      });
+    }
+
+    return treels;
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      keysPressed.current[e.key.toLowerCase()] = true;
+    };
+    const handleKeyUp = (e) => {
+      keysPressed.current[e.key.toLowerCase()] = false;
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+
+  useFrame(() => {
+    if (!groupRef.current) return;
+    const speed = 0.02;
+
+    if (keysPressed.current['d']) groupRef.current.rotation.z += speed;
+    if (keysPressed.current['a']) groupRef.current.rotation.z -= speed;
+    if (keysPressed.current['w']) groupRef.current.rotation.x -= speed;
+    if (keysPressed.current['s']) groupRef.current.rotation.x += speed;
   });
 
   return (
-    <mesh ref={ref} position={position} castShadow>
-      <boxGeometry args={[1, 1, 1]} />
-      <meshStandardMaterial color={color} metalness={0.3} roughness={0.4} />
-    </mesh>
+    <group ref={groupRef}>
+      <mesh>
+        <sphereGeometry args={[1.5, 100, 100]} />
+        <meshStandardMaterial color="#66BB6A" />
+      </mesh>
+      {trees.map((tree, i) => (
+        <Tree key={i} position={tree.position} size={tree.size} />
+      ))}
+    </group>
   );
 }
 
-// Ground / shadow receiver
-function Ground() {
+function Game() {
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow>
-      <planeGeometry args={[20, 20]} />
-      <meshStandardMaterial color="#111827" metalness={0} roughness={1} />
-    </mesh>
-  );
-}
-
-// Small HUD using <Html> from drei
-function SceneHUD() {
-  return (
-    <Html position={[0, 2.2, 0]} center>
-      <div className="bg-white/80 text-sm rounded-xl px-3 py-1 shadow-lg backdrop-blur">
-        <strong className="block">react-three-fiber demo</strong>
-        <span className="text-xs opacity-80">click + drag to orbit</span>
-      </div>
-    </Html>
-  );
-}
-
-// Default export: single-file React component ready to drop in any app
-export default function OneFileThreeFiber() {
-  return (
-    <div className="w-full h-screen flex items-center justify-center bg-gradient-to-b from-slate-900 to-slate-800">
-      <div className="w-[90vw] h-[80vh] max-w-4xl rounded-2xl overflow-hidden shadow-2xl ring-1 ring-white/5">
-        <Canvas
-          shadows
-          camera={{ position: [3, 2, 5], fov: 50 }}
-          style={{ background: "linear-gradient(#0f172a, #020617)" }}
-        >
-          {/* Lighting */}
-          <ambientLight intensity={0.25} />
-          <directionalLight
-            castShadow
-            position={[5, 8, 5]}
-            intensity={1}
-            shadow-mapSize-width={1024}
-            shadow-mapSize-height={1024}
-            shadow-camera-far={50}
-            shadow-camera-left={-10}
-            shadow-camera-right={10}
-            shadow-camera-top={10}
-            shadow-camera-bottom={-10}
-          />
-
-          {/* Scene objects */}
-          <RotatingBox position={[0, 0.8, 0]} color="#06b6d4" />
-          <RotatingBox position={[-2, 0.7, -1]} color="#f97316" />
-          <RotatingBox position={[2, 0.6, 1]} color="#a78bfa" />
-
-          <Ground />
-
-          {/* Camera controls */}
-          <OrbitControls enablePan={true} enableZoom={true} />
-
-          {/* Simple HUD */}
-          <SceneHUD />
-        </Canvas>
-      </div>
+    <div style={{ position: "fixed", inset: 0, margin: 0, padding: 0, overflow: "hidden" }}>
+      <Canvas
+        style={{ width: "100%", height: "100%" }}
+        camera={{ position: [0, 2, 5], fov: 75 }}
+      >
+        <ambientLight intensity={0.8} />
+        <directionalLight position={[5, 5, 5]} intensity={1.5} />
+        
+        <Robot position={[0, 1.5, 0]} scale={0.1} />
+        <Planet />
+        <OrbitControls />
+      </Canvas>
+      <Back />
     </div>
   );
 }
+
+export default Game;
