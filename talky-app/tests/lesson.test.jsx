@@ -1,27 +1,5 @@
-import React from 'react'
 import { describe, it, beforeEach, vi, expect } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
-
-// Hoisted mocks for three/fiber + drei
-vi.mock('@react-three/fiber', () => ({
-  Canvas: ({ children }) => <div data-testid="canvas">{children}</div>,
-  useFrame: () => {}
-}))
-vi.mock('@react-three/drei', () => {
-  const useGLTF = Object.assign(
-    () => ({ scene: { traverse: () => {} }, animations: [] }),
-    { preload: vi.fn() }
-  )
-  return {
-    OrbitControls: ({ children }) => <>{children}</>,
-    Sky: ({ children }) => <>{children}</>,
-    Environment: ({ children }) => <>{children}</>,
-    ContactShadows: ({ children }) => <>{children}</>,
-    useGLTF,
-    useAnimations: () => ({ actions: {} })
-  }
-})
-
 import Lesson from '../src/Lesson/Lesson'
 
 beforeEach(() => {

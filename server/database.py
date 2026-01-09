@@ -18,3 +18,17 @@ except Exception as e:
     print("Failed to create unique index on users.userId:", e)
 
 print("Connected to MongoDB successfully!")
+
+def set_lesson_data(user_id, lesson_id, words, phoneme, score):
+    try:
+        update = {
+            f"lessons.{lesson_id}": {
+                "words": words,
+                "phoneme": phoneme,
+                "score": score
+            }
+        }
+        users_collection.update_one({"userId": user_id}, {"$set": update}, upsert=True)
+    except Exception as e:
+        print(f"Failed to set lesson data for user {user_id}, lesson {lesson_id}: {e}")
+        raise Exception(f"Internal error occured")

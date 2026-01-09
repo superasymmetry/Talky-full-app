@@ -77,7 +77,7 @@ const Profile = () => {
   }, [isAuthenticated, isLoading, user]);
 
   if (isLoading) return <p>Loading profile...</p>;
-  if (!isAuthenticated) return <p>Please log in to view your profile.</p>;
+  if (!isAuthenticated) return <p>Please log in to view your profile, statistics, and more.</p>;
   if (!profileLoaded) return <p>Loading profile...</p>;
 
   const handleSave = async () => {

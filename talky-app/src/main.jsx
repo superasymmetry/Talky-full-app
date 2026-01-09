@@ -26,7 +26,7 @@ createRoot(document.getElementById('root')).render(
       <BrowserRouter>
         <Routes>
           <Route path="/app" element={<App/>}/>
-          <Route path="/lessons/:id" element={<Lesson/>}/>
+          <Route path="/lessons/:id" element={<Lesson />}/>
           <Route path="/soundbank" element={<SoundBank/>}/>
           <Route path="/game" element={<Game/>}/>
           <Route path="/soundbank/:id" element={<SoundBankCategory/>}/>

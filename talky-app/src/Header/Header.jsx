@@ -10,14 +10,14 @@ import Profile from "../Auth0/Profile";
 function Header() {
   return (
     <header className={styles.header}>
-      <Link to="/">
+      <Link to="/app">
         <img src={talkyLogo} alt="Talky logo" className={styles.logo} />
       </Link>
 
       <nav className={styles.nav}>
         <ul className={styles.navList}>
           <li className={styles.navItem}>
-            <Link to="/" className={styles.navLink}>Home</Link>
+            <Link to="/app" className={styles.navLink}>Home</Link>
           </li>
           <li className={styles.navItem}>
             <Link to="/profile" className={styles.navLink}>Profile</Link>

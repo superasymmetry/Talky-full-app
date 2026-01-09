@@ -1,4 +1,4 @@
-import React, {useRef} from 'react'
+import React, { useState, useEffect, useRef} from 'react'
 import Header from './Header/Header.jsx'
 import Footer from './Footer.jsx'
 import Card from './Card.jsx'
@@ -7,19 +7,33 @@ import './App.css'
 
 function App() {
   const scroller = useRef(null);
-  const lessons = [
-    { id: 1, name: "Lesson 1", description: "lorem ipsum 1", img: "meltingrubix.png" },
-    { id: 2, name: "Lesson 2", description: "lorem ipsum 2", img: "alice.png" },
-    { id: 3, name: "Lesson 3", description: "lorem ipsum 3", img: "bob.png" },
-    { id: 4, name: "Lesson 4", description: "lorem ipsum 3", img: "bob.png" },
-    { id: 5, name: "Lesson 5", description: "lorem ipsum 3", img: "bob.png" },
-    { id: 6, name: "Lesson 6", description: "lorem ipsum 3", img: "bob.png" },
-    { id: 7, name: "Lesson 7", description: "lorem ipsum 3", img: "bob.png" },
-    { id: 8, name: "Lesson 8", description: "lorem ipsum 3", img: "bob.png" },
-    { id: 9, name: "Lesson 9", description: "lorem ipsum 3", img: "bob.png" },
-    { id: 10, name: "Game", description: "a fun game", img: "gamecontroller.png" },
-  ]
-
+  // const lessons = [
+  //   {id: 1, name: "Lesson 1", description: "lorem ipsum 1", img: "meltingrubix.png" },
+  //   {id: 2, name: "Lesson 2", description: "lorem ipsum 2", img: "alice.png" },
+  //   {id: 3, name: "Lesson 3", description: "lorem ipsum 3", img: "bob.png" },
+  //   {id: 4, name: "Game", description: "a fun game", img: "gamecontroller.png" },
+  //   {id: 5, name: "Lesson 4", description: "lorem ipsum 4", img: "rocketship.png" },
+  // ]
+  const [lessons, setLessons] = useState([]);
+  useEffect(() => {
+    const userId = localStorage.getItem('userId') || 'demo';
+    
+    fetch(`/api/user/lessons?user_id=${userId}`)
+      .then(res => res.json())
+      .then(data => {
+        const lessonsArray = Object.entries(data.lessons || {})
+          .map(([key, lesson]) => ({
+            id: isNaN(key) ? key : Number(key),
+            name: isNaN(key) ? key : `Lesson ${key}`,
+            description: lesson.words?.join(', ') || lesson.phoneme || '',
+            img: 'rocketship.png'
+          }))
+          .sort((a, b) => (typeof a.id === 'number' ? a.id : Infinity) - (typeof b.id === 'number' ? b.id : Infinity));
+        
+        setLessons(lessonsArray);
+      })
+      .catch(err => console.error('Failed to fetch lessons:', err));
+  }, []);
   const soundBankCard = { id: "soundbank", name: "Sound Bank", description: "Browse sound categories", to: "/soundbank" }
   const scrollBy = (delta) => scroller.current?.scrollBy({ left: delta, behavior: 'smooth' })
 

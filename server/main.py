@@ -2,10 +2,11 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from groq import Groq
 import os
+import random
 from dotenv import load_dotenv
-# import database
-# from user_routes import user_bp
-# from score_routes import score_bp
+from database import client, db, users_collection
+from user_routes import user_bp
+from score_routes import score_bp
 from gop_eval import compute_pronunciation_score
 import threading
 import torch
@@ -20,13 +21,48 @@ app = Flask(__name__)
 cors = CORS(app, origin="*")
 
 # Register routes
-# app.register_blueprint(user_bp)
-# app.register_blueprint(score_bp)
+app.register_blueprint(user_bp)
+app.register_blueprint(score_bp)
 
 _processor = None
 _model = None
 _feedback_model = None
 _load_lock = threading.Lock()
+
+phoneme_word_bank = {
+    "p": ["pat", "pop", "paper", "puppy", "apple", "stop", "pepper", "paint"],
+    "b": ["bat", "baby", "bubble", "rabbit", "club", "cab", "bag", "bagel"],
+    "t": ["top", "table", "tiger", "ticket", "cat", "stop", "butter", "water"],
+    "d": ["dog", "daddy", "dinner", "red", "bed", "ladder", "mud", "idea"],
+    "k": ["cat", "kite", "cookie", "back", "duck", "kick", "bicycle", "kitchen"],
+    "g": ["go", "garden", "giraffe", "egg", "big", "tiger", "gum", "garden"],
+
+    "f": ["fan", "fish", "coffee", "fine", "leaf", "shelf", "roof", "fun"],
+    "v": ["van", "vase", "seven", "move", "give", "river", "love", "eleven"],
+    "s": ["sun", "sit", "pass", "grass", "mess", "socks", "sister", "bus"],
+    "z": ["zoo", "zip", "buzz", "lazy", "size", "zero", "nose", "fuzzy"],
+    "ʃ": ["shoe", "she", "wash", "push", "wish", "shark", "ash", "shelf"],
+    "ʒ": ["measure", "vision", "beige", "garage", "treasure", "rouge"],
+
+    "tʃ": ["cherry", "church", "chair", "cheese", "watch", "teacher", "chocolate", "patch"],
+    "dʒ": ["jump", "jam", "jacket", "judge", "giant", "badge", "edge", "jar"],
+
+    "m": ["man", "mom", "milk", "smile", "lamp", "moon", "hammer", "summer"],
+    "n": ["no", "nice", "ten", "banana", "sun", "pen", "knee", "napkin"],
+    "ŋ": ["sing", "king", "ring", "song", "long", "wing", "thing", "hanging"],
+
+    "l": ["lion", "light", "leaf", "ball", "yellow", "luck", "little", "label"],
+    "r": ["rabbit", "red", "rose", "car", "train", "mirror", "river", "try"],
+
+    "w": ["water", "win", "wake", "week", "swing", "window", "white", "queen"],
+    "j": ["yes", "yellow", "you", "yarn", "yogurt", "young", "year", "beyond"],
+
+    "a": ["cat", "apple", "father", "back", "dance", "fast", "bat"],
+    "e": ["bed", "red", "pen", "eleven", "ten", "egg", "set"],
+    "i": ["sit", "little", "bit", "fish", "miss", "pin", "sit"],
+    "o": ["go", "no", "so", "open", "boat", "home", "note"],
+    "u": ["cup", "duck", "sun", "bus", "up", "bug", "music"],
+}
 
 def _load_model_once():
     global _processor, _model, _feedback_model
@@ -104,6 +140,10 @@ def lessons():
 
 @app.route('/api/record', methods=['POST', 'GET'])
 def backend_record():
+    '''For API call in Lesson.jsx: records audio, computes pronunciation score, and returns feedback
+        Inputs: JSON with "card" field (sentence to be spoken)
+        Returns: JSON with "filename", "score", "feedback, and "passed" fields
+    '''
     if request.method == 'POST':
         import pyaudio_recording
         sentence = request.get_json()['card']
@@ -113,6 +153,10 @@ def backend_record():
 
 @app.route('/api/wordbank', methods=['GET', 'POST'])
 def wordbank():
+    '''For wordbank: generates a list of 16 words based on a sound category
+        Inputs: JSON with "category" field (e.g., "L-sounds", "animals", etc.)
+        Returns: JSON object with 16 words and corresponding emojis
+    '''
     if request.method == 'POST':
         category = request.json.get('category', 'general')
     else:
@@ -161,9 +205,106 @@ def home():
 
 @app.route("/add_user", methods=["POST"])
 def add_user():
+    '''For initializing a user in mongodb database: inserts initial user document
+        Inputs: None
+        Returns: JSON object of user document
+    '''
     data = request.get_json()
-    users_collection.insert_one(data)
-    return jsonify({"message": "User added successfully!"})
+    user_id = data.get("userId")
+    name = data.get("name", "")
+    
+    phonemes = ["l", "r", "p", "b", "t", "d", "k", "g", "f", "v", "s", "z", 
+                "ʃ", "sh", "ʒ", "tʃ", "ch", "dʒ", "j", "m", "n", "ŋ", "w", "y",
+                "a", "e", "i", "o", "u"]
+    phoneme_scores = [{"phoneme": ph, "avgScore": None, "attempts": None} for ph in phonemes]
+    initial_history = {ph: 0 for ph in phonemes}
+    
+    user_doc = {
+        "userId": user_id,
+        "name": name,
+        "progress": {
+            "phonemeScores": phoneme_scores,
+            "wordScores": []
+        },
+        "history": [initial_history],
+        "lessons": {
+            1: {"phoneme": "r", "words": ["rainbow", "racecar"], "score": 0},
+            2: {"phoneme": "r", "words": ["red", "read"], "score": 0},
+            "Game": {"phoneme": "l", "words": ["lion", "leaf"], "score": 0},
+            3: {"phoneme": "l", "words": ["lion", "leaf"], "score": 0},
+            4: {"phoneme": "l", "words": ["letter", "learn"], "score": 0},
+        }
+    }
+    users_collection.insert_one(user_doc)
+    return jsonify(user_doc)
+
+@app.get("/api/user/progress")
+def get_user_progress():
+    '''For getting user's weaknesses: retrieves user's phoneme scores from database
+        Inputs: user_id (string)
+        Returns: JSON of phonemeScores
+    '''
+    user_id = request.args.get("user_id")
+    user = users_collection.find_one({"userId": user_id}, {"progress.phonemeScores": 1})
+    
+    if not user or "progress" not in user:
+        raise Exception("User not found or progress data missing")
+    
+    return {"phonemeScores": user["progress"].get("phonemeScores", [])}
+
+@app.get("/api/user/history")
+def get_user_history(user_id):
+    '''For viewing user's history: retrieves user's history data from database
+        Inputs: user_id (string)
+        Returns: JSON of history
+    '''
+    user_id = request.args.get("user_id")
+    user = users_collection.find_one({"userId": user_id}, {"history": 1})
+    if not user or "history" not in user:
+        raise Exception("User not found or history data missing")
+    return {"history": user["history"]}
+
+@app.get("/api/user/lessons")
+def get_user_lessons(user_id):
+    '''For determining which lessons have been completed: retrieves user's lessons data from database
+        Inputs: user_id (string)
+        Returns: JSON of lessons (dictionary with lesson_id as key)
+    '''
+    user_id = request.args.get("user_id")
+    user = users_collection.find_one({"userId": user_id}, {"lessons": 1})
+    if not user or "lessons" not in user:
+        raise Exception("User not found or lessons data missing")
+    return {"lessons": user["lessons"]}
+
+@app.route('/api/generate-next-lesson', methods=['POST'])
+def generate_next_lesson():
+    '''For generating the next lesson based on user's weaknesses when current lesson completes:
+        Updates lessons field in database with new lesson
+        Inputs: user_id (string)
+        Returns: JSON of new lesson data
+    '''
+    user_id = request.args.get("user_id")
+    user = users_collection.find_one({"userId": user_id}, {"lessons": 1}, {"progress": 1}, {"history": 1})
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    else:
+        lastlesson_id = max([k for k in user['lessons'].keys() if isinstance(k, int)])
+        next_lesson_id = lastlesson_id + 1
+        ps = user['progress']['phonemeScores']
+        min_idx = min([(i, p['avgScore']) for i, p in enumerate(ps) if p.get('avgScore') is not None], key=lambda x: x[1])[0]
+        weakest_phoneme = ps[min_idx]['phoneme']
+        words = random.sample(phoneme_word_bank.get(weakest_phoneme, ["practice", "word"]), k=2)
+        # insert new lesson into mongodb
+        new_lesson = {f"lessons.{next_lesson_id}": {
+                "phoneme": weakest_phoneme,
+                "words": words,
+                "score": 0
+            }}
+        users_collection.update_one(
+            {"userId": user_id},
+            {"$set": new_lesson},
+        )
+        return jsonify(new_lesson)
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8080))
