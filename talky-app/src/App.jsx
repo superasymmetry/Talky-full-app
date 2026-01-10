@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef} from 'react'
+import { useAuth0 } from '@auth0/auth0-react'
 import Header from './Header/Header.jsx'
 import Footer from './Footer.jsx'
 import Card from './Card.jsx'
@@ -6,34 +7,33 @@ import './App.css'
 
 
 function App() {
+  const { user, isAuthenticated, isLoading } = useAuth0();
   const scroller = useRef(null);
-  // const lessons = [
-  //   {id: 1, name: "Lesson 1", description: "lorem ipsum 1", img: "meltingrubix.png" },
-  //   {id: 2, name: "Lesson 2", description: "lorem ipsum 2", img: "alice.png" },
-  //   {id: 3, name: "Lesson 3", description: "lorem ipsum 3", img: "bob.png" },
-  //   {id: 4, name: "Game", description: "a fun game", img: "gamecontroller.png" },
-  //   {id: 5, name: "Lesson 4", description: "lorem ipsum 4", img: "rocketship.png" },
-  // ]
   const [lessons, setLessons] = useState([]);
+  
   useEffect(() => {
-    const userId = localStorage.getItem('userId') || 'demo';
+    if (isLoading) return;
     
-    fetch(`/api/user/lessons?user_id=${userId}`)
-      .then(res => res.json())
+    // Get userId from Auth0 if logged in, otherwise use demo
+    const userId = isAuthenticated && user ? (user.sub || user.email) : 'demo';
+    const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+    
+    fetch(`${API_BASE}/api/user/lessons?user_id=${userId}`)
+      .then(res => res.ok ? res.json() : Promise.reject(`HTTP ${res.status}`))
       .then(data => {
         const lessonsArray = Object.entries(data.lessons || {})
           .map(([key, lesson]) => ({
             id: isNaN(key) ? key : Number(key),
             name: isNaN(key) ? key : `Lesson ${key}`,
             description: lesson.words?.join(', ') || lesson.phoneme || '',
-            img: 'rocketship.png'
+            img: key.toLowerCase() === 'game' ? 'gamecontroller.png' : 'rocketship.png'
           }))
           .sort((a, b) => (typeof a.id === 'number' ? a.id : Infinity) - (typeof b.id === 'number' ? b.id : Infinity));
         
         setLessons(lessonsArray);
       })
       .catch(err => console.error('Failed to fetch lessons:', err));
-  }, []);
+  }, [isAuthenticated, isLoading, user]);
   const soundBankCard = { id: "soundbank", name: "Sound Bank", description: "Browse sound categories", to: "/soundbank" }
   const scrollBy = (delta) => scroller.current?.scrollBy({ left: delta, behavior: 'smooth' })
 

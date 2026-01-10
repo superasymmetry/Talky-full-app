@@ -18,11 +18,16 @@ from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 load_dotenv()
 
 app = Flask(__name__)
-cors = CORS(app, origin="*")
+cors = CORS(app, origins="*")
 
 # Register routes
 app.register_blueprint(user_bp)
 app.register_blueprint(score_bp)
+
+print("\n=== Registered Routes ===")
+for rule in app.url_map.iter_rules():
+    print(f"{rule.methods} -> {rule.rule}")
+print("========================\n")
 
 _processor = None
 _model = None
@@ -112,9 +117,13 @@ def compute_pronunciation_score(audio_path, expected_text):
 
 @app.route('/api/lessons', methods=['GET', 'POST'])
 def lessons():
-    # dummy word list. would replace with actual list from db or request
-    word_list = ["rainbow", "racecar", "rocket", "rabbit", "ring", "road", "rose"]
-    
+    user_id = request.args.get('user_id')
+    lesson_id = request.args.get('lesson_id')
+
+    user = users_collection.find_one({"userId": user_id})
+    lesson = user.get('lessons', {}).get(lesson_id, {})
+    word_list = lesson.get('words', [])
+    print(word_list)
     prompt = f"""
     Your tasks is to generate a list of 7 sentences for speech therapy practice. 
     Please generate ethe sentences based on these words: {word_list}.
@@ -202,109 +211,6 @@ def wordbank():
 def home():
     users = list(users_collection.find({}, {"_id": 0}))
     return jsonify(users)
-
-@app.route("/add_user", methods=["POST"])
-def add_user():
-    '''For initializing a user in mongodb database: inserts initial user document
-        Inputs: None
-        Returns: JSON object of user document
-    '''
-    data = request.get_json()
-    user_id = data.get("userId")
-    name = data.get("name", "")
-    
-    phonemes = ["l", "r", "p", "b", "t", "d", "k", "g", "f", "v", "s", "z", 
-                "ʃ", "sh", "ʒ", "tʃ", "ch", "dʒ", "j", "m", "n", "ŋ", "w", "y",
-                "a", "e", "i", "o", "u"]
-    phoneme_scores = [{"phoneme": ph, "avgScore": None, "attempts": None} for ph in phonemes]
-    initial_history = {ph: 0 for ph in phonemes}
-    
-    user_doc = {
-        "userId": user_id,
-        "name": name,
-        "progress": {
-            "phonemeScores": phoneme_scores,
-            "wordScores": []
-        },
-        "history": [initial_history],
-        "lessons": {
-            1: {"phoneme": "r", "words": ["rainbow", "racecar"], "score": 0},
-            2: {"phoneme": "r", "words": ["red", "read"], "score": 0},
-            "Game": {"phoneme": "l", "words": ["lion", "leaf"], "score": 0},
-            3: {"phoneme": "l", "words": ["lion", "leaf"], "score": 0},
-            4: {"phoneme": "l", "words": ["letter", "learn"], "score": 0},
-        }
-    }
-    users_collection.insert_one(user_doc)
-    return jsonify(user_doc)
-
-@app.get("/api/user/progress")
-def get_user_progress():
-    '''For getting user's weaknesses: retrieves user's phoneme scores from database
-        Inputs: user_id (string)
-        Returns: JSON of phonemeScores
-    '''
-    user_id = request.args.get("user_id")
-    user = users_collection.find_one({"userId": user_id}, {"progress.phonemeScores": 1})
-    
-    if not user or "progress" not in user:
-        raise Exception("User not found or progress data missing")
-    
-    return {"phonemeScores": user["progress"].get("phonemeScores", [])}
-
-@app.get("/api/user/history")
-def get_user_history(user_id):
-    '''For viewing user's history: retrieves user's history data from database
-        Inputs: user_id (string)
-        Returns: JSON of history
-    '''
-    user_id = request.args.get("user_id")
-    user = users_collection.find_one({"userId": user_id}, {"history": 1})
-    if not user or "history" not in user:
-        raise Exception("User not found or history data missing")
-    return {"history": user["history"]}
-
-@app.get("/api/user/lessons")
-def get_user_lessons(user_id):
-    '''For determining which lessons have been completed: retrieves user's lessons data from database
-        Inputs: user_id (string)
-        Returns: JSON of lessons (dictionary with lesson_id as key)
-    '''
-    user_id = request.args.get("user_id")
-    user = users_collection.find_one({"userId": user_id}, {"lessons": 1})
-    if not user or "lessons" not in user:
-        raise Exception("User not found or lessons data missing")
-    return {"lessons": user["lessons"]}
-
-@app.route('/api/generate-next-lesson', methods=['POST'])
-def generate_next_lesson():
-    '''For generating the next lesson based on user's weaknesses when current lesson completes:
-        Updates lessons field in database with new lesson
-        Inputs: user_id (string)
-        Returns: JSON of new lesson data
-    '''
-    user_id = request.args.get("user_id")
-    user = users_collection.find_one({"userId": user_id}, {"lessons": 1}, {"progress": 1}, {"history": 1})
-    if not user:
-        return jsonify({"error": "User not found"}), 404
-    else:
-        lastlesson_id = max([k for k in user['lessons'].keys() if isinstance(k, int)])
-        next_lesson_id = lastlesson_id + 1
-        ps = user['progress']['phonemeScores']
-        min_idx = min([(i, p['avgScore']) for i, p in enumerate(ps) if p.get('avgScore') is not None], key=lambda x: x[1])[0]
-        weakest_phoneme = ps[min_idx]['phoneme']
-        words = random.sample(phoneme_word_bank.get(weakest_phoneme, ["practice", "word"]), k=2)
-        # insert new lesson into mongodb
-        new_lesson = {f"lessons.{next_lesson_id}": {
-                "phoneme": weakest_phoneme,
-                "words": words,
-                "score": 0
-            }}
-        users_collection.update_one(
-            {"userId": user_id},
-            {"$set": new_lesson},
-        )
-        return jsonify(new_lesson)
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8080))
