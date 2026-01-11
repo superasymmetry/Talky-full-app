@@ -1,6 +1,7 @@
 import { Suspense, useRef, useState, useEffect, forwardRef } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls, useGLTF, useAnimations, Sky, Environment, ContactShadows } from '@react-three/drei'
+import Back from './Back.jsx';
 
 useGLTF.preload('/robot-draco.glb')
 
@@ -25,7 +26,7 @@ const Model = forwardRef(function Model(props, ref) {
 })
 
 
-export default function Lesson() {
+export default function Lesson({maxLessonId}) {
   const [nextHover, setNextHover] = useState(false)
   const [isRecordingBackend, setIsRecordingBackend] = useState(false)
   const [backendFilename, setBackendFilename] = useState(null)
@@ -114,7 +115,7 @@ export default function Lesson() {
     }
   }
 
-  const goToNextSentence = () => {
+  const goToNextSentence = async () => {
     setDoneSentence(false);
     if (cardData && cardData[(currentSentenceIndex + 1).toString()]) {
       setCurrentSentenceIndex(prev => prev + 1);
@@ -128,6 +129,17 @@ export default function Lesson() {
       if (actions) {
         Object.values(actions).forEach(action => action.stop());
         actions.Dance && actions.Dance.play();
+      }
+
+      const currentLessonId = parseInt(window.location.pathname.split('/').pop());
+      const isLastLesson = currentLessonId === maxLessonId;
+      if (isLastLesson) {
+        try {
+          await fetch(`${API_BASE}/api/generatenextlesson`, { method: 'POST' });
+          console.log('Next lesson generated');
+        } catch (err) {
+          console.error('Failed to generate next lesson:', err);
+        }
       }
     }
   }
@@ -223,6 +235,7 @@ export default function Lesson() {
         </Suspense>
       </Canvas>
 
+      <Back />
       <div
         style={{
           position: 'absolute',

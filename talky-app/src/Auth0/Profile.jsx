@@ -43,10 +43,10 @@ const Profile = () => {
 
       try {
         // create/upsert
-        await authFetch(`${API_BASE}/api/createUser`, {
-          method: 'POST',
-          body: JSON.stringify({ userId, name: user.name || user.nickname || user.email || 'Unnamed' })
-        });
+        // await authFetch(`${API_BASE}/api/create_user`, {
+        //   method: 'POST',
+        //   body: JSON.stringify({ userId, name: user.name || user.nickname || user.email || 'Unnamed' })
+        // });
 
         const profileRes = await authFetch(`${API_BASE}/api/getUserProfile?userId=${encodeURIComponent(userId)}`);
         if (profileRes.ok) {
@@ -77,7 +77,7 @@ const Profile = () => {
   }, [isAuthenticated, isLoading, user]);
 
   if (isLoading) return <p>Loading profile...</p>;
-  if (!isAuthenticated) return <p>Please log in to view your profile.</p>;
+  if (!isAuthenticated) return <p>Please log in to view your profile, statistics, and more.</p>;
   if (!profileLoaded) return <p>Loading profile...</p>;
 
   const handleSave = async () => {
