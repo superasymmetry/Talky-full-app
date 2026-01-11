@@ -135,7 +135,7 @@ export default function Lesson({maxLessonId}) {
       const isLastLesson = currentLessonId === maxLessonId;
       if (isLastLesson) {
         try {
-          await fetch(`${API_BASE}/api/generate-next-lesson`, { method: 'POST' });
+          await fetch(`${API_BASE}/api/generatenextlesson`, { method: 'POST' });
           console.log('Next lesson generated');
         } catch (err) {
           console.error('Failed to generate next lesson:', err);

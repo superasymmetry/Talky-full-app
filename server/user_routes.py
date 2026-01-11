@@ -59,6 +59,11 @@ def adduser():
     user_id = data.get("userId")
     name = data.get("name", "")
     
+    existing_user = users_collection.find_one({"userId": user_id})
+    if existing_user:
+        print(f"User {user_id} already exists")
+        return jsonify({"message": "User already exists", "userId": user_id}), 200
+    
     phonemes = ["l", "r", "p", "b", "t", "d", "k", "g", "f", "v", "s", "z", 
                 "ʃ", "sh", "ʒ", "tʃ", "ch", "dʒ", "j", "m", "n", "ŋ", "w", "y",
                 "a", "e", "i", "o", "u"]
@@ -73,19 +78,20 @@ def adduser():
             "wordScores": []
         },
         "history": [initial_history],
-        "lessons": {
-            "1": {"phoneme": "r", "words": ["rainbow", "racecar"], "score": 0},
-            "2": {"phoneme": "r", "words": ["red", "read"], "score": 0},
-            "Game": {"phoneme": "l", "words": ["lion", "leaf"], "score": 0},
-            "3": {"phoneme": "l", "words": ["lion", "leaf"], "score": 0},
-            "4": {"phoneme": "l", "words": ["letter", "learn"], "score": 0},
-        }
+        "lessons": [
+            {"id": "1", "phoneme": "r", "words": ["rainbow", "racecar"], "score": 0},
+            {"id": "2", "phoneme": "r", "words": ["red", "read"], "score": 0},
+            {"id": "game", "phoneme": "l", "words": ["lion", "leaf"], "score": 0},
+            {"id": "3", "phoneme": "l", "words": ["lion", "leaf"], "score": 0},
+            {"id": "4", "phoneme": "l", "words": ["letter", "learn"], "score": 0},
+        ]
     }
     users_collection.insert_one(user_doc)
+    print("added user,", user_doc)
     return jsonify(user_doc)
 
 @user_bp.route("/api/user/progress", methods=["GET", "POST"])
-def get_user_progress_v2():
+def get_user_progress_weakness():
     '''For getting user's weaknesses: retrieves user's phoneme scores from database
         Inputs: user_id (string)
         Returns: JSON of phonemeScores
@@ -122,7 +128,7 @@ def get_user_history():
 def get_user_lessons():
     '''For determining which lessons have been completed: retrieves user's lessons data from database
         Inputs: user_id (string)
-        Returns: JSON of lessons (dictionary with lesson_id as key)
+        Returns: JSON array of lessons in order
     '''
     user_id = request.args.get("user_id")
     if not user_id:
@@ -134,8 +140,8 @@ def get_user_lessons():
     return jsonify({"lessons": user["lessons"]})
 
 
-@user_bp.route('/api/generate-next-lesson', methods=['GET', 'POST'])
-def generate_next_lesson():
+@user_bp.route('/api/generatenextlesson', methods=['GET', 'POST'])
+def generatenextlesson():
     '''For generating the next lesson based on user's weaknesses when current lesson completes:
         Updates lessons field in database with new lesson
         Inputs: user_id (string)
@@ -173,3 +179,32 @@ def generate_next_lesson():
         {"$set": new_lesson}
     )
     return jsonify(new_lesson), 200
+
+@user_bp.route("/api/getUserProfile", methods=["GET"])
+def get_user_profile():
+    token_payload = getattr(g, "current_user", {}) or {}
+    user_id = token_payload.get("sub") or request.args.get("userId")
+    if not user_id:
+        return jsonify({"message": "Missing userId"}), 400
+
+    user = users_collection.find_one({"userId": user_id}, {"_id": 0})
+    if not user:
+        return jsonify({"message": "User not found"}), 404
+    return jsonify(user)
+
+@user_bp.route("/api/getUserProgress", methods=["GET"])
+def get_user_progress():
+    user_id = request.args.get("userId")
+    if not user_id:
+        return jsonify({"message": "Missing userId parameter"}), 400
+
+    user = users_collection.find_one({"userId": user_id}, {"_id": 0})
+    if not user:
+        return jsonify({"message": "User not found"}), 404
+
+    return jsonify({
+        "userId": user["userId"],
+        "name": user["name"],
+        "progress": user["progress"],
+        "history": user["history"],
+    })

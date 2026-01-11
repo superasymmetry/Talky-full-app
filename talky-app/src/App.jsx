@@ -14,21 +14,18 @@ function App() {
   useEffect(() => {
     if (isLoading) return;
     
-    // Get userId from Auth0 if logged in, otherwise use demo
     const userId = isAuthenticated && user ? (user.sub || user.email) : 'demo';
     const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080';
     
     fetch(`${API_BASE}/api/user/lessons?user_id=${userId}`)
       .then(res => res.ok ? res.json() : Promise.reject(`HTTP ${res.status}`))
       .then(data => {
-        const lessonsArray = Object.entries(data.lessons || {})
-          .map(([key, lesson]) => ({
-            id: isNaN(key) ? key : Number(key),
-            name: isNaN(key) ? key : `Lesson ${key}`,
-            description: lesson.words?.join(', ') || lesson.phoneme || '',
-            img: key.toLowerCase() === 'game' ? 'gamecontroller.png' : 'rocketship.png'
-          }))
-          .sort((a, b) => (typeof a.id === 'number' ? a.id : Infinity) - (typeof b.id === 'number' ? b.id : Infinity));
+        const lessonsArray = (data.lessons || []).map(lesson => ({
+          id: lesson.id,
+          name: lesson.id === 'game' ? 'Game' : `Lesson ${lesson.id}`,
+          description: lesson.words?.join(', ') || lesson.phoneme || '',
+          img: lesson.id === 'game' ? 'gamecontroller.png' : 'rocketship.png'
+        }));
         
         setLessons(lessonsArray);
       })
