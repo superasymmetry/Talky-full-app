@@ -1,4 +1,5 @@
 import { Suspense, useRef, useState, useEffect, forwardRef } from 'react'
+import { useMatch } from 'react-router-dom';
 import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls, useGLTF, useAnimations, Sky, Environment, ContactShadows } from '@react-three/drei'
 import Back from './Back.jsx';
@@ -27,6 +28,7 @@ const Model = forwardRef(function Model(props, ref) {
 
 
 export default function Lesson({maxLessonId}) {
+  const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
   const [nextHover, setNextHover] = useState(false)
   const [isRecordingBackend, setIsRecordingBackend] = useState(false)
   const [backendFilename, setBackendFilename] = useState(null)
@@ -38,35 +40,57 @@ export default function Lesson({maxLessonId}) {
   const [feedbackText, setFeedbackText] = useState('');
   const [robotPos, setRobotPos] = useState([-10, -1, 0]);
   const robotRef = useRef(null);
+  const match = useMatch("/lessons/:id");
+  const lessonId = match?.params?.id;
+  const [showIntro, setShowIntro] = useState(true);
+  const videoUrl = "https://youtu.be/IwWw6Xe09O0?t=31";
 
-  const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+  const toEmbed = (u) => {
+    try {
+      if (!u) return null;
+      const url = new URL(u);
+      const v = url.searchParams.get('v');
+      if (v) return `https://www.youtube.com/embed/${v}`;
+      if (url.hostname === 'youtu.be') return `https://www.youtube.com/embed/${url.pathname.slice(1)}`;
+      return u;
+    } catch (e) { return null; }
+  }
+  
   // Fetch lesson data
   useEffect(() => {
-    fetch(`${API_BASE}/api/lessons`)
+    const userId = localStorage.getItem('user_id') || 'demo';
+    fetch(`${API_BASE}/api/lessons?user_id=${encodeURIComponent(userId)}&lesson_id=${encodeURIComponent(lessonId)}`)
       .then((response) => response.json())
       .then((data) => {
         const parsedData = JSON.parse(data);
         setCardData(parsedData);
-        console.log('Fetched lesson data:', parsedData);
+        console.log('Fetched lesson data:', data);
       })
       .catch((error) => console.error("Error fetching data:", error));
   }, []);
 
+
   // Speak the first sentence
   useEffect(() => {
-    if (cardData) {
-      try{
-        const currentSentence = cardData[currentSentenceIndex];
-        console.log("cardData", cardData);
-        const utterance = new SpeechSynthesisUtterance(currentSentence);
-        window.speechSynthesis.speak(utterance);
-      } catch(e){
-        const currentSentence = cardData[currentSentenceIndex.toString()];
-        const utterance = new SpeechSynthesisUtterance(currentSentence);
-        window.speechSynthesis.speak(utterance);
+    if (!cardData || showIntro) return;
+    const currentSentence = cardData[String(currentSentenceIndex)] || cardData[currentSentenceIndex] || '';
+    if (!currentSentence) return;
+    try {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(currentSentence);
+      u.lang = 'en-US';
+      const savedVoice = localStorage.getItem('ttsVoice');
+      console.log("Saved voice:", savedVoice);
+      if (savedVoice) {
+        const voices = window.speechSynthesis.getVoices();
+        const voice = voices.find(v => v.name === savedVoice);
+        if (voice) u.voice = voice;
       }
+      window.speechSynthesis.speak(u);
+    } catch (err) {
+      console.warn('TTS failed', err);
     }
-  }, [cardData, currentSentenceIndex]);
+  }, [cardData, currentSentenceIndex, showIntro]);
 
   const startBackendRecording = async (seconds = 5) => {
     setIsRecordingBackend(true)
@@ -84,6 +108,12 @@ export default function Lesson({maxLessonId}) {
       if (data.passed) {
         actions?.ThumbsUp?.play?.();
         const utter = new SpeechSynthesisUtterance("Great job!");
+        const savedVoice = localStorage.getItem('ttsVoice');
+        if (savedVoice) {
+          const voices = window.speechSynthesis.getVoices();
+          const voice = voices.find(v => v.name === savedVoice);
+          if (voice) utter.voice = voice;
+        }
         window.speechSynthesis.speak(utter);
         setDoneSentence(true);
         actions?.Walking?.play?.();
@@ -104,7 +134,13 @@ export default function Lesson({maxLessonId}) {
           ? data.feedback.map(f => (typeof f === 'string' ? f : `${f.word || ''} ${f.issue || ''}`.trim())).join(' ')
           : String(data.feedback || 'No, try again.')
         setFeedbackText(feedbackMsg)
-        const utter = new SpeechSynthesisUtterance(feedbackMsg)
+        const utter = new SpeechSynthesisUtterance(feedbackMsg);
+        const savedVoice = localStorage.getItem('ttsVoice');
+        if (savedVoice) {
+          const voices = window.speechSynthesis.getVoices();
+          const voice = voices.find(v => v.name === savedVoice);
+          if (voice) utter.voice = voice;
+        }
         window.speechSynthesis.speak(utter)
       }
     } catch (err) {
@@ -142,6 +178,54 @@ export default function Lesson({maxLessonId}) {
         }
       }
     }
+ }
+  if (showIntro) {
+    return (
+      <div style={{
+        position: 'fixed',
+        inset: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        color: 'white',
+        textAlign: 'center',
+        padding: 24
+      }}>
+        <h2 style={{ fontSize: '2rem', marginBottom: '1rem' }}>Watch this example first</h2>
+        {videoUrl ? (
+          <iframe
+            title="intro-video"
+            src={toEmbed(videoUrl)}
+            width="640"
+            height="360"
+            style={{ borderRadius: 12, marginBottom: '2rem' }}
+            frameBorder="0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+          />
+        ) : (
+          <div style={{ marginBottom: '2rem', fontSize: '1.2rem' }}>Loading video...</div>
+        )}
+        <button
+          onClick={() => setShowIntro(false)}
+          style={{
+            padding: '12px 24px',
+            borderRadius: 25,
+            border: 'none',
+            background: 'linear-gradient(90deg, #6dd3ff 0%, #6b73ff 100%)',
+            color: 'white',
+            fontSize: '1.1rem',
+            fontWeight: 700,
+            cursor: 'pointer',
+            boxShadow: '0 8px 20px rgba(0,0,0,0.2)'
+          }}
+        >
+          Start Lesson
+        </button>
+      </div>
+    );
   }
 
   if (isFinished) {

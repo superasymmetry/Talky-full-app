@@ -84,11 +84,26 @@ def adduser():
             {"id": "game", "phoneme": "l", "words": ["lion", "leaf"], "score": 0},
             {"id": "3", "phoneme": "l", "words": ["lion", "leaf"], "score": 0},
             {"id": "4", "phoneme": "l", "words": ["letter", "learn"], "score": 0},
-        ]
+        ],
+        "level": {"current": 1, "subpoints": 20, "maxval": 100}
     }
     users_collection.insert_one(user_doc)
     print("added user,", user_doc)
     return jsonify(user_doc)
+
+@user_bp.route("/api/user/get_level", methods=["GET", "POST"])
+def get_user_level():
+    '''For getting user's level: retrieves user's level field form mongodb
+        Inputs: user_id (string)
+        Returns: JSON of level
+    '''
+    user_id = request.args.get("user_id")
+    if not user_id:
+        return jsonify({"error": "user_id is required"}), 400
+    user = users_collection.find_one({"userId": user_id}, {"level": 1})
+    if not user or "level" not in user:
+        return jsonify({"error": "User not found or level data missing"}), 404
+    return jsonify({"level": user["level"]})
 
 @user_bp.route("/api/user/progress", methods=["GET", "POST"])
 def get_user_progress_weakness():
