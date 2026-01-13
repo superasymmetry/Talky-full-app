@@ -52,7 +52,7 @@ export default function SoundBank() {
   const tiltOptions = { max: 6, speed: 300, scale: 1.01 }
 
   return (
-    <div className="min-h-screen bg-page">
+    <div className="min-h-screen bg-page" style={{position: 'fixed', inset: 0, padding: '90px'}}>
       <Header />
       <main className="max-w-7xl mx-auto px-6 py-10">
         {/* top title row */}

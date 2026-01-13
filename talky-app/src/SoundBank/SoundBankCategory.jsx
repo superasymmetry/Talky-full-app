@@ -170,9 +170,9 @@ export default function SoundBankCategory() {
   };
 
   return (
-    <div className="min-h-screen bg-page">
+    <div className="min-h-screen bg-page" style={{position: 'fixed', inset: 0, padding: '45px'}}>
       <Header />
-      <main className="max-w-7xl mx-auto px-6 py-10">
+      <main className="max-w-7xl mx-auto px-6 py-10" style={{overflow: 'hidden', transform: 'scale(0.9)'}}>
         <div className="flex items-center justify-between mb-6">
           <button onClick={() => navigate('/soundbank')} className="text-2xl text-primary font-bold">❮</button>
           <h2 className="text-3xl font-extrabold text-orange-600 tracking-wider">

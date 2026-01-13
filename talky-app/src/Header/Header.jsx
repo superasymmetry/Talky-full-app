@@ -20,6 +20,9 @@ function Header() {
             <Link to="/app" className={styles.navLink}>Home</Link>
           </li>
           <li className={styles.navItem}>
+            <Link to="/statistics" className={styles.navLink}>Statistics</Link>
+          </li>
+          <li className={styles.navItem}>
             <Link to="/profile" className={styles.navLink}>Profile</Link>
           </li>
           <li className={styles.navItem}>
