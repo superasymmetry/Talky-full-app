@@ -126,7 +126,7 @@ def lessons():
     print(word_list)
     prompt = f"""
     Your tasks is to generate a list of 7 sentences for speech therapy practice. 
-    Please generate ethe sentences based on these words: {word_list}.
+    Please generate the sentences based on these words: {word_list}.
     Each sentence should be between 5-10 words long. Please return the sentences in JSON format as follows:
     {{
         1: "first sentence",
