@@ -1,4 +1,5 @@
 import { Suspense, useRef, useState, useEffect, forwardRef } from 'react'
+import { useMatch } from 'react-router-dom';
 import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls, useGLTF, useAnimations, Sky, Environment, ContactShadows } from '@react-three/drei'
 import Back from './Back.jsx';
@@ -26,7 +27,8 @@ const Model = forwardRef(function Model(props, ref) {
 })
 
 
-export default function Lesson({maxLessonId}) {
+export default function Lesson() {
+  const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
   const [nextHover, setNextHover] = useState(false)
   const [isRecordingBackend, setIsRecordingBackend] = useState(false)
   const [backendFilename, setBackendFilename] = useState(null)
@@ -38,35 +40,58 @@ export default function Lesson({maxLessonId}) {
   const [feedbackText, setFeedbackText] = useState('');
   const [robotPos, setRobotPos] = useState([-10, -1, 0]);
   const robotRef = useRef(null);
-
-  const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+  const match = useMatch("/lessons/:id");
+  const lessonId = match?.params?.id;
+  const [showIntro, setShowIntro] = useState(true);
+  const videoUrl = "https://youtu.be/IwWw6Xe09O0?t=31";
+  const [score, setScore] = useState(0);
+  
+  const toEmbed = (u) => {
+    try {
+      if (!u) return null;
+      const url = new URL(u);
+      const v = url.searchParams.get('v');
+      if (v) return `https://www.youtube.com/embed/${v}`;
+      if (url.hostname === 'youtu.be') return `https://www.youtube.com/embed/${url.pathname.slice(1)}`;
+      return u;
+    } catch (e) { return null; }
+  }
+  
   // Fetch lesson data
   useEffect(() => {
-    fetch(`${API_BASE}/api/lessons`)
+    const userId = localStorage.getItem('user_id') || 'demo';
+    fetch(`${API_BASE}/api/lessons?user_id=${encodeURIComponent(userId)}&lesson_id=${encodeURIComponent(lessonId)}`)
       .then((response) => response.json())
       .then((data) => {
         const parsedData = JSON.parse(data);
         setCardData(parsedData);
-        console.log('Fetched lesson data:', parsedData);
+        console.log('Fetched lesson data:', data);
       })
       .catch((error) => console.error("Error fetching data:", error));
   }, []);
 
+
   // Speak the first sentence
   useEffect(() => {
-    if (cardData) {
-      try{
-        const currentSentence = cardData[currentSentenceIndex];
-        console.log("cardData", cardData);
-        const utterance = new SpeechSynthesisUtterance(currentSentence);
-        window.speechSynthesis.speak(utterance);
-      } catch(e){
-        const currentSentence = cardData[currentSentenceIndex.toString()];
-        const utterance = new SpeechSynthesisUtterance(currentSentence);
-        window.speechSynthesis.speak(utterance);
+    if (!cardData || showIntro) return;
+    const currentSentence = cardData[String(currentSentenceIndex)] || cardData[currentSentenceIndex] || '';
+    if (!currentSentence) return;
+    try {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(currentSentence);
+      u.lang = 'en-US';
+      const savedVoice = localStorage.getItem('ttsVoice');
+      console.log("Saved voice:", savedVoice);
+      if (savedVoice) {
+        const voices = window.speechSynthesis.getVoices();
+        const voice = voices.find(v => v.name === savedVoice);
+        if (voice) u.voice = voice;
       }
+      window.speechSynthesis.speak(u);
+    } catch (err) {
+      console.warn('TTS failed', err);
     }
-  }, [cardData, currentSentenceIndex]);
+  }, [cardData, currentSentenceIndex, showIntro]);
 
   const startBackendRecording = async (seconds = 5) => {
     setIsRecordingBackend(true)
@@ -80,10 +105,18 @@ export default function Lesson({maxLessonId}) {
       const data = await res.json()
       console.log('Backend record response:', data)
       if (!res.ok) throw new Error(data.error || 'Record failed')
+
       setBackendFilename(data.filename)
       if (data.passed) {
         actions?.ThumbsUp?.play?.();
         const utter = new SpeechSynthesisUtterance("Great job!");
+        setScore(score => (score ?? 0) + data.score);
+        const savedVoice = localStorage.getItem('ttsVoice');
+        if (savedVoice) {
+          const voices = window.speechSynthesis.getVoices();
+          const voice = voices.find(v => v.name === savedVoice);
+          if (voice) utter.voice = voice;
+        }
         window.speechSynthesis.speak(utter);
         setDoneSentence(true);
         actions?.Walking?.play?.();
@@ -98,13 +131,21 @@ export default function Lesson({maxLessonId}) {
       } else {
         console.log("no")
         actions && actions.No.play();
+        // reduce score
+        setScore(score => Math.max(0, (score ?? 0) - (100 - data.score)));
         // give feedback (text to speech)
         console.log('Feedback data:', data)
         const feedbackMsg = Array.isArray(data.feedback)
           ? data.feedback.map(f => (typeof f === 'string' ? f : `${f.word || ''} ${f.issue || ''}`.trim())).join(' ')
           : String(data.feedback || 'No, try again.')
         setFeedbackText(feedbackMsg)
-        const utter = new SpeechSynthesisUtterance(feedbackMsg)
+        const utter = new SpeechSynthesisUtterance(feedbackMsg);
+        const savedVoice = localStorage.getItem('ttsVoice');
+        if (savedVoice) {
+          const voices = window.speechSynthesis.getVoices();
+          const voice = voices.find(v => v.name === savedVoice);
+          if (voice) utter.voice = voice;
+        }
         window.speechSynthesis.speak(utter)
       }
     } catch (err) {
@@ -117,6 +158,7 @@ export default function Lesson({maxLessonId}) {
 
   const goToNextSentence = async () => {
     setDoneSentence(false);
+    console.log("cardData is", cardData);
     if (cardData && cardData[(currentSentenceIndex + 1).toString()]) {
       setCurrentSentenceIndex(prev => prev + 1);
       if (actions) {
@@ -125,23 +167,87 @@ export default function Lesson({maxLessonId}) {
       }
     } else {
       console.log('No more sentences');
-      setIsFinished(true);
       if (actions) {
         Object.values(actions).forEach(action => action.stop());
         actions.Dance && actions.Dance.play();
       }
-
+      setIsFinished(true);
       const currentLessonId = parseInt(window.location.pathname.split('/').pop());
-      const isLastLesson = currentLessonId === maxLessonId;
-      if (isLastLesson) {
-        try {
-          await fetch(`${API_BASE}/api/generatenextlesson`, { method: 'POST' });
-          console.log('Next lesson generated');
-        } catch (err) {
-          console.error('Failed to generate next lesson:', err);
-        }
+
+      // update scores in mongodb
+      const userId = localStorage.getItem('userId') || 'demo';
+      fetch(`${API_BASE}/api/user/updateUserProgress`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: userId,
+          lessonId: currentLessonId,
+          addScore: (score / 700) || 0.1
+        })
+      }).catch(err => console.error('Failed to update user progress:', err));
+      
+      try {
+        const userId = localStorage.getItem('userId') || 'demo';
+        await fetch(`${API_BASE}/api/user/generatenextlesson`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ user_id: userId, currentLessonId: currentLessonId }),
+          });
+        console.log('Next lesson generated');
+      } catch (err) {
+        console.error('Failed to generate next lesson:', err);
       }
     }
+ }
+  if (showIntro) {
+    return (
+      <div style={{
+        position: 'fixed',
+        inset: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        color: 'white',
+        textAlign: 'center',
+        padding: 24
+      }}>
+        <h2 style={{ fontSize: '2rem', marginBottom: '1rem' }}>Watch this example first</h2>
+        {videoUrl ? (
+          <iframe
+            title="intro-video"
+            src={toEmbed(videoUrl)}
+            width="640"
+            height="360"
+            style={{ borderRadius: 12, marginBottom: '2rem' }}
+            frameBorder="0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+          />
+        ) : (
+          <div style={{ marginBottom: '2rem', fontSize: '1.2rem' }}>Loading video...</div>
+        )}
+        <button
+          onClick={() => setShowIntro(false)}
+          style={{
+            padding: '12px 24px',
+            borderRadius: 25,
+            border: 'none',
+            background: 'linear-gradient(90deg, #6dd3ff 0%, #6b73ff 100%)',
+            color: 'white',
+            fontSize: '1.1rem',
+            fontWeight: 700,
+            cursor: 'pointer',
+            boxShadow: '0 8px 20px rgba(0,0,0,0.2)'
+          }}
+        >
+          Start Lesson
+        </button>
+      </div>
+    );
   }
 
   if (isFinished) {
@@ -160,7 +266,7 @@ export default function Lesson({maxLessonId}) {
           <h1 style={{ fontSize: '3rem', marginBottom: '1rem' }}>🎉 Lesson Complete!</h1>
           <p style={{ fontSize: '1.2rem', marginBottom: '2rem' }}>Great job practicing your pronunciation!</p>
           <button
-            onClick={() => window.location.href = '/'}
+            onClick={() => window.location.href = '/app'}
             style={{
               padding: '12px 24px',
               borderRadius: 25,
@@ -292,7 +398,7 @@ export default function Lesson({maxLessonId}) {
         )}
 
         {/* next button - only show when finished*/}
-        {doneSentence && (
+        {true && (
           <button
             aria-label="Next lesson"
             onMouseEnter={() => setNextHover(true)}

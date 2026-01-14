@@ -84,11 +84,27 @@ def adduser():
             {"id": "game", "phoneme": "l", "words": ["lion", "leaf"], "score": 0},
             {"id": "3", "phoneme": "l", "words": ["lion", "leaf"], "score": 0},
             {"id": "4", "phoneme": "l", "words": ["letter", "learn"], "score": 0},
-        ]
+        ],
+        "level": {"current": 1, "subpoints": 20, "maxval": 100},
+        "maxLessonId": 4
     }
     users_collection.insert_one(user_doc)
     print("added user,", user_doc)
     return jsonify(user_doc)
+
+@user_bp.route("/api/user/get_level", methods=["GET", "POST"])
+def get_user_level():
+    '''For getting user's level: retrieves user's level field form mongodb
+        Inputs: user_id (string)
+        Returns: JSON of level
+    '''
+    user_id = request.args.get("user_id")
+    if not user_id:
+        return jsonify({"error": "user_id is required"}), 400
+    user = users_collection.find_one({"userId": user_id}, {"level": 1})
+    if not user or "level" not in user:
+        return jsonify({"error": "User not found or level data missing"}), 404
+    return jsonify({"level": user["level"]})
 
 @user_bp.route("/api/user/progress", methods=["GET", "POST"])
 def get_user_progress_weakness():
@@ -140,7 +156,7 @@ def get_user_lessons():
     return jsonify({"lessons": user["lessons"]})
 
 
-@user_bp.route('/api/generatenextlesson', methods=['GET', 'POST'])
+@user_bp.route('/api/user/generatenextlesson', methods=['GET', 'POST'])
 def generatenextlesson():
     '''For generating the next lesson based on user's weaknesses when current lesson completes:
         Updates lessons field in database with new lesson
@@ -148,37 +164,49 @@ def generatenextlesson():
         Returns: JSON of new lesson data
     '''
     user_id = request.json.get("user_id")
+    currentLessonId = request.json.get("currentLessonId")
     if not user_id:
         return jsonify({"error": "user_id is required"}), 400
     
     user = users_collection.find_one({"userId": user_id})
+    print(user)
+    maxLessonId = user.get("maxLessonId", 0)
     if not user:
         return jsonify({"error": "User not found"}), 404
     
-    lesson_keys = [k for k in user['lessons'].keys() if str(k).isdigit()]
-    lastlesson_id = max([int(k) for k in lesson_keys]) if lesson_keys else 0
-    next_lesson_id = str(lastlesson_id + 1)
-    
-    ps = user['progress']['phonemeScores']
-    valid_scores = [(i, p['avgScore']) for i, p in enumerate(ps) if p.get('avgScore') is not None]
-    
-    if not valid_scores:
-        return jsonify({"error": "No phoneme scores available"}), 400
-    
-    min_idx = min(valid_scores, key=lambda x: x[1])[0]
-    weakest_phoneme = ps[min_idx]['phoneme']
-    words = random.sample(phoneme_word_bank.get(weakest_phoneme, ["practice", "word"]), k=2)
-    
-    new_lesson = {f"lessons.{next_lesson_id}": {
-            "phoneme": weakest_phoneme,
-            "words": words,
-            "score": 0
-        }}
-    users_collection.update_one(
-        {"userId": user_id},
-        {"$set": new_lesson}
-    )
-    return jsonify(new_lesson), 200
+    print("currentLessonId, maxLessonId", currentLessonId, maxLessonId)
+    if not (currentLessonId == maxLessonId - 1):
+        return jsonify({"message": "Not eligible for new lesson yet"}), 400
+    else:
+        next_lesson_id = str(maxLessonId + 1)
+        ps = user['progress']['phonemeScores']
+        lowest = float('inf')
+        weakest_phoneme = 'r'
+        for phoneme_object in ps:
+            if not phoneme_object['avgScore']:
+                weakest_phoneme = phoneme_object['phoneme']
+                break
+            if phoneme_object['avgScore'] < lowest:
+                lowest = phoneme_object['avgScore']
+                weakest_phoneme = phoneme_object['phoneme']
+
+        words = random.sample(phoneme_word_bank.get(weakest_phoneme, ["practice", "word"]), k=2)
+        
+        new_lesson = {f"lessons.{next_lesson_id}": {
+                "id": next_lesson_id,
+                "phoneme": weakest_phoneme,
+                "words": words,
+                "score": 0
+            }}
+        users_collection.update_one(
+            {"userId": user_id},
+            {"$set": new_lesson}
+        )
+        users_collection.update_one(
+            {"userId": user_id},
+            {"$set": {"maxLessonId": maxLessonId + 1}}
+        )
+        return jsonify(new_lesson), 200
 
 @user_bp.route("/api/getUserProfile", methods=["GET"])
 def get_user_profile():
@@ -208,3 +236,52 @@ def get_user_progress():
         "progress": user["progress"],
         "history": user["history"],
     })
+
+@user_bp.route("/api/user/updateUserProgress", methods=["POST"])
+def update_user_progress():
+    data = request.get_json()
+    user_id = data.get("userId")
+    lesson_id = data.get("lessonId")
+    add_score = data.get("addScore")
+    user = users_collection.find_one({"userId": user_id})
+    if not user:
+        return jsonify({"message": "User not found"}), 404
+
+    prev_data = users_collection.find_one({"userId": user_id})
+    lessons_data = prev_data["lessons"]
+    phoneme = "r"
+    for i in range(len(lessons_data)):
+        if lessons_data[i]["id"] == lesson_id:
+            phoneme = lessons_data[i]["phoneme"]
+            break
+    # Update progress
+    updated_progress = prev_data["progress"]["phonemeScores"]
+    for i in range(len(updated_progress)):
+        if updated_progress[i]["phoneme"] == phoneme:
+            prev_avg = updated_progress[i]["avgScore"] or 0
+            prev_attempts = updated_progress[i]["attempts"] or 0
+            new_avg = (prev_avg * prev_attempts + add_score) / (prev_attempts + 1)
+            updated_progress[i]["avgScore"] = new_avg
+            updated_progress[i]["attempts"] = prev_attempts + 1
+            break
+    progress_update = {
+        "phonemeScores": updated_progress
+    }
+    prev_history = prev_data["history"][-1]
+    updated_history = prev_history.copy()
+    updated_history[phoneme] += add_score
+
+    users_collection.update_one(
+        {"userId": user_id, "lessons.id": lesson_id},
+        {"$set": {"lessons.$.score": add_score}}
+    )
+
+    users_collection.update_one(
+        {"userId": user_id},
+        {
+            "$set": {"progress": progress_update},
+            "$push": {"history": updated_history}
+        }
+    )
+
+    return jsonify({"message": "User progress updated successfully"}), 200

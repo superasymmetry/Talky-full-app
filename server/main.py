@@ -18,7 +18,7 @@ from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 load_dotenv()
 
 app = Flask(__name__)
-cors = CORS(app, origins="*")
+cors = CORS(app)
 
 # Register routes
 app.register_blueprint(user_bp)
@@ -119,14 +119,15 @@ def compute_pronunciation_score(audio_path, expected_text):
 def lessons():
     user_id = request.args.get('user_id')
     lesson_id = request.args.get('lesson_id')
-
+    print("user id------------------", user_id)
     user = users_collection.find_one({"userId": user_id})
-    lesson = user.get('lessons', {}).get(lesson_id, {})
+    print("typeof lesson", type(lesson_id))
+    lesson = user.get('lessons', [])[int(lesson_id)]
     word_list = lesson.get('words', [])
     print(word_list)
     prompt = f"""
     Your tasks is to generate a list of 7 sentences for speech therapy practice. 
-    Please generate ethe sentences based on these words: {word_list}.
+    Please generate the sentences based on these words: {word_list}.
     Each sentence should be between 5-10 words long. Please return the sentences in JSON format as follows:
     {{
         1: "first sentence",
