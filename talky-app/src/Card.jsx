@@ -1,4 +1,3 @@
-import profilePic from './assets/meltingrubix.png';
 import talkyRocket from './assets/logo.png';
 import VanillaTilt from 'vanilla-tilt';
 import React, { useRef, useEffect } from 'react';
@@ -7,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 function Card(props) {
     const tilt = useRef(null);
     const {
+        disabled,
         options,
         to,
         id,
@@ -22,12 +22,19 @@ function Card(props) {
     } = props;
 
     useEffect(() => {
+        if (disabled || !tilt.current) return;
         if (tilt.current) VanillaTilt.init(tilt.current, options)
-    }, [options]);
+        
+        return () => {
+            if (tilt.current) {
+                tilt.current.vanillaTilt?.destroy();
+            }
+        }
+    }, [options, disabled]);
 
     const navigate = useNavigate();
     const handleCardClick = () => {
-        if (noNavigate) return;
+        if (disabled || noNavigate) return;
 
         if (to && typeof to === 'string') {
             const path = to.startsWith('/') ? to : `/${to}`;
@@ -52,7 +59,7 @@ function Card(props) {
 
     return (
         <div
-            ref={tilt}
+            ref={disabled ? null : tilt}
             {...rest}
             id={id}
             onClick={handleCardClick}
@@ -62,14 +69,13 @@ function Card(props) {
             className={`relative group cursor-pointer ${className}`}
         >
             {/* Gradient border wrapper */}
-            <div className="
+            <div className={`
                 absolute inset-0 rounded-2xl
                 p-[2px] w-full h-full
                 bg-transparent
-                group-hover:bg-gradient-to-r group-hover:from-cyan-400 group-hover:via-blue-500 group-hover:to-sky-600
-                group-hover:bg-[length:200%_200%] group-hover:animate-[borderGlow_6s_linear_infinite]
+                ${!disabled && 'group-hover:bg-gradient-to-r group-hover:from-cyan-400 group-hover:via-blue-500 group-hover:to-sky-600 group-hover:bg-[length:200%_200%] group-hover:animate-[borderGlow_6s_linear_infinite]'}
                 transition-all duration-300
-            "></div>
+            `}></div>
 
             {/* Inner card */}
             <div
@@ -77,9 +83,7 @@ function Card(props) {
                     relative rounded-2xl p-6 w-full h-full
                     bg-white/75 backdrop-blur-md shadow-[0_8px_20px_rgba(0,120,255,0.4)]
                     transition-all duration-300
-                    group-hover:bg-white/90
-                    group-hover:shadow-[0_0_10px_rgba(0,180,255,0.6),0_0_20px_rgba(0,120,255,0.4),0_0_30px_rgba(0,120,255,0.25)]
-                    transform group-hover:-translate-y-2 group-hover:scale-105
+                    ${!disabled && 'group-hover:bg-white/90 group-hover:shadow-[0_0_10px_rgba(0,180,255,0.6),0_0_20px_rgba(0,120,255,0.4),0_0_30px_rgba(0,120,255,0.25)] transform group-hover:-translate-y-2 group-hover:scale-105'}
                     ${isLoading ? 'opacity-50' : 'opacity-100'}
                 `}
             >

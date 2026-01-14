@@ -1,0 +1,24 @@
+{
+  "type": "api",
+  "subtype": "http",
+  "name": "Login endpoint up",
+  "message": "Synthetic smoke check for login",
+  "tags": ["e2e-tests", "smoke", "service:talky"],
+  "status": "live",
+  "locations": ["aws:us-east-1"],
+  "options": {
+    "tickEvery": 900,
+    "minLocationFailed": 1,
+    "retry": { "count": 2, "interval": 300 }
+  },
+  "config": {
+    "request": {
+      "method": "GET",
+      "url": "https://example.com/login"
+    },
+    "assertions": [
+      { "type": "statusCode", "operator": "is", "target": 200 },
+      { "type": "responseTime", "operator": "lessThan", "target": 2000 }
+    ]
+  }
+}

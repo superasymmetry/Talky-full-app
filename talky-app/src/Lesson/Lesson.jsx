@@ -1,12 +1,14 @@
-import { Suspense, useRef, useState, useEffect } from 'react'
+import { Suspense, useRef, useState, useEffect, forwardRef } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls, useGLTF, useAnimations, Sky, Environment, ContactShadows } from '@react-three/drei'
+import Back from './Back.jsx';
 
 useGLTF.preload('/robot-draco.glb')
 
-function Model(props) {
-  const { scene, animations } = useGLTF('/robot-draco.glb')
-  const { actions } = useAnimations(animations, scene)
+const Model = forwardRef(function Model(props, ref) {
+  const { scene, animations } = useGLTF('/robot-draco.glb');
+  const robot = scene.getObjectByName('Robot');
+  const { actions } = useAnimations(animations, scene);
 
   useEffect(() => {
     console.log('Available actions:', Object.keys(actions))
@@ -20,11 +22,11 @@ function Model(props) {
     if (props.onActionsReady) props.onActionsReady(actions)
   }, [actions, scene, animations, props])
 
-  return <primitive object={scene} {...props} />
-}
+  return <primitive ref={ref} object={scene} {...props} />
+})
 
 
-export default function Lesson() {
+export default function Lesson({maxLessonId}) {
   const [nextHover, setNextHover] = useState(false)
   const [isRecordingBackend, setIsRecordingBackend] = useState(false)
   const [backendFilename, setBackendFilename] = useState(null)
@@ -32,8 +34,12 @@ export default function Lesson() {
   const [actions, setActions] = useState(null);
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(1);
   const [isFinished, setIsFinished] = useState(false);
+  const [doneSentence, setDoneSentence] = useState(false);
+  const [feedbackText, setFeedbackText] = useState('');
+  const [robotPos, setRobotPos] = useState([-10, -1, 0]);
+  const robotRef = useRef(null);
+
   const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
-  console.log('API_BASE:', API_BASE);
   // Fetch lesson data
   useEffect(() => {
     fetch(`${API_BASE}/api/lessons`)
@@ -51,6 +57,7 @@ export default function Lesson() {
     if (cardData) {
       try{
         const currentSentence = cardData[currentSentenceIndex];
+        console.log("cardData", cardData);
         const utterance = new SpeechSynthesisUtterance(currentSentence);
         window.speechSynthesis.speak(utterance);
       } catch(e){
@@ -75,9 +82,30 @@ export default function Lesson() {
       if (!res.ok) throw new Error(data.error || 'Record failed')
       setBackendFilename(data.filename)
       if (data.passed) {
-        actions && actions.ThumbsUp.play()
+        actions?.ThumbsUp?.play?.();
+        const utter = new SpeechSynthesisUtterance("Great job!");
+        window.speechSynthesis.speak(utter);
+        setDoneSentence(true);
+        actions?.Walking?.play?.();
+        // Move robot forward along its facing
+        if (robotRef.current) {
+          robotRef.current.translateZ(30 / 7);
+          robotRef.current.updateMatrixWorld();
+          const p = robotRef.current.position;
+          setRobotPos([p.x, p.y, p.z]);
+        }
+        actions?.Idle?.play?.();
       } else {
-        actions && actions.No.play()
+        console.log("no")
+        actions && actions.No.play();
+        // give feedback (text to speech)
+        console.log('Feedback data:', data)
+        const feedbackMsg = Array.isArray(data.feedback)
+          ? data.feedback.map(f => (typeof f === 'string' ? f : `${f.word || ''} ${f.issue || ''}`.trim())).join(' ')
+          : String(data.feedback || 'No, try again.')
+        setFeedbackText(feedbackMsg)
+        const utter = new SpeechSynthesisUtterance(feedbackMsg)
+        window.speechSynthesis.speak(utter)
       }
     } catch (err) {
       console.error('Backend record error:', err)
@@ -87,7 +115,8 @@ export default function Lesson() {
     }
   }
 
-  const goToNextSentence = () => {
+  const goToNextSentence = async () => {
+    setDoneSentence(false);
     if (cardData && cardData[(currentSentenceIndex + 1).toString()]) {
       setCurrentSentenceIndex(prev => prev + 1);
       if (actions) {
@@ -100,6 +129,17 @@ export default function Lesson() {
       if (actions) {
         Object.values(actions).forEach(action => action.stop());
         actions.Dance && actions.Dance.play();
+      }
+
+      const currentLessonId = parseInt(window.location.pathname.split('/').pop());
+      const isLastLesson = currentLessonId === maxLessonId;
+      if (isLastLesson) {
+        try {
+          await fetch(`${API_BASE}/api/generatenextlesson`, { method: 'POST' });
+          console.log('Next lesson generated');
+        } catch (err) {
+          console.error('Failed to generate next lesson:', err);
+        }
       }
     }
   }
@@ -144,7 +184,7 @@ export default function Lesson() {
     <div style={{ position: 'fixed', inset: 0, margin: 0, padding: 0, overflow: 'hidden' }}>
       <Canvas
         style={{ width: '100%', height: '100%' }}
-        camera={{ position: [0, 1.6, 3], fov: 50 }}
+        camera={{ position: [-15, 8, 10], fov: 50 }}
         shadows
         gl={{ antialias: true }}
       >
@@ -162,15 +202,40 @@ export default function Lesson() {
             <meshStandardMaterial color="#6aa84f" roughness={1} metalness={0} />
           </mesh>
 
-          {/* soft contact shadow under model */}
-          <ContactShadows position={[0, -1, 0]} opacity={0.6} width={4} height={4} blur={2} far={2} />
+          {/* road and finish flag */}
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[5, -1.0, 0]} receiveShadow>
+            <planeGeometry args={[30, 4]} />
+            <meshStandardMaterial color="#333" roughness={0.9} metalness={0.1} />
+          </mesh>
 
-          <Model position={[0, -1, 0]} scale={0.5} rotation={[0, 0, 0]} onActionsReady={setActions} />
+          <group position={[20, -1, 0]}>
+            {/* pole */}
+            <mesh position={[0, 1, 0]} castShadow>
+              <cylinderGeometry args={[0.03, 0.03, 2, 8]} />
+              <meshStandardMaterial color="#444" />
+            </mesh>
+            {/* flag */}
+            <mesh position={[0, 1.7, 0.45]} rotation={[0, Math.PI / 2, 0]} castShadow>
+              <planeGeometry args={[1, 0.6]} />
+              <meshStandardMaterial color="#e53935" side={2} />
+            </mesh>
+          </group>
+          {/* soft contact shadow under model */}
+          <ContactShadows position={robotPos} opacity={0.6} width={4} height={4} blur={2} far={2} />
+
+          <Model
+            ref={robotRef}
+            position={robotPos}
+            scale={0.5}
+            rotation={[0, Math.PI / 2, 0]}
+            onActionsReady={setActions}
+          />
 
           <OrbitControls enablePan={true} enableZoom={true} maxPolarAngle={Math.PI / 2.1} />
         </Suspense>
       </Canvas>
 
+      <Back />
       <div
         style={{
           position: 'absolute',
@@ -180,35 +245,86 @@ export default function Lesson() {
           pointerEvents: 'auto',
         }}
       >
-        {/* next button */}
-        <button
-          aria-label="Next lesson"
-          onMouseEnter={() => setNextHover(true)}
-          onMouseLeave={() => setNextHover(false)}
-          onClick={goToNextSentence}
-          style={{
+
+      {/* feedback modal */}
+      {feedbackText && (
+          <div style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 100,
             display: 'flex',
             alignItems: 'center',
-            gap: 10,
-            padding: '12px 18px',
-            borderRadius: 999,
-            cursor: 'pointer',
-            background: nextHover
-              ? 'linear-gradient(90deg, #ff8a00 0%, #e52e71 100%)'
-              : 'linear-gradient(90deg, #6dd3ff 0%, #6b73ff 100%)',
-            color: '#fff',
-            fontWeight: 700,
-            boxShadow: nextHover ? '0 10px 30px rgba(229,46,113,0.35)' : '0 8px 24px rgba(107,115,255,0.18)',
-            transform: nextHover ? 'translateY(-2px)' : 'translateY(0)',
-            transition: 'all 180ms ease',
-            backdropFilter: 'blur(6px)',
-          }}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <path d="M5 12h14" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M12 5l7 7-7 7" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
+            justifyContent: 'center',
+            background: 'rgba(0,0,0,0.5)',
+            backdropFilter: 'blur(4px)'
+          }}>
+            <div style={{
+              width: '50%',
+              maxWidth: 600,
+              background: 'white',
+              borderRadius: 16,
+              padding: 24,
+              boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+              position: 'relative'
+            }}>
+              <button
+                onClick={() => {
+                  setFeedbackText('')
+                  window.speechSynthesis.cancel()
+                }}
+                style={{
+                  position: 'absolute',
+                  top: 12,
+                  right: 12,
+                  background: 'transparent',
+                  border: 'none',
+                  fontSize: 24,
+                  cursor: 'pointer',
+                  color: '#666'
+                }}
+              >
+                ×
+              </button>
+              <h3 style={{ marginTop: 0, marginBottom: 16, color: '#333' }}>Feedback</h3>
+              <div style={{ color: '#555', lineHeight: 1.6 }}>{feedbackText}</div>
+            </div>
+          </div>
+        )}
+
+        {/* next button - only show when finished*/}
+        {doneSentence && (
+          <button
+            aria-label="Next lesson"
+            onMouseEnter={() => setNextHover(true)}
+            onMouseLeave={() => setNextHover(false)}
+            onClick={() => {
+              goToNextSentence();
+              window.speechSynthesis.cancel()
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              padding: '12px 18px',
+              borderRadius: 999,
+              cursor: 'pointer',
+              background: nextHover
+                ? 'linear-gradient(90deg, #ff8a00 0%, #e52e71 100%)'
+                : 'linear-gradient(90deg, #6dd3ff 0%, #6b73ff 100%)',
+              color: '#fff',
+              fontWeight: 700,
+              boxShadow: nextHover ? '0 10px 30px rgba(229,46,113,0.35)' : '0 8px 24px rgba(107,115,255,0.18)',
+              transform: nextHover ? 'translateY(-2px)' : 'translateY(0)',
+              transition: 'all 180ms ease',
+              backdropFilter: 'blur(6px)',
+            }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <path d="M5 12h14" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M12 5l7 7-7 7" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        )}
       </div>
 
       {/* record button */}
@@ -249,7 +365,7 @@ export default function Lesson() {
         borderRadius: 12,
         backdropFilter: 'blur(6px)'
       }}>
-        <div>Sentence {currentSentenceIndex}:</div>
+        <div>Say this sentence:</div>
         <div style={{ fontWeight: 'bold', marginTop: 4 }}>
           {cardData ? cardData[currentSentenceIndex.toString()] || 'End of lesson' : 'Loading...'}
         </div>

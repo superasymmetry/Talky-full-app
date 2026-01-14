@@ -2,4 +2,7 @@
 .env*
 *.env
 
+server/.env
+*.env
+
 __pycache__/
