@@ -121,7 +121,8 @@ def lessons():
     lesson_id = request.args.get('lesson_id')
     print("user id------------------", user_id)
     user = users_collection.find_one({"userId": user_id})
-    lesson = user.get('lessons', {})[int(lesson_id)]
+    print("typeof lesson", type(lesson_id))
+    lesson = user.get('lessons', [])[int(lesson_id)]
     word_list = lesson.get('words', [])
     print(word_list)
     prompt = f"""

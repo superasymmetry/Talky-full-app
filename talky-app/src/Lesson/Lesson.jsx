@@ -27,7 +27,7 @@ const Model = forwardRef(function Model(props, ref) {
 })
 
 
-export default function Lesson({maxLessonId}) {
+export default function Lesson() {
   const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
   const [nextHover, setNextHover] = useState(false)
   const [isRecordingBackend, setIsRecordingBackend] = useState(false)
@@ -44,6 +44,7 @@ export default function Lesson({maxLessonId}) {
   const lessonId = match?.params?.id;
   const [showIntro, setShowIntro] = useState(true);
   const videoUrl = "https://youtu.be/IwWw6Xe09O0?t=31";
+  const [score, setScore] = useState(0);
 
   const toEmbed = (u) => {
     try {
@@ -104,10 +105,12 @@ export default function Lesson({maxLessonId}) {
       const data = await res.json()
       console.log('Backend record response:', data)
       if (!res.ok) throw new Error(data.error || 'Record failed')
+
       setBackendFilename(data.filename)
       if (data.passed) {
         actions?.ThumbsUp?.play?.();
         const utter = new SpeechSynthesisUtterance("Great job!");
+        setScore(score => (score ?? 0) + data.score);
         const savedVoice = localStorage.getItem('ttsVoice');
         if (savedVoice) {
           const voices = window.speechSynthesis.getVoices();
@@ -128,6 +131,8 @@ export default function Lesson({maxLessonId}) {
       } else {
         console.log("no")
         actions && actions.No.play();
+        // reduce score
+        setScore(score => Math.max(0, (score ?? 0) - (100 - data.score)));
         // give feedback (text to speech)
         console.log('Feedback data:', data)
         const feedbackMsg = Array.isArray(data.feedback)
@@ -153,6 +158,7 @@ export default function Lesson({maxLessonId}) {
 
   const goToNextSentence = async () => {
     setDoneSentence(false);
+    console.log("cardData is", cardData);
     if (cardData && cardData[(currentSentenceIndex + 1).toString()]) {
       setCurrentSentenceIndex(prev => prev + 1);
       if (actions) {
@@ -161,21 +167,37 @@ export default function Lesson({maxLessonId}) {
       }
     } else {
       console.log('No more sentences');
-      setIsFinished(true);
       if (actions) {
         Object.values(actions).forEach(action => action.stop());
         actions.Dance && actions.Dance.play();
       }
-
+      setIsFinished(true);
       const currentLessonId = parseInt(window.location.pathname.split('/').pop());
-      const isLastLesson = currentLessonId === maxLessonId;
-      if (isLastLesson) {
-        try {
-          await fetch(`${API_BASE}/api/generatenextlesson`, { method: 'POST' });
-          console.log('Next lesson generated');
-        } catch (err) {
-          console.error('Failed to generate next lesson:', err);
-        }
+
+      // update scores in mongodb
+      const userId = localStorage.getItem('userId') || 'demo';
+      fetch(`${API_BASE}/api/user/updateUserProgress`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: userId,
+          lessonId: currentLessonId,
+          addScore: (score / 700) || 0.1
+        })
+      }).catch(err => console.error('Failed to update user progress:', err));
+      
+      try {
+        const userId = localStorage.getItem('userId') || 'demo';
+        await fetch(`${API_BASE}/api/user/generatenextlesson`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ user_id: userId, currentLessonId: currentLessonId }),
+          });
+        console.log('Next lesson generated');
+      } catch (err) {
+        console.error('Failed to generate next lesson:', err);
       }
     }
  }
@@ -244,7 +266,7 @@ export default function Lesson({maxLessonId}) {
           <h1 style={{ fontSize: '3rem', marginBottom: '1rem' }}>🎉 Lesson Complete!</h1>
           <p style={{ fontSize: '1.2rem', marginBottom: '2rem' }}>Great job practicing your pronunciation!</p>
           <button
-            onClick={() => window.location.href = '/'}
+            onClick={() => window.location.href = '/app'}
             style={{
               padding: '12px 24px',
               borderRadius: 25,
@@ -376,7 +398,7 @@ export default function Lesson({maxLessonId}) {
         )}
 
         {/* next button - only show when finished*/}
-        {doneSentence && (
+        {true && (
           <button
             aria-label="Next lesson"
             onMouseEnter={() => setNextHover(true)}
