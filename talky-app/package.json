@@ -20,6 +20,7 @@
     "react-just-parallax": "^3.1.16",
     "react-router-dom": "^6.30.1",
     "react-use-audio-recorder": "^0.4.2",
+    "reaviz": "^16.1.1",
     "scroll-lock": "^2.1.5",
     "three": "^0.165.0",
     "three.terrain.js": "^2.0.0",

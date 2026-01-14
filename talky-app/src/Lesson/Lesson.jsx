@@ -215,6 +215,7 @@ export default function Lesson() {
         textAlign: 'center',
         padding: 24
       }}>
+        <Back />
         <h2 style={{ fontSize: '2rem', marginBottom: '1rem' }}>Watch this example first</h2>
         {videoUrl ? (
           <iframe
