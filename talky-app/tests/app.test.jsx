@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import App from '../src/App'
+import SoundBank from '../src/SoundBank/SoundBank'
 
 describe('App', () => {
   it('renders without crashing', () => {
@@ -17,7 +18,8 @@ describe('App', () => {
   it('renders lessons and explore card', () => {
     render(
       <MemoryRouter>
-        <App />
+        <Lesson />
+        <SoundBank />
       </MemoryRouter>
     )
 
