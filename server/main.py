@@ -14,6 +14,9 @@ import difflib
 import torchaudio
 import soundfile as sf
 from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
+from gtts import gTTS
+import jiwer
+import pyaudio_recording
 
 load_dotenv()
 
@@ -33,6 +36,7 @@ _processor = None
 _model = None
 _feedback_model = None
 _load_lock = threading.Lock()
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
 phoneme_word_bank = {
     "p": ["pat", "pop", "paper", "puppy", "apple", "stop", "pepper", "paint"],
@@ -69,13 +73,15 @@ phoneme_word_bank = {
     "u": ["cup", "duck", "sun", "bus", "up", "bug", "music"],
 }
 
+                
 def _load_model_once():
     global _processor, _model, _feedback_model
     if _processor is None or _model is None:
         with _load_lock:
             if _processor is None or _model is None:
-                _processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
-                _model = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base-960h").eval()
+                _processor = Wav2Vec2Processor.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme", dtype=torch.float16)
+                _model = Wav2Vec2ForCTC.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme", dtype=torch.float16).eval()
+                _model.to(device)
                 _feedback_model = Groq(api_key=os.environ.get("GROQ_API_KEY"))
     return _processor, _model, _feedback_model
 
@@ -106,14 +112,61 @@ def compute_pronunciation_score(audio_path, expected_text):
     if gop_score > 80:
         feedback = "Great job!"
     else:
-        _feedback_prompt = f"This is the transcription of a spoken sentence that I spoke: '{transcription}'. The expected sentence was: '{expected_text}'. Based on common speech impediments (r, w, l, th, f, s, v, b, ch, sh sounds), please deduce which sounds were mispronounced, as well as the words that were mispronounced, and provide me constructive feedback on how to improve the pronunciation. Output one sentence of feedback and ONLY the one sentence."
+        _feedback_prompt = f"This is the transcription of a spoken sentence that I spoke: '{transcription}'. The expected sentence was: '{expected_text}'. Based on common speech impediments (r, w, l, th, f, s, v, b, ch, sh sounds), please deduce which sounds were mispronounced, as well as the words that were mispronounced, and provide me constructive feedback on how to improve the pronunciation. Output one short sentence of feedback and ONLY the one short sentence."
         feedback = _feedback_model.chat.completions.create(
             messages=[{"role": "user", "content": _feedback_prompt}],
             model="llama-3.1-8b-instant",
         ).choices[0].message.content.strip()
-        feedback += "Hmm, try again. "
+        feedback = "Hmm, try again. " + feedback
     return (transcription, feedback, gop_score)
 
+def phoneme_error_rate(reference, hypothesis):
+    # Tokenize by space
+    ref = reference.split()
+    hyp = hypothesis.split()
+    # Join with space for jiwer
+    ref_str = " ".join(ref)
+    hyp_str = " ".join(hyp)
+    wer = jiwer.wer(ref_str, hyp_str) * 100
+    return wer
+
+def eval_phonemes(audio_path, expected_text):
+    processor, model, feedback_model = _load_model_once()
+    reference_text = expected_text
+    myobj = gTTS(text=reference_text, lang='en', slow=False)
+    myobj.save("reference.wav")
+    audio_input, sample_rate = sf.read(audio_path)
+    inputs = processor(audio_input, sampling_rate=16_000, return_tensors="pt", padding=True).to(device).to(torch.float16)
+
+    with torch.no_grad():
+        logits = model(inputs.input_values, attention_mask=inputs.attention_mask).logits
+
+    predicted_ids = torch.argmax(logits, axis=-1)      
+    predicted_sentences = processor.batch_decode(predicted_ids)
+    print(predicted_sentences)
+
+    audio_input, sample_rate = sf.read("reference.wav")
+    inputs = processor(audio_input, sampling_rate=16_000, return_tensors="pt", padding=True).to(device).to(torch.float16)
+
+    with torch.no_grad():
+        logits = model(inputs.input_values, attention_mask=inputs.attention_mask).logits
+
+    predicted_ids = torch.argmax(logits, axis=-1)      
+    reference_ipa = processor.batch_decode(predicted_ids)
+    print(reference_ipa)
+
+    phoneme_err = phoneme_error_rate(reference_ipa[0], predicted_sentences[0])
+    print(f"Phoneme Error Rate: {phoneme_err}")
+    if phoneme_err < 70:
+        feedback = "Great, you've completed this sentence! Go on."
+    else:
+        _feedback_prompt = f"This is the transcription of a spoken sentence that I spoke: '{predicted_sentences[0]}'. The expected sentence was: '{expected_text}'. Based on common speech impediments (r, w, l, th, f, s, v, b, ch, sh sounds), please deduce which sounds were mispronounced, as well as the words that were mispronounced, and provide me constructive feedback on how to improve the pronunciation. Output one short sentence of feedback and ONLY the one short sentence."
+        feedback = _feedback_model.chat.completions.create(
+            messages=[{"role": "user", "content": _feedback_prompt}],
+            model="llama-3.1-8b-instant",
+        ).choices[0].message.content.strip()
+        feedback = "Hmm, try again. " + feedback
+    return (predicted_sentences[0], feedback, phoneme_err)
 
 @app.route('/api/lessons', methods=['GET', 'POST'])
 def lessons():
@@ -152,14 +205,19 @@ def lessons():
 def backend_record():
     '''For API call in Lesson.jsx: records audio, computes pronunciation score, and returns feedback
         Inputs: JSON with "card" field (sentence to be spoken)
-        Returns: JSON with "filename", "score", "feedback, and "passed" fields
+        Returns: JSON with "score", "feedback", "passed", "transcription", and "reference" fields
     '''
+    # if request.method == 'POST':
+    #     import pyaudio_recording
+    #     sentence = request.get_json()['card']
+    #     filename = pyaudio_recording.record_audio(record_seconds=5)
+    #     transcription, feedback, score = compute_pronunciation_score(filename, sentence)
+    #     return jsonify({"filename": filename, "score": score, "feedback": feedback, "passed": score > 90}), 200
     if request.method == 'POST':
-        import pyaudio_recording
         sentence = request.get_json()['card']
-        filename = pyaudio_recording.record_audio(record_seconds=5)
-        transcription, feedback, score = compute_pronunciation_score(filename, sentence)
-        return jsonify({"filename": filename, "score": score, "feedback": feedback, "passed": score > 90}), 200
+        filename = pyaudio_recording.record_audio(record_seconds=4)
+        transcription, feedback, score = eval_phonemes(filename, sentence)
+        return jsonify({"score": score, "feedback": feedback, "passed": score < 70, "transcription": transcription, "reference": sentence}), 200
 
 @app.route('/api/wordbank', methods=['GET', 'POST'])
 def wordbank():
