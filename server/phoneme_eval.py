@@ -56,7 +56,7 @@ import torch
 import soundfile as sf
 from gtts import gTTS
 
-reference_text = "he has trouble read through the long document"
+reference_text = "the quick brown fox jumps over the lazy dog"
 myobj = gTTS(text=reference_text, lang='en', slow=False)
 myobj.save("reference.wav")
 
@@ -91,3 +91,22 @@ reference_ipa = processor.batch_decode(predicted_ids)
 print(reference_ipa)
 
 
+# import parselmouth
+
+# sound = parselmouth.Sound("input.wav")
+# pitch = sound.to_pitch()
+# intensity = sound.to_intensity()
+
+# print(pitch, intensity)
+
+# point_process = parselmouth.praat.call(sound, "To PointProcess (periodic, cc)", 75, 500)
+# jitter = parselmouth.praat.call(
+#     point_process, "Get jitter (local)", 
+#     0, 0, 0.0001, 0.02, 1.3
+# )
+# shimmer = parselmouth.praat.call(
+#     [sound, point_process], "Get shimmer (local)",
+#     0, 0, 0.0001, 0.02, 1.3, 0.03
+# )
+
+# print(f"Jitter: {jitter}", f"Shimmer: {shimmer}")
