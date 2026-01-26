@@ -2,7 +2,7 @@ import pyaudio
 import numpy as np
 import soundfile as sf
 
-def record_audio(filename="input.wav", record_seconds=5, rate=16000):
+def record_audio(filename="./input.wav", record_seconds=5, rate=16000):
     chunk = 1024
     format = pyaudio.paInt16
     channels = 1
