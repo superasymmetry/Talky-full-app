@@ -1,8 +1,9 @@
-import { Suspense, useRef, useState, useEffect, forwardRef } from 'react'
-import { useMatch } from 'react-router-dom';
 import { Canvas, useFrame } from '@react-three/fiber'
-import { OrbitControls, useGLTF, useAnimations, Sky, Environment, ContactShadows } from '@react-three/drei'
+import { ContactShadows, Environment, OrbitControls, Sky, useAnimations, useGLTF } from '@react-three/drei'
+import { Suspense, forwardRef, useEffect, useRef, useState } from 'react'
+
 import Back from './Back.jsx';
+import { useMatch } from 'react-router-dom';
 
 useGLTF.preload('/robot-draco.glb')
 
@@ -82,6 +83,7 @@ export default function Lesson() {
         setCardData(data.sentences);
         console.log('Fetched lesson data:', data);
         setExpectedIPAs(data.expected_ipas);
+        // TODO: remove these hooks once the backend is fixed
         console.log('Expected IPAs:', data.expected_ipas);
         setWordsToIPA(data.words_to_ipas);
         console.log('Words to IPA:', data.words_to_ipas);
@@ -126,7 +128,10 @@ export default function Lesson() {
       if (!res.ok) throw new Error(data.error || 'Record failed')
 
       setBackendFilename(data.filename)
-      setCurrentWordsToIPA(wordsToIPA[currentSentenceIndex - 1] || null);
+      const wordsToIPA = data.res.map(({word, phonemes}) => ({
+        word, phonemes: phonemes.map(p => p.phoneme)
+      }));
+      setCurrentWordsToIPA(wordsToIPA);
       if (data.passed) {
         actions?.ThumbsUp?.play?.();
         const utter = new SpeechSynthesisUtterance("Great job!");
