@@ -21,7 +21,6 @@ import jiwer
 import pyaudio_recording
 from g2p_en import G2p
 import json
-import eng_to_ipa as ipav
 import nltk
 nltk.download('cmudict')
 
@@ -297,6 +296,7 @@ def get_phoneme_scores(input_audio, expected_sentence):
     for t_idx, n_idx in path:
         if n_idx < N:
             phoneme_frames[n_idx].append(t_idx)
+    # phoneme frames looks something like: [[1, 2, 3], [4], [5], [6, 7, 8, 9, 10...], ...]
 
     # Compute scores
     probs = np.exp(log_probs)
@@ -312,16 +312,19 @@ def get_phoneme_scores(input_audio, expected_sentence):
         num_scores += 1
         phoneme_scores.append({'phoneme': p, 'score': score})
     
+    print("phoneme scores", phoneme_scores)
     res = []
     words = expected_sentence.split()
     for i, pword in enumerate(words_ipa):
         phonemes = []
         for char in pword:
-            if char == phoneme_scores[0]['phoneme']:
-                phonemes.append(phoneme_scores.pop(0))
+            if phoneme_scores:
+                if char == phoneme_scores[0]['phoneme']:
+                    phonemes.append(phoneme_scores.pop(0))
         res.append({'word': words[i], 'phonemes': phonemes})
-
+    print("res", res)
     avg_score = total_score / num_scores
+    print("avg score", avg_score)
 
     return res, avg_score
 
@@ -393,7 +396,7 @@ def backend_record():
         # transcription, feedback, score, _ = eval_phonemes(filename, sentence, expected_ipa)
         res, score = get_phoneme_scores(filename, sentence)
         feedback = "Great job!" if score > 0.8 else "Hmm, try again."
-        return jsonify({"score": score, "feedback": feedback, "passed": score < 70, "reference": sentence, "res": res}), 200
+        return jsonify({"score": score, "feedback": feedback, "passed": score > 0.8, "reference": sentence, "res": res}), 200
 
 @app.route('/api/wordbank', methods=['GET', 'POST'])
 def wordbank():

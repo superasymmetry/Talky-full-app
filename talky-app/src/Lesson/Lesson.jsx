@@ -27,19 +27,15 @@ const Model = forwardRef(function Model(props, ref) {
   return <primitive ref={ref} object={scene} {...props} />
 })
 
-const getWordStyle = (issue) => {
-  switch (issue) {
-    case 'mispronounced':
-      return { backgroundColor: 'rgba(255, 165, 0, 0.3)' }; 
-    case 'deletion':
-      return { backgroundColor: 'rgba(255, 0, 0, 0.3)', textDecoration: 'line-through' };
-    case 'insertion':
-      return { backgroundColor: 'rgba(0, 0, 255, 0.3)' };
-    default:
-      return {};
+const getPhonemeStyle = (score) => {
+  if (score === null || score === undefined || score >= 0.9) {
+    return { background: '#bbf7d0', color: '#166534' };
   }
-}
-
+  if (score >= 0.7) {
+    return { background: '#fef08a', color: '#92400e' };
+  }
+  return { background: '#fecaca', color: '#991b1b' };
+};
 
 export default function Lesson() {
   const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
@@ -62,6 +58,7 @@ export default function Lesson() {
   const [expectedIPAs, setExpectedIPAs] = useState([]);
   const [wordsToIPA, setWordsToIPA] = useState(null);
   const [currentWordsToIPA, setCurrentWordsToIPA] = useState(null);
+  const [returnedWordsToIPA, setReturnedWordsToIPA] = useState(null);
 
   const toEmbed = (u) => {
     try {
@@ -114,6 +111,9 @@ export default function Lesson() {
     }
   }, [cardData, currentSentenceIndex, showIntro]);
 
+  // display percent progress for each phoneme
+  
+
   const startBackendRecording = async (seconds = 5) => {
     setIsRecordingBackend(true)
     setBackendFilename(null)
@@ -128,10 +128,10 @@ export default function Lesson() {
       if (!res.ok) throw new Error(data.error || 'Record failed')
 
       setBackendFilename(data.filename)
-      const wordsToIPA = data.res.map(({word, phonemes}) => ({
-        word, phonemes: phonemes.map(p => p.phoneme)
-      }));
-      setCurrentWordsToIPA(wordsToIPA);
+      setReturnedWordsToIPA(data.res.map(({word, phonemes}) => ({
+        word, phonemes
+      })));
+      setCurrentWordsToIPA(wordsToIPA[currentSentenceIndex - 1] || null);
       if (data.passed) {
         actions?.ThumbsUp?.play?.();
         const utter = new SpeechSynthesisUtterance("Great job!");
@@ -505,36 +505,53 @@ export default function Lesson() {
         {currentWordsToIPA && (
           <div style={{ margin: '12px 0' }}>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {currentWordsToIPA.map(({ word, phonemes }) => (
-                <div key={word} style={{
-                  border: '1px solid #ddd',
-                  borderRadius: 6,
-                  padding: 6,
-                  color: '#333',
-                  background: '#f9f9f9',
-                  minWidth: 70,
-                  marginBottom: 4,
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
-                }}>
-                  <div style={{ fontWeight: 'bold', marginBottom: 2, textAlign: 'center', fontSize: 13 }}>{word}</div>
-                  <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', justifyContent: 'center' }}>
-                    {phonemes.map((ph, i) => (
-                      <span key={i} style={{
-                        display: 'inline-block',
-                        padding: '2px 5px',
-                        borderRadius: 4,
-                        background: '#e0e7ff',
-                        color: '#3730a3',
-                        fontWeight: 500,
-                        fontSize: 12,
-                        margin: 1,
-                        minWidth: 14,
-                        textAlign: 'center'
-                      }}>{ph}</span>
-                    ))}
+              {currentWordsToIPA.map(({ word, phonemes }, wordIdx) => {
+                // Use index to match returned word
+                const returnedWord = returnedWordsToIPA?.[wordIdx];
+                return (
+                  <div key={word + wordIdx} style={{
+                    border: '1px solid #ddd',
+                    borderRadius: 6,
+                    padding: 6,
+                    color: '#333',
+                    background: '#f9f9f9',
+                    minWidth: 70,
+                    marginBottom: 4,
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+                  }}>
+                    <div style={{ fontWeight: 'bold', marginBottom: 2, textAlign: 'center', fontSize: 13 }}>{word}</div>
+                    <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', justifyContent: 'center' }}>
+                      {phonemes.map((ph, i) => {
+                        let score = null;
+                        if (returnedWord && returnedWord.phonemes[i] && returnedWord.phonemes[i].phoneme === ph) {
+                          score = returnedWord.phonemes[i].score;
+                        }
+                        const style = {
+                          ...getPhonemeStyle(score),
+                          display: 'inline-block',
+                          padding: '2px 5px',
+                          borderRadius: 4,
+                          fontWeight: 500,
+                          fontSize: 12,
+                          margin: 1,
+                          minWidth: 14,
+                          textAlign: 'center',
+                          cursor: score !== null ? 'pointer' : 'default'
+                        };
+                        return (
+                          <span
+                            key={i}
+                            style={style}
+                            title={score !== null ? `Score: ${(score * 100).toFixed(1)}%` : 'No score'}
+                          >
+                            {ph}
+                          </span>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
