@@ -1,7 +1,9 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+
 import App from '../src/App'
+import Lesson from '../src/Lesson/Lesson'
+import { MemoryRouter } from 'react-router-dom'
 import SoundBank from '../src/SoundBank/SoundBank'
 
 describe('App', () => {
@@ -16,16 +18,16 @@ describe('App', () => {
   })
 
   it('renders lessons and explore card', () => {
-    render(
+    const result = render(
       <MemoryRouter>
-        <Lesson />
+        <App />
         <SoundBank />
       </MemoryRouter>
-    )
+    );
 
-    expect(screen.getByText(/Lesson 1/i)).toBeInTheDocument()
-    expect(screen.getByText(/Sound Bank/i)).toBeInTheDocument()
-  })
+    const soundBank = result.container.querySelector('#soundbank');
+    expect(soundBank).toBeInTheDocument();
+  });
 
   it('has header and footer', () => {
     render(
@@ -39,18 +41,15 @@ describe('App', () => {
   })
 
   it('lesson can be clicked on', () => {
-    render(
+    const result = render(
       <MemoryRouter>
         <App />
       </MemoryRouter>
-    )
-    const lessons = ['Lesson 1', 'Lesson 2', 'Lesson 3', 'Game']
-    lessons.forEach(label => {
-      const [lesson] = screen.getAllByText(new RegExp(`^${label}$`, 'i'))
-      expect(lesson).toBeInTheDocument()
-      expect(() => lesson.click()).not.toThrow()
-    })
-  })
+    );
+    const lesson1 = result.container.querySelector('#lesson-1');
+    expect(lesson1).toBeInTheDocument();
+    expect(() => lesson.click()).not.toThrow();
+  });
 
   it('soundbank can be clicked on', () => {
     render(

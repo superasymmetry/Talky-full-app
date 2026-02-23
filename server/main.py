@@ -238,6 +238,8 @@ def get_phoneme_scores(input_audio, expected_sentence):
         phoneme_scores (list): List of dictionaries with phoneme and its score.
         e.g. [{'word': 'the', 'phonemes': [{'phoneme': 'ð', 'score': 0.9}, {'phoneme': 'ə', 'score': 0.8}]}, ...]
     """
+    expected_sentence = expected_sentence.rstrip('.')
+
     # Load pre-trained model and processor
     processor = Wav2Vec2Processor.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme", dtype=torch.float16)
     model = Wav2Vec2ForCTC.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme", dtype=torch.float16).eval()
@@ -259,6 +261,8 @@ def get_phoneme_scores(input_audio, expected_sentence):
     expected_ipa = converted_ipa.replace(" ", "")
     expected_ipa = [c for c in expected_ipa if c in phoneme2id]
     print("expected ipa", expected_ipa)
+    if len(expected_ipa) == 0:
+        return [{'word': expected_sentence, 'phonemes': []}], 0.0
 
     # Convert expected IPA to indices
     target = [phoneme2id[p] for p in expected_ipa]
@@ -383,12 +387,6 @@ def backend_record():
         Inputs: JSON with "card" field (sentence to be spoken)
         Returns: JSON with "score", "feedback", "passed", "transcription", and "reference" fields
     '''
-    # if request.method == 'POST':
-    #     import pyaudio_recording
-    #     sentence = request.get_json()['card']
-    #     filename = pyaudio_recording.record_audio(record_seconds=5)
-    #     transcription, feedback, score = compute_pronunciation_score(filename, sentence)
-    #     return jsonify({"filename": filename, "score": score, "feedback": feedback, "passed": score > 90}), 200
     if request.method == 'POST':
         sentence = request.get_json()['card']
         expected_ipa = request.get_json()['expected_ipa']
@@ -397,6 +395,16 @@ def backend_record():
         res, score = get_phoneme_scores(filename, sentence)
         feedback = "Great job!" if score > 0.8 else "Hmm, try again."
         return jsonify({"score": score, "feedback": feedback, "passed": score > 0.8, "reference": sentence, "res": res}), 200
+
+@app.route('/api/record/test', methods=['POST'])
+def backend_record_test():
+    audio_file = request.files['audio']
+    sentence = request.form.get('card')
+    os.makedirs("testfiles", exist_ok=True)
+    audio_file.save("testfiles/uploaded_test.wav")
+    res, score = get_phoneme_scores("testfiles/uploaded_test.wav", sentence)
+    feedback = "Great job!" if score > 0.8 else "Hmm, try again."
+    return jsonify({"score": score, "feedback": feedback, "passed": score > 0.8, "reference": sentence, "res": res}), 200
 
 @app.route('/api/wordbank', methods=['GET', 'POST'])
 def wordbank():
