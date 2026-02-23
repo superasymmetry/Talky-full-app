@@ -104,6 +104,6 @@ def analyze_audio_thread(audio_path, expected_ipa):
 
 if __name__ == "__main__":
     expected_sentence = "the quick brown fox jumps over the lazy dog"
-    input_audio = "./reference.wav"
+    input_audio = "./tests/reference.wav"
     scores = get_phoneme_scores(input_audio, expected_sentence)
     print(scores)

@@ -1,6 +1,7 @@
-import talkyRocket from './assets/logo.png';
+import React, { useEffect, useRef } from 'react';
+
 import VanillaTilt from 'vanilla-tilt';
-import React, { useRef, useEffect } from 'react';
+import talkyRocket from './assets/logo.png';
 import { useNavigate } from 'react-router-dom';
 
 function Card(props) {
@@ -18,6 +19,7 @@ function Card(props) {
         name = '',
         description,
         content,
+        'data-testid': dataTestId,
         ...rest
     } = props;
 
@@ -62,6 +64,7 @@ function Card(props) {
             ref={disabled ? null : tilt}
             {...rest}
             id={id}
+            data-testid={dataTestId}
             onClick={handleCardClick}
             role="button"
             tabIndex={0}

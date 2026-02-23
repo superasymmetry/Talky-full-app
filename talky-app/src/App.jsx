@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef} from 'react'
-import { useAuth0 } from '@auth0/auth0-react'
-import Header from './Header/Header.jsx'
-import Footer from './Footer.jsx'
-import Card from './Card.jsx'
 import './App.css'
 
+import React, { useEffect, useRef, useState } from 'react'
+
+import Card from './Card.jsx'
+import Footer from './Footer.jsx'
+import Header from './Header/Header.jsx'
+import { useAuth0 } from '@auth0/auth0-react'
 
 function App() {
   const { user, isAuthenticated, isLoading } = useAuth0();
@@ -49,7 +50,7 @@ function App() {
             >
               {lessons.map((card, index) => (
                 <div key={card.id} className="min-w-[240px] snap-center" style={{ position: 'relative' }}>
-                  <Card {...card} showRocket={true} disabled={index === lessons.length - 1}/>
+                  <Card {...card} showRocket={true} disabled={index === lessons.length - 1} id={`${card.id}`} />
                   {index === lessons.length - 1 && (
                     <img src="/padlock.jpg"
                         style={{
