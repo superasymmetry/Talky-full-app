@@ -82,6 +82,21 @@ And run the server (server folder) in another terminal, with
 python main.py
 ```
 
+You should also create .env files in /server and /talky-app. The environment variables in /server should be
+```
+GROQ_API_KEY=YOUR_GROQ_API_KEY
+DB_NAME=YOUR_MONGO_DB_NAME
+MONGO_USERNAME=YOUR_MONGO_USERNAME_db_user
+MONGO_PASSWORD=YOUR_MONGO_DB_PASSWORD
+MONGO_URI=YOUR_MONGO_URI
+```
+The environment variables in /talky-app should be
+```
+VITE_AUTH0_DOMAIN=YOUR_AUTH0_DOMAIN
+VITE_AUTH0_CLIENT_ID=YOUR_AUTH0_CLIENT_ID
+VITE_AUTH0_AUDIENCE=YOUR_AUTH0_AUDIENCE
+```
+
 <a id="contributing"></a>
 ## Contributing
 
