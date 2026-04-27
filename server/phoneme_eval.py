@@ -5,6 +5,8 @@ from transformers import Wav2Vec2Processor, Wav2Vec2ForCTC
 import eng_to_ipa as ipa
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
+_processor = None
+_model = None
 
 def get_phoneme_scores(input_audio, expected_sentence):
     """Evaluate phoneme accuracy of input audio against expected sentence.
@@ -17,10 +19,18 @@ def get_phoneme_scores(input_audio, expected_sentence):
     """
     expected_sentence = expected_sentence.rstrip('.')
 
-    # Load pre-trained model and processor
-    processor = Wav2Vec2Processor.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme", dtype=torch.float16)
-    model = Wav2Vec2ForCTC.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme", dtype=torch.float16).eval()
-    model.to(device)
+    # Load pre-trained model and processor once
+    global _processor, _model
+    if _processor is None or _model is None:
+        _processor = Wav2Vec2Processor.from_pretrained(
+            "vitouphy/wav2vec2-xls-r-300m-timit-phoneme", dtype=torch.float16
+        )
+        _model = Wav2Vec2ForCTC.from_pretrained(
+            "vitouphy/wav2vec2-xls-r-300m-timit-phoneme", dtype=torch.float16
+        ).eval()
+        _model.to(device)
+    processor = _processor
+    model = _model
 
     # Read and process the input audio
     audio_input, sample_rate = sf.read(input_audio)

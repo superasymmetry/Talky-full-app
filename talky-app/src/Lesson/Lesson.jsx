@@ -77,7 +77,7 @@ export default function Lesson() {
     fetch(`${API_BASE}/api/lessons?user_id=${encodeURIComponent(userId)}&lesson_id=${encodeURIComponent(lessonId)}`)
       .then((response) => response.json())
       .then((data) => {
-        setCardData(data.sentences);
+        setCardData(data.sentences ?? data);
         console.log('Fetched lesson data:', data);
         setExpectedIPAs(data.expected_ipas);
         // TODO: remove these hooks once the backend is fixed
