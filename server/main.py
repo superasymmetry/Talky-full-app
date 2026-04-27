@@ -363,22 +363,31 @@ def lessons():
 
     sentences_str = chat_completion.choices[0].message.content
     sentences = json.loads(sentences_str)
+    # If the LLM wrapped sentences under a "sentences" key, unwrap it
+    if "sentences" in sentences and isinstance(sentences["sentences"], dict):
+        sentences = sentences["sentences"]
+
     # expected_ipa is a list of ordereddicts mapping word to ipa phonemes for each sentence
     # words_to_ipa_list is a list of lists of dicts with "word" and "phonemes" keys
     expected_ipas = []
     words_to_ipa_list = []
-    g2p = G2p()
-    for sentence in sentences.values():
-        sentence_phonemes = collections.OrderedDict()
-        for word in sentence.split():
-            phonemes = [p for p in g2p(word) if p != ' ']
-            phonemes = [p for p in phonemes if p.isalpha() or p.isalnum()]
-            print("word, phonemes", word, phonemes)
-            phonemes = [arpabet_to_ipa[p] for p in phonemes]
-            sentence_phonemes[word] = phonemes
-        expected_ipas.append(sentence_phonemes)
-        words_to_ipa = [{"word": word, "phonemes": phonemes} for word, phonemes in sentence_phonemes.items()]
-        words_to_ipa_list.append(words_to_ipa)
+    try:
+        g2p = G2p()
+        for sentence in sentences.values():
+            sentence_phonemes = collections.OrderedDict()
+            for word in sentence.split():
+                raw_phonemes = [p for p in g2p(word) if p != ' ']
+                raw_phonemes = [p for p in raw_phonemes if p.isalpha() or p.isalnum()]
+                phonemes = [arpabet_to_ipa[p] for p in raw_phonemes if p in arpabet_to_ipa]
+                print("word, phonemes", word, phonemes)
+                sentence_phonemes[word] = phonemes
+            expected_ipas.append(sentence_phonemes)
+            words_to_ipa = [{"word": word, "phonemes": phonemes} for word, phonemes in sentence_phonemes.items()]
+            words_to_ipa_list.append(words_to_ipa)
+    except Exception as e:
+        print(f"IPA computation error: {e}")
+        expected_ipas = []
+        words_to_ipa_list = []
     return jsonify({"sentences": sentences, "expected_ipas": expected_ipas, "words_to_ipas": words_to_ipa_list})
 
 @app.route('/api/record', methods=['POST', 'GET'])
