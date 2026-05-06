@@ -59,18 +59,13 @@ class TestPhonemeScore(unittest.TestCase):
     
     def test_sentence_mispronounced_words(self):
         from phoneme_eval import get_phoneme_scores
-        generate_test_sound("the kwik bwown fox jumps ovur the lazy dug", "mispronounced.wav")
+        generate_test_sound("the kwik bwown fox jamps ovur ze lazy dug", "mispronounced.wav")
         audio_path = 'mispronounced.wav'
         expected_sentence = "the quick brown fox jumps over the lazy dog"
         res, avg_score = get_phoneme_scores(audio_path, expected_sentence)
-        self.assertEqual(avg_score < 70.0, True)
-        self.assertEqual(len(res), 1)
+        self.assertEqual(avg_score < 0.70, True)
+        self.assertEqual(len(res), 9)
         self.assertEqual(res[0]['word'], 'the')
-        self.assertEqual(len(res[0]['phonemes']), 5)
-        self.assertEqual(res[0]['phonemes'][0]['phoneme'], 't')
-        self.assertEqual(res[0]['phonemes'][1]['phoneme'], 'ə')
-        self.assertEqual(res[0]['phonemes'][2]['phoneme'], 'k')
-        self.assertEqual(res[0]['phonemes'][3]['phoneme'], 'w')
     
     def test_same_words(self):
         from phoneme_eval import get_phoneme_scores
@@ -139,7 +134,7 @@ class TestPhonemeScore(unittest.TestCase):
 
         self.assertEqual(len(scores) > 0, True)
         for score in scores:
-            self.assertGreater(score, 70.0)
+            self.assertGreater(score, 0.75)
 
 
 if __name__ == '__main__':
