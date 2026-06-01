@@ -108,6 +108,29 @@ Hi! We really appreciate any contributions to this repository. When contributing
 - Make a pull request to the parent repository with your changes
 Feel free to also check out [issues](https://github.com/superasymmetry/Talky-full-app/issues) for something to work on!
 
+To set up the environment for local testing and development, simply do 
+```
+npm i
+```
+
+You may also need to put in some environment variables. Specifically, you should have a `.env` file in the `./talky-app/src` folder and a `.env` file in the `./server` folder. The contents in these `.env` files should look like this.
+
+**`./talky-app/src`**
+```
+VITE_AUTH0_DOMAIN=your_auth0_domain
+VITE_AUTH0_CLIENT_ID=your_auth0_client_id
+VITE_AUTH0_AUDIENCE=your_auth0_audience
+```
+
+**`./server`**
+```
+GROQ_API_KEY=your_groq_api_key
+DB_NAME=db_name_from_mongodb
+MONGO_URI=your_mongo_uri
+AUTH0_DOMAIN=your_auth0_domain
+AUTH0_AUDIENCE=your_auth0_audience
+```
+
 <a id="license"></a>
 ## License
 All licenses in this repository are copyrighted by their respective authors.
