@@ -1,185 +1,130 @@
-import { useEffect, useState } from 'react';
-import { LineChart, BarChart, RadialGauge } from 'reaviz';
+import { useEffect, useMemo, useState } from 'react';
+
 import Header from '../Header/Header.jsx';
 import Footer from '../Footer.jsx';
 
-export default function Statistics(){
-    const [data, setData] = useState([]);
-    const [barData, setBarData] = useState([]);
-    const [phonemes, setPhonemes] = useState([]);
-    const [levelData, setLevelData] = useState([{key: 'level', data: 0}]);
-    const [selectedPhoneme, setSelectedPhoneme] = useState('');
-    const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+import { useStatsData } from './useStatsData.js';
+import {
+  activityCells,
+  computeStreak,
+  hardestWords,
+  mostImprovedWords,
+  progressSeries,
+  recentAttempts,
+} from './derive.js';
+import {
+  Card,
+  Heatmap,
+  LevelTile,
+  PhonemeGrid,
+  ProgressChart,
+  StreakTile,
+  WordList,
+} from './components.jsx';
 
-    useEffect(() => {
-        const userId = localStorage.getItem('userId') || 'demo';
-        console.log("userid", userId);
-        fetch(`${API_BASE}/api/user/progress?user_id=${encodeURIComponent(userId)}`)
-            .then(r => r.json())
-            .then(d => {
-                const scores = d.phonemeScores || [];
-                // extract unique phonemes
-                const uniquePhonemes = [...new Set(scores.map(s => s.phoneme))];
-                setPhonemes(uniquePhonemes);
-                if (uniquePhonemes.length > 0 && !selectedPhoneme) {
-                    setSelectedPhoneme(uniquePhonemes[0]);
-                }
-                // bar chart data: avgScore per phoneme
-                const barChartData = scores.map(s => ({
-                    key: s.phoneme,
-                    data: s.avgScore ?? 0
-                }));
-                setBarData(barChartData);
-            })
-            .catch(err => console.error(err));
-    }, []);
+const getUserId = () => localStorage.getItem('userId') || 'demo';
 
-    useEffect(() => {
-        const userId = localStorage.getItem('userId') || 'demo';
-        fetch(`${API_BASE}/api/user/get_level?user_id=${encodeURIComponent(userId)}`)
-            .then(r => r.json())
-            .then(d => {
-                console.log("User level data:", d);
-                const parsed = typeof d === 'string' ? JSON.parse(d) : d;
-                const points = parsed.level?.subpoints ?? 0;
-                setLevelData([{key: 'level', data: points}]);
-            })
-            .catch(err => console.error(err));
-    }, []);
-        
-    useEffect(() => {
-        if (!selectedPhoneme) return;
-        const userId = localStorage.getItem('userId') || 'demo';
-        fetch(`${API_BASE}/api/user/progress?user_id=${encodeURIComponent(userId)}`)
-            .then(r => r.json())
-            .then(d => {
-                const scores = d.phonemeScores || [];
-                const filtered = scores.filter(s => s.phoneme === selectedPhoneme);
-                const last14 = filtered.slice(-14);
-                const filled = [...Array(14 - last14.length).fill(null), ...last14];
-                const chartData = filled.map((item, i) => ({
-                    key: i,
-                    data: item?.avgScore ?? 1
-                }));
-                console.log(chartData);
-                setData(chartData);
-            })
-            .catch(err => console.error(err));
-    }, [selectedPhoneme]);
+const Layout = ({ children }) => (
+  <div className="min-h-screen bg-n-8 text-n-1">
+    <Header />
+    <main className="pt-32 pb-24 px-5 lg:px-10">
+      <div className="max-w-[87.5rem] mx-auto">{children}</div>
+    </main>
+    <Footer />
+  </div>
+);
 
+const PageHeading = () => (
+  <header className="mb-10">
+    <p className="tagline text-color-1">Statistics</p>
+    <h1 className="h2 mt-2 text-n-1">Your progress</h1>
+    <p className="body-2 mt-3 text-n-3 max-w-xl">
+      Track your speech journey, daily streaks, and the sounds and words you’re mastering.
+    </p>
+  </header>
+);
+
+const formatPercent = ({ value }) => `${Math.round(value * 100)}% avg`;
+const formatDelta = ({ value }) => `+${Math.round(value * 100)}%`;
+const formatDate = ({ timestamp }) => new Date(timestamp).toLocaleDateString();
+
+export default function Statistics() {
+  const { status, user, level, error } = useStatsData(getUserId());
+  const [selected, setSelected] = useState('');
+
+  const phonemes = user?.progress?.phonemeScores ?? [];
+  const wordScores = user?.progress?.wordScores ?? [];
+  const history = user?.history ?? [];
+
+  useEffect(() => {
+    if (phonemes.length && !selected) setSelected(phonemes[0].phoneme);
+  }, [phonemes, selected]);
+
+  const streak = useMemo(() => computeStreak(history), [history]);
+  const cells = useMemo(() => activityCells(history), [history]);
+  const series = useMemo(() => progressSeries(history, selected), [history, selected]);
+  const hardest = useMemo(() => hardestWords(wordScores), [wordScores]);
+  const improved = useMemo(() => mostImprovedWords(wordScores), [wordScores]);
+  const recent = useMemo(() => recentAttempts(wordScores), [wordScores]);
+
+  if (status === 'loading') {
+    return <Layout><Card>Loading statistics…</Card></Layout>;
+  }
+  if (status === 'error') {
     return (
-        <div style={{ position: 'fixed', inset: 0, flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
-            <Header />
-            <div style={{ 
-                flex: 1, 
-                height: '100vh',
-                display: 'flex',
-                padding: '130px',
-                overflow: 'hidden',
-                boxSizing: 'border-box',
-                gap: 32,
-                alignItems: 'flex-start'
-            }}>
-                {/* Left column - smaller charts */}
-                <div style={{ 
-                    flex: '0 0 400px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 32
-                }}>
-                    {/* Level gauge */}
-                    <div style={{
-                        padding: 12,
-                        borderRadius: 16,
-                        background: 'rgba(255, 255, 255, 0.9)',
-                        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
-                        backdropFilter: 'blur(10px)'
-                    }}>
-                        <h2 style={{ 
-                            margin: '0 0 8px 0',
-                            fontSize: '1.5rem',
-                            background: 'linear-gradient(90deg, #6dd3ff 0%, #6b73ff 100%)',
-                            WebkitBackgroundClip: 'text',
-                            WebkitTextFillColor: 'transparent',
-                            fontWeight: 700
-                        }}>
-                            Current Level
-                        </h2>
-                        <div style={{ display: 'flex', justifyContent: 'center' }}>
-                            <RadialGauge height={200} width={200} data={levelData} />
-                        </div>
-                    </div>
-
-                    {/* Average Score per Phoneme */}
-                    <div style={{
-                        padding: 24,
-                        borderRadius: 16,
-                        background: 'rgba(255, 255, 255, 0.9)',
-                        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
-                        backdropFilter: 'blur(10px)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                    }}>
-                        <h2 style={{ 
-                            margin: '0 0 16px 0',
-                            fontSize: '1.5rem',
-                            background: 'linear-gradient(90deg, #6dd3ff 0%, #6b73ff 100%)',
-                            WebkitBackgroundClip: 'text',
-                            WebkitTextFillColor: 'transparent',
-                            fontWeight: 700
-                        }}>
-                            Average Score per Phoneme
-                        </h2>
-                        <BarChart width={350} height={250} data={barData} />
-                    </div>
-                </div>
-
-                {/* Right column - main chart */}
-                <div style={{ 
-                    flex: 1,
-                    padding: 24,
-                    borderRadius: 16,
-                    background: 'rgba(255, 255, 255, 0.9)',
-                    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
-                    backdropFilter: 'blur(10px)'
-                }}>
-                    <h2 style={{ 
-                        margin: '0 0 16px 0',
-                        fontSize: '2rem',
-                        background: 'linear-gradient(90deg, #6dd3ff 0%, #6b73ff 100%)',
-                        WebkitBackgroundClip: 'text',
-                        WebkitTextFillColor: 'transparent',
-                        fontWeight: 700
-                    }}>
-                        Phoneme Score Progress (Last 14)
-                    </h2>
-                    <select
-                        value={selectedPhoneme}
-                        onChange={(e) => setSelectedPhoneme(e.target.value)}
-                        style={{
-                            padding: '10px 16px',
-                            borderRadius: 8,
-                            border: 'none',
-                            background: 'linear-gradient(90deg, #6dd3ff 0%, #6b73ff 100%)',
-                            color: 'white',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            marginBottom: 24,
-                            minWidth: 200,
-                            fontSize: '1rem',
-                            boxShadow: '0 4px 12px rgba(107, 115, 255, 0.3)'
-                        }}
-                    >
-                        {phonemes.map(p => (
-                            <option key={p} value={p} style={{ background: 'white', color: '#333' }}>
-                                {p}
-                            </option>
-                        ))}
-                    </select>
-                    <LineChart width={700} height={470} data={data} />
-                </div>
-            </div>
-            <Footer />
-        </div>
+      <Layout>
+        <Card title="Couldn’t load statistics">
+          <p className="body-2 text-n-3">{String(error?.message ?? error)}</p>
+        </Card>
+      </Layout>
     );
-};
+  }
+
+  return (
+    <Layout>
+      <PageHeading />
+
+      <div className="flex flex-col gap-6">
+        <div className="grid gap-6 lg:grid-cols-[260px_260px_1fr]">
+          <LevelTile level={level} />
+          <StreakTile streak={streak} />
+          <Heatmap cells={cells} />
+        </div>
+
+        <ProgressChart
+          phonemes={phonemes}
+          selected={selected}
+          onSelect={setSelected}
+          series={series}
+        />
+
+        <div className="grid gap-6 lg:grid-cols-[1fr_2fr] items-start">
+          <div className="flex flex-col gap-6">
+            <WordList
+              title="Needs practice"
+              rows={hardest}
+              empty="Complete a few words to see the trickiest ones."
+              valueClass="text-color-3"
+              format={formatPercent}
+            />
+            <WordList
+              title="Most improved"
+              rows={improved}
+              empty="Practice each word a couple of times to track improvement."
+              valueClass="text-color-4"
+              format={formatDelta}
+            />
+            <WordList
+              title="Recent attempts"
+              rows={recent}
+              empty="No recent attempts yet."
+              valueClass="text-n-3"
+              format={formatDate}
+            />
+          </div>
+          <PhonemeGrid scores={phonemes} />
+        </div>
+      </div>
+    </Layout>
+  );
+}
