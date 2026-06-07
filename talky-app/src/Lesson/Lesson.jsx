@@ -7,6 +7,16 @@ import { useMatch } from 'react-router-dom';
 
 useGLTF.preload('/robot-draco.glb')
 
+function extractWordScores(res) {
+  if (!Array.isArray(res)) return [];
+  const now = new Date().toISOString();
+  return res.map(({ word, phonemes }) => {
+    const valid = (phonemes || []).map(p => p.score).filter(s => s != null);
+    const avg = valid.length ? valid.reduce((a, b) => a + b, 0) / valid.length : 0;
+    return { word, score: avg, timestamp: now };
+  });
+}
+
 const Model = forwardRef(function Model(props, ref) {
   const { scene, animations } = useGLTF('/robot-draco.glb');
   const robot = scene.getObjectByName('Robot');
@@ -59,6 +69,7 @@ export default function Lesson() {
   const [wordsToIPA, setWordsToIPA] = useState(null);
   const [currentWordsToIPA, setCurrentWordsToIPA] = useState(null);
   const [returnedWordsToIPA, setReturnedWordsToIPA] = useState(null);
+  const wordScoresRef = useRef([]);
 
   const toEmbed = (u) => {
     try {
@@ -133,6 +144,7 @@ export default function Lesson() {
       })));
       setCurrentWordsToIPA(wordsToIPA[currentSentenceIndex - 1] || null);
       if (data.passed) {
+        wordScoresRef.current.push(...extractWordScores(data.res));
         actions?.ThumbsUp?.play?.();
         const utter = new SpeechSynthesisUtterance("Great job!");
         setScore(score => (score ?? 0) + data.score);
@@ -206,7 +218,8 @@ export default function Lesson() {
         body: JSON.stringify({
           userId: userId,
           lessonId: currentLessonId,
-          addScore: (score / 700) || 0.1
+          addScore: (score / 700) || 0.1,
+          wordScores: wordScoresRef.current
         })
       }).catch(err => console.error('Failed to update user progress:', err));
       
