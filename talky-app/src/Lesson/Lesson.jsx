@@ -1,8 +1,9 @@
-import { Suspense, useRef, useState, useEffect, forwardRef } from 'react'
-import { useMatch } from 'react-router-dom';
 import { Canvas, useFrame } from '@react-three/fiber'
-import { OrbitControls, useGLTF, useAnimations, Sky, Environment, ContactShadows } from '@react-three/drei'
+import { ContactShadows, Environment, OrbitControls, Sky, useAnimations, useGLTF } from '@react-three/drei'
+import { Suspense, forwardRef, useEffect, useRef, useState } from 'react'
+
 import Back from './Back.jsx';
+import { useMatch } from 'react-router-dom';
 
 useGLTF.preload('/robot-draco.glb')
 
@@ -26,6 +27,15 @@ const Model = forwardRef(function Model(props, ref) {
   return <primitive ref={ref} object={scene} {...props} />
 })
 
+const getPhonemeStyle = (score) => {
+  if (score === null || score === undefined || score >= 0.9) {
+    return { background: '#bbf7d0', color: '#166534' };
+  }
+  if (score >= 0.7) {
+    return { background: '#fef08a', color: '#92400e' };
+  }
+  return { background: '#fecaca', color: '#991b1b' };
+};
 
 export default function Lesson() {
   const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
@@ -45,7 +55,11 @@ export default function Lesson() {
   const [showIntro, setShowIntro] = useState(true);
   const videoUrl = "https://youtu.be/IwWw6Xe09O0?t=31";
   const [score, setScore] = useState(0);
-  
+  const [expectedIPAs, setExpectedIPAs] = useState([]);
+  const [wordsToIPA, setWordsToIPA] = useState(null);
+  const [currentWordsToIPA, setCurrentWordsToIPA] = useState(null);
+  const [returnedWordsToIPA, setReturnedWordsToIPA] = useState(null);
+
   const toEmbed = (u) => {
     try {
       if (!u) return null;
@@ -63,9 +77,13 @@ export default function Lesson() {
     fetch(`${API_BASE}/api/lessons?user_id=${encodeURIComponent(userId)}&lesson_id=${encodeURIComponent(lessonId)}`)
       .then((response) => response.json())
       .then((data) => {
-        const parsedData = JSON.parse(data);
-        setCardData(parsedData);
+        setCardData(data.sentences ?? data);
         console.log('Fetched lesson data:', data);
+        setExpectedIPAs(data.expected_ipas);
+        // TODO: remove these hooks once the backend is fixed
+        console.log('Expected IPAs:', data.expected_ipas);
+        setWordsToIPA(data.words_to_ipas);
+        console.log('Words to IPA:', data.words_to_ipas);
       })
       .catch((error) => console.error("Error fetching data:", error));
   }, []);
@@ -93,6 +111,9 @@ export default function Lesson() {
     }
   }, [cardData, currentSentenceIndex, showIntro]);
 
+  // display percent progress for each phoneme
+  
+
   const startBackendRecording = async (seconds = 5) => {
     setIsRecordingBackend(true)
     setBackendFilename(null)
@@ -100,13 +121,17 @@ export default function Lesson() {
       const res = await fetch(`${API_BASE}/api/record`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ card: cardData[currentSentenceIndex.toString()] }),
+        body: JSON.stringify({ card: cardData[currentSentenceIndex.toString()], expected_ipa: expectedIPAs[currentSentenceIndex - 1] }),
       })
       const data = await res.json()
       console.log('Backend record response:', data)
       if (!res.ok) throw new Error(data.error || 'Record failed')
 
       setBackendFilename(data.filename)
+      setReturnedWordsToIPA(data.res.map(({word, phonemes}) => ({
+        word, phonemes
+      })));
+      setCurrentWordsToIPA(wordsToIPA[currentSentenceIndex - 1] || null);
       if (data.passed) {
         actions?.ThumbsUp?.play?.();
         const utter = new SpeechSynthesisUtterance("Great job!");
@@ -129,7 +154,6 @@ export default function Lesson() {
         }
         actions?.Idle?.play?.();
       } else {
-        console.log("no")
         actions && actions.No.play();
         // reduce score
         setScore(score => Math.max(0, (score ?? 0) - (100 - data.score)));
@@ -476,6 +500,61 @@ export default function Lesson() {
         <div style={{ fontWeight: 'bold', marginTop: 4 }}>
           {cardData ? cardData[currentSentenceIndex.toString()] || 'End of lesson' : 'Loading...'}
         </div>
+
+        {/* display words corresponding to their ipas */}
+        {currentWordsToIPA && (
+          <div style={{ margin: '12px 0' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {currentWordsToIPA.map(({ word, phonemes }, wordIdx) => {
+                // Use index to match returned word
+                const returnedWord = returnedWordsToIPA?.[wordIdx];
+                return (
+                  <div key={word + wordIdx} style={{
+                    border: '1px solid #ddd',
+                    borderRadius: 6,
+                    padding: 6,
+                    color: '#333',
+                    background: '#f9f9f9',
+                    minWidth: 70,
+                    marginBottom: 4,
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+                  }}>
+                    <div style={{ fontWeight: 'bold', marginBottom: 2, textAlign: 'center', fontSize: 13 }}>{word}</div>
+                    <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', justifyContent: 'center' }}>
+                      {phonemes.map((ph, i) => {
+                        let score = null;
+                        if (returnedWord && returnedWord.phonemes[i] && returnedWord.phonemes[i].phoneme === ph) {
+                          score = returnedWord.phonemes[i].score;
+                        }
+                        const style = {
+                          ...getPhonemeStyle(score),
+                          display: 'inline-block',
+                          padding: '2px 5px',
+                          borderRadius: 4,
+                          fontWeight: 500,
+                          fontSize: 12,
+                          margin: 1,
+                          minWidth: 14,
+                          textAlign: 'center',
+                          cursor: score !== null ? 'pointer' : 'default'
+                        };
+                        return (
+                          <span
+                            key={i}
+                            style={style}
+                            title={score !== null ? `Score: ${(score * 100).toFixed(1)}%` : 'No score'}
+                          >
+                            {ph}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

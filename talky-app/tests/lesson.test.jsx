@@ -1,6 +1,14 @@
-import { describe, it, beforeEach, vi, expect } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+
 import Lesson from '../src/Lesson/Lesson'
+import { MemoryRouter } from 'react-router-dom'
+
+global.ResizeObserver = global.ResizeObserver || class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
 
 beforeEach(() => {
   vi.resetAllMocks()
@@ -11,21 +19,14 @@ beforeEach(() => {
 })
 
 describe('Lesson', () => {
-  it('renders first sentence after fetch', async () => {
-    render(<Lesson />)
+  it('renders video after fetch', async () => {
+    render(
+      <MemoryRouter>
+        <Lesson />
+      </MemoryRouter>
+    )
     await waitFor(() => {
-      expect(screen.getByText(/Sentence 1:/i)).toBeInTheDocument()
-      expect(screen.getByText(/Hello world/i)).toBeInTheDocument()
-    })
-  })
-
-  it('advances to next sentence when clicking Next', async () => {
-    render(<Lesson />)
-    await screen.findByText(/Hello world/i)
-    fireEvent.click(screen.getByLabelText(/Next lesson/i))
-    await waitFor(() => {
-      expect(screen.getByText(/Sentence 2:/i)).toBeInTheDocument()
-      expect(screen.getByText(/Next line/i)).toBeInTheDocument()
+      expect(screen.getByText(/Watch this example first/i)).toBeInTheDocument()
     })
   })
 })

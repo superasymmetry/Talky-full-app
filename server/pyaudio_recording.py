@@ -2,7 +2,7 @@ import pyaudio
 import numpy as np
 import soundfile as sf
 
-def record_audio(filename="input.wav", record_seconds=5, rate=16000):
+def record_audio(filename="./input.wav", record_seconds=5, rate=16000):
     chunk = 1024
     format = pyaudio.paInt16
     channels = 1
@@ -27,3 +27,6 @@ def record_audio(filename="input.wav", record_seconds=5, rate=16000):
     waveform = np.concatenate(frames).astype(np.float32) / 32768.0
     sf.write(filename, waveform, rate)
     return filename
+
+if __name__ == "__main__":
+    record_audio()
