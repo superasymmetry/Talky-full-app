@@ -1,10 +1,20 @@
-import { LineChart, RadialGauge } from 'reaviz';
+import { useState } from 'react';
+import {
+  AreaChart,
+  AreaSeries,
+  Area,
+  Line,
+  BarList,
+  BarListSeries,
+} from 'reaviz';
 import { HEATMAP_DAYS } from './derive.js';
+
+const fmtPct = (v) => `${Math.round(v * 100)}%`;
 
 export const Card = ({ title, action, children, className = '' }) => (
   <section className={`p-6 lg:p-8 bg-n-7 border border-n-1/10 rounded-3xl ${className}`}>
     {(title || action) && (
-      <header className="flex items-center justify-between mb-5 gap-3 flex-wrap">
+      <header className="flex items-center justify-between gap-3 flex-wrap mb-5">
         {title && <h3 className="h6 text-n-1 m-0">{title}</h3>}
         {action}
       </header>
@@ -17,34 +27,56 @@ export const Empty = ({ children }) => (
   <p className="body-2 text-n-4">{children}</p>
 );
 
-export const LevelTile = ({ level }) => (
-  <Card title="Current level" className="flex flex-col items-center">
-    <RadialGauge height={180} width={180} data={[{ key: 'level', data: level }]} />
+export const StatTile = ({ label, value, sub, accent = 'text-n-1' }) => (
+  <Card className="flex flex-col gap-2 min-h-[140px] justify-center">
+    <p className="tagline text-n-3">{label}</p>
+    <p className={`text-4xl lg:text-5xl font-semibold leading-none ${accent}`}>{value}</p>
+    {sub && <p className="caption text-n-4">{sub}</p>}
   </Card>
 );
 
-const streakMessage = (streak) => {
-  if (streak === 0) return 'Start a lesson today!';
-  if (streak === 1) return 'Great start — come back tomorrow.';
-  return 'Keep the momentum going!';
+export const LevelTile = ({ level }) => {
+  const current = level?.current ?? 1;
+  const subpoints = level?.subpoints ?? 0;
+  const maxval = level?.maxval || 100;
+  const pct = Math.min(100, Math.round((subpoints / maxval) * 100));
+
+  return (
+    <Card className="flex flex-col gap-3 min-h-[140px] justify-center">
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="tagline text-n-3">Level</p>
+        <p className="caption text-n-3">{subpoints} / {maxval} XP</p>
+      </div>
+      <p className="text-4xl lg:text-5xl font-semibold leading-none text-color-1">{current}</p>
+      <div className="h-2 rounded-full bg-n-6 overflow-hidden">
+        <div
+          className="h-full bg-color-1 transition-[width] duration-500"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </Card>
+  );
 };
-
-export const StreakTile = ({ streak }) => (
-  <Card title="Day streak" className="flex flex-col items-center justify-center text-center">
-    <div className="text-6xl font-semibold text-color-2 leading-none">{streak}</div>
-    <p className="mt-4 body-2 text-n-3">{streakMessage(streak)}</p>
-  </Card>
-);
 
 const intensityClass = (count) => {
   if (count === 0) return 'bg-n-6';
-  if (count < 3) return 'bg-color-4/40';
-  if (count < 6) return 'bg-color-4/70';
+  if (count < 3) return 'bg-color-4/30';
+  if (count < 6) return 'bg-color-4/60';
   return 'bg-color-4';
 };
 
+const Legend = () => (
+  <div className="flex items-center gap-2 mt-4 text-n-4 caption">
+    <span>Less</span>
+    {[0, 2, 5, 8].map((n) => (
+      <span key={n} className={`w-3 h-3 rounded-[3px] ${intensityClass(n)}`} aria-hidden />
+    ))}
+    <span>More</span>
+  </div>
+);
+
 export const Heatmap = ({ cells }) => (
-  <Card title={`Activity · last ${HEATMAP_DAYS} days`} className="flex-1">
+  <Card title={`Activity · last ${HEATMAP_DAYS} days`}>
     <div className="grid grid-rows-7 grid-flow-col gap-1.5 overflow-x-auto pb-1">
       {cells.map((cell, i) =>
         cell === null ? (
@@ -58,87 +90,124 @@ export const Heatmap = ({ cells }) => (
         ),
       )}
     </div>
+    <Legend />
   </Card>
 );
 
+const PhonemeChips = ({ phonemes, selected, onSelect }) => (
+  <div className="flex flex-wrap gap-2">
+    {phonemes.map((p) => {
+      const active = p.phoneme === selected;
+      return (
+        <button
+          key={p.phoneme}
+          type="button"
+          onClick={() => onSelect(p.phoneme)}
+          className={`px-3 py-1.5 rounded-full font-mono text-sm border transition-colors ${
+            active
+              ? 'bg-color-1 text-n-8 border-color-1'
+              : 'bg-n-6 text-n-2 border-n-1/10 hover:border-color-1/60'
+          }`}
+        >
+          {p.phoneme}
+        </button>
+      );
+    })}
+  </div>
+);
+
 export const ProgressChart = ({ phonemes, selected, onSelect, series }) => (
-  <Card
-    title="Progress over time"
-    action={
-      <select
-        value={selected}
-        onChange={(e) => onSelect(e.target.value)}
-        className="px-4 py-2 rounded-xl bg-n-6 border border-n-1/10 text-n-1 font-semibold focus:outline-none focus:border-color-1"
-        aria-label="Choose sound"
-      >
-        {phonemes.map((p) => (
-          <option key={p.phoneme} value={p.phoneme}>Sound: {p.phoneme}</option>
-        ))}
-      </select>
-    }
-  >
-    <div className="h-[320px]">
+  <Card title="Progress over time">
+    <PhonemeChips phonemes={phonemes} selected={selected} onSelect={onSelect} />
+    <div className="h-[280px] mt-5">
       {series.length === 0 ? (
         <div className="h-full flex items-center justify-center">
           <Empty>No history yet for this sound.</Empty>
         </div>
       ) : (
-        <LineChart width="100%" height={320} data={series} />
+        <AreaChart
+          height={280}
+          width={undefined}
+          data={series}
+          series={
+            <AreaSeries
+              area={<Area gradient={null} mask={null} />}
+              line={<Line strokeWidth={2} />}
+              colorScheme="#AC6AFF"
+              interpolation="smooth"
+            />
+          }
+        />
       )}
     </div>
   </Card>
 );
 
-export const PhonemeGrid = ({ scores }) => (
+export const PhonemeMastery = ({ bars }) => (
   <Card title="Sound mastery">
-    <div className="grid grid-cols-[repeat(auto-fill,minmax(110px,1fr))] gap-3">
-      {scores.map(({ phoneme, avgScore, attempts }) => {
-        const started = attempts > 0;
-        return (
-          <div
-            key={phoneme}
-            className={`p-4 rounded-2xl border text-center ${
-              started ? 'border-n-1/10 bg-n-6' : 'border-n-1/5 bg-n-8/60'
-            }`}
-          >
-            <div className={`text-2xl font-semibold ${started ? 'text-color-1' : 'text-n-4'}`}>
-              {phoneme}
-            </div>
-            {started ? (
-              <>
-                <div className="mt-1 text-lg font-semibold text-n-1">
-                  {Math.round((avgScore ?? 0) * 100)}%
-                </div>
-                <div className="mt-0.5 caption text-n-3">
-                  {attempts} attempt{attempts === 1 ? '' : 's'}
-                </div>
-              </>
-            ) : (
-              <div className="mt-1 caption text-n-4">Not started</div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  </Card>
-);
-
-export const WordList = ({ title, rows, empty, format, valueClass = 'text-n-1' }) => (
-  <Card title={title}>
-    {rows.length === 0 ? (
-      <Empty>{empty}</Empty>
+    {bars.length === 0 ? (
+      <Empty>Complete a lesson to start tracking sound mastery.</Empty>
     ) : (
-      <ul className="divide-y divide-n-6">
-        {rows.map((row, i) => (
-          <li
-            key={`${row.word}-${i}`}
-            className="flex justify-between items-center py-3 first:pt-0 last:pb-0"
-          >
-            <span className="font-mono text-n-1">{row.word}</span>
-            <span className={`font-semibold ${valueClass}`}>{format(row)}</span>
-          </li>
-        ))}
-      </ul>
+      <BarList
+        data={bars}
+        type="percent"
+        series={
+          <BarListSeries
+            colorScheme={['#FF776F', '#FFC876', '#7ADB78']}
+          />
+        }
+      />
     )}
   </Card>
 );
+
+const TAB_DEFS = [
+  { id: 'hardest', label: 'Needs practice', empty: 'Complete a few words to see the trickiest ones.', valueClass: 'text-color-3', format: (r) => `${fmtPct(r.value)} avg` },
+  { id: 'improved', label: 'Most improved', empty: 'Practice each word a couple of times to track improvement.', valueClass: 'text-color-4', format: (r) => `+${fmtPct(r.value)}` },
+  { id: 'recent', label: 'Recent', empty: 'No recent attempts yet.', valueClass: 'text-n-3', format: (r) => new Date(r.timestamp).toLocaleDateString() },
+];
+
+export const WordTabs = ({ hardest, improved, recent }) => {
+  const [tab, setTab] = useState('hardest');
+  const data = { hardest, improved, recent };
+  const active = TAB_DEFS.find((t) => t.id === tab);
+  const rows = data[tab];
+
+  return (
+    <Card
+      title="Word focus"
+      action={
+        <div className="flex gap-1 p-1 rounded-full bg-n-6 border border-n-1/10">
+          {TAB_DEFS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTab(t.id)}
+              className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
+                tab === t.id ? 'bg-n-8 text-n-1' : 'text-n-3 hover:text-n-1'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      }
+    >
+      {rows.length === 0 ? (
+        <Empty>{active.empty}</Empty>
+      ) : (
+        <ul className="divide-y divide-n-6">
+          {rows.map((row, i) => (
+            <li
+              key={`${row.word}-${i}`}
+              className="flex justify-between items-center py-3 first:pt-0 last:pb-0"
+            >
+              <span className="font-mono text-n-1">{row.word}</span>
+              <span className={`font-semibold ${active.valueClass}`}>{active.format(row)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+};

@@ -1,7 +1,4 @@
-// Pure data shaping for the Statistics page.
-// No React, no fetch — safe to unit-test in isolation.
-
-export const HEATMAP_DAYS = 60;
+export const HEATMAP_DAYS = 91;
 export const WORD_LIST_LIMIT = 5;
 export const RECENT_LIMIT = 10;
 export const MIN_ATTEMPTS_FOR_RANKING = 2;
@@ -10,10 +7,10 @@ const MS_PER_DAY = 86_400_000;
 const dayKey = (iso) => iso.slice(0, 10);
 const daysBetween = (a, b) => Math.floor((a - b) / MS_PER_DAY);
 
-const stampedHistory = (history) => history.filter((h) => h.timestamp);
+const stamped = (history) => history.filter((h) => h?.timestamp);
 
 export function uniqueActiveDays(history) {
-  const set = new Set(stampedHistory(history).map((h) => dayKey(h.timestamp)));
+  const set = new Set(stamped(history).map((h) => dayKey(h.timestamp)));
   return [...set].sort().reverse();
 }
 
@@ -31,7 +28,7 @@ export function computeStreak(history, today = new Date()) {
 
 export function activityCells(history, days = HEATMAP_DAYS, today = new Date()) {
   const counts = new Map();
-  for (const h of stampedHistory(history)) {
+  for (const h of stamped(history)) {
     const key = dayKey(h.timestamp);
     counts.set(key, (counts.get(key) || 0) + 1);
   }
@@ -53,9 +50,19 @@ export function activityCells(history, days = HEATMAP_DAYS, today = new Date()) 
 
 export function progressSeries(history, phoneme) {
   if (!phoneme) return [];
-  return stampedHistory(history)
-    .filter((h) => h[phoneme] != null)
-    .map((h) => ({ key: new Date(h.timestamp), data: h[phoneme] }));
+  return stamped(history)
+    .map((h) => {
+      const value = h.phoneme === phoneme ? h.score : h[phoneme];
+      return value == null ? null : { key: new Date(h.timestamp), data: value };
+    })
+    .filter(Boolean);
+}
+
+export function masteryBars(phonemeScores) {
+  return phonemeScores
+    .filter((p) => p.attempts > 0 && p.avgScore != null)
+    .sort((a, b) => a.avgScore - b.avgScore)
+    .map((p) => ({ key: p.phoneme, data: Math.round(p.avgScore * 100) }));
 }
 
 function groupByWord(wordScores) {
@@ -105,4 +112,19 @@ export function recentAttempts(wordScores) {
     .filter((s) => s.timestamp)
     .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
     .slice(0, RECENT_LIMIT);
+}
+
+export function totalAttempts(phonemeScores) {
+  return phonemeScores.reduce((sum, p) => sum + (p.attempts || 0), 0);
+}
+
+export function overallAccuracy(phonemeScores) {
+  let weighted = 0;
+  let attempts = 0;
+  for (const p of phonemeScores) {
+    if (!p.attempts || p.avgScore == null) continue;
+    weighted += p.avgScore * p.attempts;
+    attempts += p.attempts;
+  }
+  return attempts === 0 ? null : weighted / attempts;
 }

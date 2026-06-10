@@ -8,13 +8,16 @@ async function fetchJSON(url) {
   return res.json();
 }
 
-// Loads the full user document plus the level subpoints in parallel.
-// Returns { status, user, level, error } where status ∈ loading|ready|error.
+const parseLevel = (resp) => {
+  const parsed = typeof resp === 'string' ? JSON.parse(resp) : resp;
+  return parsed?.level ?? null;
+};
+
 export function useStatsData(userId) {
   const [state, setState] = useState({
     status: 'loading',
     user: null,
-    level: 0,
+    level: null,
     error: null,
   });
 
@@ -27,17 +30,11 @@ export function useStatsData(userId) {
     ])
       .then(([user, levelResp]) => {
         if (cancelled) return;
-        const parsed = typeof levelResp === 'string' ? JSON.parse(levelResp) : levelResp;
-        setState({
-          status: 'ready',
-          user,
-          level: parsed?.level?.subpoints ?? 0,
-          error: null,
-        });
+        setState({ status: 'ready', user, level: parseLevel(levelResp), error: null });
       })
       .catch((error) => {
         if (cancelled) return;
-        setState({ status: 'error', user: null, level: 0, error });
+        setState({ status: 'error', user: null, level: null, error });
       });
 
     return () => {

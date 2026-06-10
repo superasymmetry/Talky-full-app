@@ -8,18 +8,21 @@ import {
   activityCells,
   computeStreak,
   hardestWords,
+  masteryBars,
   mostImprovedWords,
+  overallAccuracy,
   progressSeries,
   recentAttempts,
+  totalAttempts,
 } from './derive.js';
 import {
   Card,
   Heatmap,
   LevelTile,
-  PhonemeGrid,
+  PhonemeMastery,
   ProgressChart,
-  StreakTile,
-  WordList,
+  StatTile,
+  WordTabs,
 } from './components.jsx';
 
 const getUserId = () => localStorage.getItem('userId') || 'demo';
@@ -39,14 +42,16 @@ const PageHeading = () => (
     <p className="tagline text-color-1">Statistics</p>
     <h1 className="h2 mt-2 text-n-1">Your progress</h1>
     <p className="body-2 mt-3 text-n-3 max-w-xl">
-      Track your speech journey, daily streaks, and the sounds and words you’re mastering.
+      A snapshot of your streaks, sounds, and the words you’re mastering.
     </p>
   </header>
 );
 
-const formatPercent = ({ value }) => `${Math.round(value * 100)}% avg`;
-const formatDelta = ({ value }) => `+${Math.round(value * 100)}%`;
-const formatDate = ({ timestamp }) => new Date(timestamp).toLocaleDateString();
+const streakSub = (streak) => {
+  if (streak === 0) return 'Start a lesson today';
+  if (streak === 1) return 'Great start — come back tomorrow';
+  return 'Keep the momentum going';
+};
 
 export default function Statistics() {
   const { status, user, level, error } = useStatsData(getUserId());
@@ -55,17 +60,24 @@ export default function Statistics() {
   const phonemes = user?.progress?.phonemeScores ?? [];
   const wordScores = user?.progress?.wordScores ?? [];
   const history = user?.history ?? [];
+  const playablePhonemes = phonemes.filter((p) => p.attempts > 0);
 
   useEffect(() => {
-    if (phonemes.length && !selected) setSelected(phonemes[0].phoneme);
-  }, [phonemes, selected]);
+    if (playablePhonemes.length && !selected) {
+      setSelected(playablePhonemes[0].phoneme);
+    }
+  }, [playablePhonemes, selected]);
 
   const streak = useMemo(() => computeStreak(history), [history]);
   const cells = useMemo(() => activityCells(history), [history]);
   const series = useMemo(() => progressSeries(history, selected), [history, selected]);
+  const bars = useMemo(() => masteryBars(phonemes), [phonemes]);
   const hardest = useMemo(() => hardestWords(wordScores), [wordScores]);
   const improved = useMemo(() => mostImprovedWords(wordScores), [wordScores]);
   const recent = useMemo(() => recentAttempts(wordScores), [wordScores]);
+
+  const total = useMemo(() => totalAttempts(phonemes), [phonemes]);
+  const accuracy = useMemo(() => overallAccuracy(phonemes), [phonemes]);
 
   if (status === 'loading') {
     return <Layout><Card>Loading statistics…</Card></Layout>;
@@ -85,45 +97,41 @@ export default function Statistics() {
       <PageHeading />
 
       <div className="flex flex-col gap-6">
-        <div className="grid gap-6 lg:grid-cols-[260px_260px_1fr]">
+        <div className="grid gap-6 grid-cols-2 lg:grid-cols-4">
           <LevelTile level={level} />
-          <StreakTile streak={streak} />
-          <Heatmap cells={cells} />
+          <StatTile
+            label="Day streak"
+            value={streak}
+            sub={streakSub(streak)}
+            accent="text-color-2"
+          />
+          <StatTile
+            label="Overall accuracy"
+            value={accuracy == null ? '—' : `${Math.round(accuracy * 100)}%`}
+            sub={accuracy == null ? 'No attempts yet' : 'Across all sounds'}
+            accent="text-color-4"
+          />
+          <StatTile
+            label="Total attempts"
+            value={total}
+            sub={total === 0 ? 'Try your first lesson' : 'Sound attempts logged'}
+            accent="text-color-5"
+          />
         </div>
 
-        <ProgressChart
-          phonemes={phonemes}
-          selected={selected}
-          onSelect={setSelected}
-          series={series}
-        />
+        <Heatmap cells={cells} />
 
-        <div className="grid gap-6 lg:grid-cols-[1fr_2fr] items-start">
-          <div className="flex flex-col gap-6">
-            <WordList
-              title="Needs practice"
-              rows={hardest}
-              empty="Complete a few words to see the trickiest ones."
-              valueClass="text-color-3"
-              format={formatPercent}
-            />
-            <WordList
-              title="Most improved"
-              rows={improved}
-              empty="Practice each word a couple of times to track improvement."
-              valueClass="text-color-4"
-              format={formatDelta}
-            />
-            <WordList
-              title="Recent attempts"
-              rows={recent}
-              empty="No recent attempts yet."
-              valueClass="text-n-3"
-              format={formatDate}
-            />
-          </div>
-          <PhonemeGrid scores={phonemes} />
+        <div className="grid gap-6 lg:grid-cols-[2fr_1fr] items-start">
+          <ProgressChart
+            phonemes={playablePhonemes}
+            selected={selected}
+            onSelect={setSelected}
+            series={series}
+          />
+          <PhonemeMastery bars={bars} />
         </div>
+
+        <WordTabs hardest={hardest} improved={improved} recent={recent} />
       </div>
     </Layout>
   );
