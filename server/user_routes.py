@@ -1,12 +1,16 @@
 from flask import Blueprint, request, jsonify, g
 from database import users_collection
-from datetime import datetime
+from datetime import datetime, timezone
 from groq import Groq
 from auth import requires_auth
 import os
 import random
 
 user_bp = Blueprint("user_bp", __name__)
+
+
+def _utc_now_iso():
+    return datetime.now(timezone.utc).isoformat()
 
 # Default categories for new users
 DEFAULT_PHONEMES = ["l", "r", "s", "th", "ch", "sh"]  # add more as needed
@@ -69,7 +73,8 @@ def adduser():
                 "a", "e", "i", "o", "u"]
     phoneme_scores = [{"phoneme": ph, "avgScore": None, "attempts": None} for ph in phonemes]
     initial_history = {ph: 0 for ph in phonemes}
-    
+    initial_history["timestamp"] = _utc_now_iso()
+
     user_doc = {
         "userId": user_id,
         "name": name,
@@ -237,50 +242,67 @@ def get_user_progress():
         "history": user["history"],
     })
 
+def _phoneme_for_lesson(lessons, lesson_id):
+    for lesson in lessons:
+        if lesson["id"] == lesson_id:
+            return lesson["phoneme"]
+    return "r"
+
+
+def _bumped_phoneme_scores(scores, phoneme, add_score):
+    for entry in scores:
+        if entry["phoneme"] != phoneme:
+            continue
+        prev_avg = entry["avgScore"] or 0
+        prev_attempts = entry["attempts"] or 0
+        entry["avgScore"] = (prev_avg * prev_attempts + add_score) / (prev_attempts + 1)
+        entry["attempts"] = prev_attempts + 1
+        break
+    return scores
+
+
+def _stamp_word_scores(word_scores, now_iso):
+    return [
+        {"word": w["word"], "score": w["score"], "timestamp": w.get("timestamp", now_iso)}
+        for w in word_scores
+        if "word" in w and "score" in w
+    ]
+
+
 @user_bp.route("/api/user/updateUserProgress", methods=["POST"])
 def update_user_progress():
-    data = request.get_json()
+    data = request.get_json() or {}
     user_id = data.get("userId")
     lesson_id = data.get("lessonId")
-    add_score = data.get("addScore")
+    add_score = data.get("addScore", 0)
+    incoming_word_scores = data.get("wordScores", [])
+
     user = users_collection.find_one({"userId": user_id})
     if not user:
         return jsonify({"message": "User not found"}), 404
 
-    prev_data = users_collection.find_one({"userId": user_id})
-    lessons_data = prev_data["lessons"]
-    phoneme = "r"
-    for i in range(len(lessons_data)):
-        if lessons_data[i]["id"] == lesson_id:
-            phoneme = lessons_data[i]["phoneme"]
-            break
-    # Update progress
-    updated_progress = prev_data["progress"]["phonemeScores"]
-    for i in range(len(updated_progress)):
-        if updated_progress[i]["phoneme"] == phoneme:
-            prev_avg = updated_progress[i]["avgScore"] or 0
-            prev_attempts = updated_progress[i]["attempts"] or 0
-            new_avg = (prev_avg * prev_attempts + add_score) / (prev_attempts + 1)
-            updated_progress[i]["avgScore"] = new_avg
-            updated_progress[i]["attempts"] = prev_attempts + 1
-            break
-    progress_update = {
-        "phonemeScores": updated_progress
-    }
-    prev_history = prev_data["history"][-1]
-    updated_history = prev_history.copy()
-    updated_history[phoneme] += add_score
+    now_iso = _utc_now_iso()
+    phoneme = _phoneme_for_lesson(user["lessons"], lesson_id)
+    phoneme_scores = _bumped_phoneme_scores(user["progress"]["phonemeScores"], phoneme, add_score)
+    new_word_scores = _stamp_word_scores(incoming_word_scores, now_iso)
+
+    new_history_entry = (user["history"][-1] if user.get("history") else {}).copy()
+    new_history_entry.pop("timestamp", None)
+    new_history_entry[phoneme] = new_history_entry.get(phoneme, 0) + add_score
+    new_history_entry["timestamp"] = now_iso
 
     users_collection.update_one(
         {"userId": user_id, "lessons.id": lesson_id},
         {"$set": {"lessons.$.score": add_score}}
     )
-
     users_collection.update_one(
         {"userId": user_id},
         {
-            "$set": {"progress": progress_update},
-            "$push": {"history": updated_history}
+            "$set": {"progress.phonemeScores": phoneme_scores},
+            "$push": {
+                "history": new_history_entry,
+                "progress.wordScores": {"$each": new_word_scores}
+            }
         }
     )
 
