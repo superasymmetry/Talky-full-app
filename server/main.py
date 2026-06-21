@@ -467,5 +467,9 @@ def home():
     users = list(users_collection.find({}, {"_id": 0}))
     return jsonify(users)
 
+@app.route("/health")
+def health():
+    return jsonify({"status": "ok"})
+
 if __name__ == '__main__':
     app.run(port=8080, debug=True, use_reloader=False)
