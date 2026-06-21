@@ -1,4 +1,5 @@
 torch
+torchaudio
 pyaudio
 flask
 flask-cors
@@ -12,3 +13,4 @@ difflib
 eng-to-ipa
 unittest
 playwright
+requests
