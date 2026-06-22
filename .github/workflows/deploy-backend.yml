@@ -1,0 +1,48 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/**'
+      - '!server/.venv/**'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd ~/Talky-full-app
+
+            # Pull latest changes
+            git fetch origin main
+            PREV=$(git rev-parse HEAD)
+            git pull origin main
+            NEW=$(git rev-parse HEAD)
+
+            # Only reinstall packages when requirements.txt changed
+            if git diff "$PREV" "$NEW" --name-only | grep -q 'server/requirements.txt'; then
+              echo "requirements.txt changed — reinstalling packages"
+              source venv/bin/activate
+              pip install -r server/requirements.txt -q
+            fi
+
+            # Restart service
+            sudo systemctl restart talky
+
+            # Wait for Gunicorn to fully start, then health-check
+            sleep 10
+            curl -sf http://localhost:8080/health \
+              || { echo "Health check failed"; sudo systemctl status talky --no-pager; exit 1; }
+            echo "Deploy succeeded — service is healthy"
