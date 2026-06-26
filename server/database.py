@@ -10,6 +10,9 @@ client = MongoClient(MONGO_URI, server_api=ServerApi('1'))
 db = client["talky"]
 users_collection = db["users"]
 
+# Create a unique index on userId to prevent full collection scans
+users_collection.create_index("userId", unique=True)
+
 # Send a ping to confirm a successful connection
 try:
     client.admin.command('ping')
