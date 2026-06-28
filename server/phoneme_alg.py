@@ -1,4 +1,5 @@
-﻿import threading
+﻿import difflib
+import threading
 import queue
 import torch
 import torchaudio
@@ -10,7 +11,7 @@ hf_logging.set_verbosity_info()
 import soundfile as sf
 import sounddevice as sd
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+device = "cpu"
 
 print("Loading model...", flush=True)
 processor = Wav2Vec2Processor.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme")
@@ -95,7 +96,7 @@ def get_phoneme_scores(input_audio, expected_sentence):
         second_max_probs = np.partition(probs[frame_idxs, :], -2, axis=1)[:, -2]
         score = float(np.mean(max_probs - second_max_probs))
         phoneme_scores.append({'phoneme': p, 'score': score})
-    
+
     res = []
     words = expected_sentence.split()
     for i, pword in enumerate(words_ipa):
@@ -111,12 +112,24 @@ def analyze_audio_thread(audio_path, expected_ipa):
     scores = get_phoneme_scores(audio_path, expected_ipa)
     print(scores)
 
-def stream_decode(duration=5, chunk_ms=200):
+def stream_decode(duration=5, chunk_ms=500, reference_phonemes=None):
     """Record audio and decode phonemes for each 200ms chunk as they arrive.
     Args:
         duration (int): Total recording duration in seconds.
         chunk_ms (int): Chunk size in milliseconds.
+        reference_phonemes (list): The list of phonemes to use as a reference for alignment.
     """
+    if reference_phonemes is None:
+        reference_phonemes = processor.tokenizer.tokenize(ipa.convert("The quick brown fox jumps over the lazy dog.").replace(" ", ""))
+    reference_phonemes = [p for p in reference_phonemes if p != "ˈ"]
+    pointer = 0
+    phoneme2id = processor.tokenizer.get_vocab()
+    logit_threshold = 5.0  # target phoneme logit above this counts as "said"
+    lookahead = 3          # how many targets ahead to scan for badly-said phonemes
+
+    def normalize(p):
+        return p.replace("ɹ", "r")
+
     sample_rate = 16000
     chunk_samples = int(sample_rate * chunk_ms / 1000)
 
@@ -136,13 +149,81 @@ def stream_decode(duration=5, chunk_ms=200):
                                return_tensors="pt", padding=True).to(device)
             with torch.no_grad():
                 logits = model(**inputs).logits
-            predicted_ids = torch.argmax(logits, dim=-1)
-            decoded = processor.decode(predicted_ids[0])
-            raw_ids = predicted_ids[0].tolist()
-            # print(f"[chunk {i+1:02d}] decoded={repr(decoded)} raw_ids={raw_ids[:10]}", flush=True)
-            print(repr(decoded), " ", flush=True)
+            predicted_ids = torch.argmax(logits, dim=-1)[0].tolist()
+            logits_np = logits[0].cpu().numpy()
+            blank_id = processor.tokenizer.pad_token_id
+            collapsed = []
+            collapsed_frames = []
+            prev = None
+            for fi, idx in enumerate(predicted_ids):
+                if idx != prev:
+                    if idx != blank_id:
+                        collapsed.append(idx)
+                        collapsed_frames.append(fi)
+                    prev = idx
+            special = set(processor.tokenizer.all_special_ids)
+            tokens = processor.tokenizer.convert_ids_to_tokens(collapsed)
+            chunk_phonemes = []
+            phoneme_logits = []
+            chunk_frames = []
+            for fi, idx, t in zip(collapsed_frames, collapsed, tokens):
+                if processor.tokenizer.convert_tokens_to_ids(t) not in special and t not in ("|", " "):
+                    chunk_phonemes.append(normalize(t))
+                    phoneme_logits.append(logits_np[fi, idx])
+                    chunk_frames.append(fi)
+            print(f"[chunk {i+1:02d}] {chunk_phonemes}", flush=True)
+            # Pre-align: if chunk phonemes fit a later reference offset better,
+            # the user has moved past the intervening targets → mark them omitted.
+            if chunk_phonemes and pointer < len(reference_phonemes):
+                current_count = sum(
+                    1 for di, dp in enumerate(chunk_phonemes)
+                    if pointer + di < len(reference_phonemes)
+                    and dp == normalize(reference_phonemes[pointer + di])
+                )
+                if current_count == 0:
+                    best_count, best_skip = 0, 0
+                    back = min(lookahead, pointer)
+                    fwd  = min(lookahead * 2 + 1, len(reference_phonemes) - pointer)
+                    for skip in list(range(-back, 0)) + list(range(1, fwd)):
+                        count = sum(
+                            1 for di, dp in enumerate(chunk_phonemes)
+                            if 0 <= pointer + skip + di < len(reference_phonemes)
+                            and dp == normalize(reference_phonemes[pointer + skip + di])
+                        )
+                        if count > best_count:
+                            best_count, best_skip = count, skip
+                    if best_count >= 2:
+                        if best_skip > 0:
+                            for k in range(best_skip):
+                                print(f"  [omitted] {normalize(reference_phonemes[pointer + k])!r}", flush=True)
+                        pointer += best_skip
+            for j, (fi, p, lv) in enumerate(zip(chunk_frames, chunk_phonemes, phoneme_logits)):
+                if pointer >= len(reference_phonemes):
+                    print(f"  [insertion] {p!r}: {lv:.4f}", flush=True)
+                    continue
+                target_p = normalize(reference_phonemes[pointer])
+                target_id = phoneme2id.get(reference_phonemes[pointer])
+                target_lv = float(logits_np[fi, target_id]) if target_id is not None else float("nan")
+                if p == target_p or (target_id is not None and target_lv > logit_threshold):
+                    label = "correct"
+                    pointer += 1
+                elif target_id is not None and target_lv > 0:
+                    # If the very next decoded phoneme is an exact match for this target,
+                    # the current decoded is noise before the real phoneme — treat as insertion.
+                    next_is_target = j + 1 < len(chunk_phonemes) and chunk_phonemes[j + 1] == target_p
+                    if next_is_target:
+                        label = "insertion"
+                    else:
+                        label = "mispronounced"
+                        pointer += 1
+                else:
+                    label = "insertion"
+                print(f"  [{label}] {p!r}: {lv:.4f}  target={target_p!r}: {target_lv:.4f}", flush=True)
 
     print("Done.")
 
 if __name__ == "__main__":
-    stream_decode(duration=5)
+    reference_sentence = "The quick brown fox jumps over the lazy dog"
+    reference_phonemes = [p for p in processor.tokenizer.tokenize(ipa.convert(reference_sentence).replace(" ", "")) if p != "ˈ"]
+    print("Reference phonemes:", reference_phonemes)
+    stream_decode(duration=5, reference_phonemes=reference_phonemes)

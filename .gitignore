@@ -6,3 +6,8 @@ server/__pycache__/*
 server/.env
 
 talky-app/.env
+
+DEPLOYMENT.md
+cf-config.json
+cf-update.json
+cloudfront-config.json

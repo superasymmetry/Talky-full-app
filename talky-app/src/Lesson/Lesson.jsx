@@ -53,7 +53,10 @@ const Model = forwardRef(function Model(props, ref) {
 })
 
 const getPhonemeStyle = (score) => {
-  if (score === null || score === undefined || score >= 0.9) {
+  if (score === null || score === undefined) {
+    return { background: '#e5e7eb', color: '#6b7280' };
+  }
+  if (score >= 0.9) {
     return { background: '#bbf7d0', color: '#166534' };
   }
   if (score >= 0.7) {
@@ -91,8 +94,7 @@ export default function Lesson() {
   const processorRef = useRef(null);
   const streamRef = useRef(null);
   const accumChunksRef = useRef([]);
-  const silenceFramesRef = useRef(0);
-  const isSpeakingRef = useRef(false);
+  const chunkIntervalRef = useRef(null);
   const pendingSessionRef = useRef(null); // holds { sentence, words_ipa } until connect fires
 
   const toEmbed = (u) => {
@@ -194,6 +196,10 @@ export default function Lesson() {
   };
 
   const stopRecording = () => {
+    if (chunkIntervalRef.current) {
+      clearInterval(chunkIntervalRef.current);
+      chunkIntervalRef.current = null;
+    }
     if (processorRef.current) {
       processorRef.current.disconnect();
       processorRef.current = null;
@@ -207,8 +213,6 @@ export default function Lesson() {
       streamRef.current = null;
     }
     accumChunksRef.current = [];
-    silenceFramesRef.current = 0;
-    isSpeakingRef.current = false;
     setIsRecording(false);
   };
 
@@ -281,46 +285,21 @@ export default function Lesson() {
     const source = ctx.createMediaStreamSource(stream);
 
     const BUFFER_SIZE = 2048;
-    const SILENCE_THRESHOLD = 0.02;
-    const frameMs = (BUFFER_SIZE / ctx.sampleRate) * 1000;
-    // 500ms of silence triggers a chunk send
-    const SILENCE_FRAMES_NEEDED = Math.ceil(500 / frameMs);
-    // don't send tiny fragments under 150ms of actual speech
-    const MIN_SPEECH_FRAMES = Math.ceil(150 / frameMs);
+    const CHUNK_INTERVAL_MS = 500;
 
     // ScriptProcessorNode is deprecated but avoids needing a separate worklet file
     const processor = ctx.createScriptProcessor(BUFFER_SIZE, 1, 1);
     processorRef.current = processor;
     accumChunksRef.current = [];
-    silenceFramesRef.current = 0;
-    isSpeakingRef.current = false;
 
     processor.onaudioprocess = (e) => {
-      const pcm = new Float32Array(e.inputBuffer.getChannelData(0));
-      // computes rms energy — basically the volume level
-      const rms = Math.sqrt(pcm.reduce((sum, s) => sum + s * s, 0) / pcm.length);
-      const isSilent = rms < SILENCE_THRESHOLD;
-
-      if (!isSilent) {
-        isSpeakingRef.current = true;
-        silenceFramesRef.current = 0;
-        accumChunksRef.current.push(pcm);
-      } else if (isSpeakingRef.current) {
-        accumChunksRef.current.push(pcm); // include trailing silence so the word doesn't get clipped
-        silenceFramesRef.current++;
-
-        if (
-          silenceFramesRef.current >= SILENCE_FRAMES_NEEDED &&
-          accumChunksRef.current.length >= MIN_SPEECH_FRAMES
-        ) {
-          const toSend = accumChunksRef.current;
-          accumChunksRef.current = [];
-          silenceFramesRef.current = 0;
-          isSpeakingRef.current = false;
-          sendChunk(toSend, ctx.sampleRate);
-        }
-      }
+      accumChunksRef.current.push(new Float32Array(e.inputBuffer.getChannelData(0)));
     };
+
+    chunkIntervalRef.current = setInterval(() => {
+      const chunks = accumChunksRef.current.splice(0);
+      if (chunks.length > 0) sendChunk(chunks, ctx.sampleRate);
+    }, CHUNK_INTERVAL_MS);
 
     source.connect(processor);
     processor.connect(ctx.destination);
@@ -328,8 +307,8 @@ export default function Lesson() {
 
   const toggleRecording = () => {
     if (isRecording) {
+      socketRef.current?.emit('stop'); // ask server to finalize; disconnect happens in handleFinalResult
       stopRecording();
-      socketRef.current?.disconnect();
     } else {
       startRecording();
     }
