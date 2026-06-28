@@ -2,6 +2,7 @@ import collections
 import eng_to_ipa as ipa
 import numpy as np
 from flask import Flask, request, jsonify
+from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 from groq import Groq
 import os
@@ -22,12 +23,20 @@ import pyaudio_recording
 from g2p_en import G2p
 import json
 import nltk
+import threading, queue
+from stream_decode_util import stream_decode_util
 nltk.download('cmudict')
 
 load_dotenv()
 
+ALLOWED_ORIGINS = os.environ.get(
+    "ALLOWED_ORIGINS",
+    "https://talkwithtalky.org,https://d26pahabsgpl8k.cloudfront.net,http://localhost:3000,http://localhost:5173"
+).split(",")
+
 app = Flask(__name__)
-cors = CORS(app)
+socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGINS, async_mode='threading')
+cors = CORS(app, resources={r"/api/*": {"origins": ALLOWED_ORIGINS}})
 
 # Register routes
 app.register_blueprint(user_bp)
@@ -43,6 +52,8 @@ _model = None
 _feedback_model = None
 _load_lock = threading.Lock()
 device = "cuda" if torch.cuda.is_available() else "cpu"
+
+sessions = {}
 
 phoneme_word_bank = {
     "p": ["pat", "pop", "paper", "puppy", "apple", "stop", "pepper", "paint"],
@@ -125,8 +136,8 @@ def _load_model_once():
     if _processor is None or _model is None:
         with _load_lock:
             if _processor is None or _model is None:
-                _processor = Wav2Vec2Processor.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme", dtype=torch.float16)
-                _model = Wav2Vec2ForCTC.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme", dtype=torch.float16).eval()
+                _processor = Wav2Vec2Processor.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme")
+                _model = Wav2Vec2ForCTC.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme").eval()
                 _model.to(device)
                 _feedback_model = Groq(api_key=os.environ.get("GROQ_API_KEY"))
     return _processor, _model, _feedback_model
@@ -241,8 +252,8 @@ def get_phoneme_scores(input_audio, expected_sentence):
     expected_sentence = expected_sentence.rstrip('.')
 
     # Load pre-trained model and processor
-    processor = Wav2Vec2Processor.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme", dtype=torch.float16)
-    model = Wav2Vec2ForCTC.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme", dtype=torch.float16).eval()
+    processor = Wav2Vec2Processor.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme")
+    model = Wav2Vec2ForCTC.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme").eval()
     model.to(device)
 
     # Read and process the input audio
@@ -260,7 +271,7 @@ def get_phoneme_scores(input_audio, expected_sentence):
     words_ipa = converted_ipa.split()
     expected_ipa = converted_ipa.replace(" ", "")
     expected_ipa = [c for c in expected_ipa if c in phoneme2id]
-    print("expected ipa", expected_ipa)
+    # print("expected ipa", expected_ipa)
     if len(expected_ipa) == 0:
         return [{'word': expected_sentence, 'phonemes': []}], 0.0
 
@@ -316,7 +327,7 @@ def get_phoneme_scores(input_audio, expected_sentence):
         num_scores += 1
         phoneme_scores.append({'phoneme': p, 'score': score})
     
-    print("phoneme scores", phoneme_scores)
+    # print("phoneme scores", phoneme_scores)
     res = []
     words = expected_sentence.split()
     for i, pword in enumerate(words_ipa):
@@ -462,6 +473,87 @@ def wordbank():
 
     return jsonify(chat_completion.choices[0].message.content)
 
+def finalize_session(sid):
+    session = sessions.pop(sid, None)
+    if not session:
+        return
+    results = session['results']
+    total_words = len(session.get('words_ipa', []))
+    avg = len(results) / total_words if total_words > 0 else 0.0
+    socketio.emit('result', {
+        'score': avg,
+        'passed': avg >= 0.8,
+        'feedback': "Great job!" if avg >= 0.8 else "Hmm, try again.",
+        'res': results,
+    }, to=sid)
+
+@socketio.on('connect')
+def handle_connect(auth=None):
+    print(f"Client connected: {request.sid}")
+
+@socketio.on('start')
+def handle_start(data):
+    sid = request.sid
+    words_ipa = data['words_ipa']
+    flat_phonemes = [p for w in words_ipa for p in w['phonemes']]
+    position_to_word_idx = [
+        word_idx
+        for word_idx, w in enumerate(words_ipa)
+        for _ in w['phonemes']
+    ]
+    chunk_queue = queue.Queue()
+    session = {'words_ipa': words_ipa, 'queue': chunk_queue, 'results': []}
+    sessions[sid] = session
+
+    def run():
+        processor, model, _ = _load_model_once()
+        word_phoneme_scores = [[] for _ in words_ipa]
+
+        def drain():
+            while (item := chunk_queue.get()) is not None:
+                yield item
+
+        for match in stream_decode_util(drain(), flat_phonemes, processor, model, device):
+            word_idx = position_to_word_idx[match['position']]
+            word_phoneme_scores[word_idx].append({'phoneme': match['phoneme'], 'score': match['score']})
+            word_entry = words_ipa[word_idx]
+            if len(word_phoneme_scores[word_idx]) == len(word_entry['phonemes']):
+                scores = word_phoneme_scores[word_idx]
+                result = {
+                    'word_index': word_idx,
+                    'word': word_entry['word'],
+                    'phonemes': scores,
+                    'score': sum(p['score'] for p in scores) / len(scores),
+                }
+                session['results'].append(result)
+                socketio.emit('partial_result', result, to=sid)
+        finalize_session(sid)
+
+    threading.Thread(target=run, daemon=True).start()
+    print(f"Session started for {sid}: {data['sentence']}")
+
+
+@socketio.on('chunk')
+def handle_chunk(data):
+    session = sessions.get(request.sid)
+    if session:
+        session['queue'].put(np.frombuffer(data, dtype=np.float32))
+
+
+@socketio.on('stop')
+def handle_stop():
+    session = sessions.get(request.sid)
+    if session:
+        session['queue'].put(None)
+
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    session = sessions.pop(request.sid, None)
+    if session:
+        session['queue'].put(None)  # unblock the background thread
+
+
 @app.route("/")
 def home():
     users = list(users_collection.find({}, {"_id": 0}))
@@ -472,4 +564,4 @@ def health():
     return jsonify({"status": "ok"})
 
 if __name__ == '__main__':
-    app.run(port=8080, debug=True, use_reloader=False)
+    socketio.run(app, port=8080, debug=True, use_reloader=False)
