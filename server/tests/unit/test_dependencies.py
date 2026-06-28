@@ -15,7 +15,7 @@ class DependencyImportTest(unittest.TestCase):
         from flask import Flask
         from flask_cors import CORS
         app = Flask(__name__)
-        cors = CORS(app)
+        cors = CORS(app, resources={r"/api/*": {"origins": ["https://talkwithtalky.org"]}})
         self.assertIsNotNone(cors)
 
     def test_flask_socketio(self):

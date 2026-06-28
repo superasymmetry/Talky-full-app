@@ -29,9 +29,14 @@ nltk.download('cmudict')
 
 load_dotenv()
 
+ALLOWED_ORIGINS = os.environ.get(
+    "ALLOWED_ORIGINS",
+    "https://talkwithtalky.org,https://d26pahabsgpl8k.cloudfront.net,http://localhost:3000,http://localhost:5173"
+).split(",")
+
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
-cors = CORS(app)
+socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGINS, async_mode='threading')
+cors = CORS(app, resources={r"/api/*": {"origins": ALLOWED_ORIGINS}})
 
 # Register routes
 app.register_blueprint(user_bp)
