@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react'
-import { useAuth0 } from '@auth0/auth0-react';
+import React, { useEffect, useState } from 'react'
+
 import Header from '../Header/Header';
-import talkyRocket from '../assets/logo.png';
 import VoiceSettings from '../SoundBank/VoiceSettings';
+import talkyRocket from '../assets/logo.png';
+import { useAuth0 } from '@auth0/auth0-react';
 
 const Profile = () => {
   const { user, isAuthenticated, isLoading, getAccessTokenSilently } = useAuth0();
@@ -32,14 +33,14 @@ const Profile = () => {
       if (!isAuthenticated || !user) return;
 
       const userId = user.sub || user.email;
-      const payload = {
-        userId,
-        name: user.name || user.nickname || user.email || 'Unnamed',
-        // Do not rely on local state defaults here; server will be authoritative.
-        age: parseInt(age, 10) || undefined,
-        nickname: nickname ?? user.nickname ?? "",
-        role: role ?? "Student"
-      };
+      // const payload = {
+      //   userId,
+      //   name: user.name || user.nickname || user.email || 'Unnamed',
+      //   // Do not rely on local state defaults here; server will be authoritative.
+      //   age: parseInt(age, 10) || undefined,
+      //   nickname: nickname ?? user.nickname ?? "",
+      //   role: role ?? "Student"
+      // };
 
       try {
         // create/upsert
