@@ -1,13 +1,22 @@
-import threading
+﻿import threading
+import queue
 import torch
 import torchaudio
 import numpy as np
 import eng_to_ipa as ipa
-from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
+from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor, logging as hf_logging
 import os
+hf_logging.set_verbosity_info()
 import soundfile as sf
+import sounddevice as sd
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
+
+print("Loading model...", flush=True)
+processor = Wav2Vec2Processor.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme")
+model = Wav2Vec2ForCTC.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme").eval()
+model.to(device)
+print("Model loaded.", flush=True)
 
 def get_phoneme_scores(input_audio, expected_sentence):
     """Evaluate phoneme accuracy of input audio against expected sentence.
@@ -19,9 +28,9 @@ def get_phoneme_scores(input_audio, expected_sentence):
         e.g. [{'word': 'the', 'phonemes': [{'phoneme': 'ð', 'score': 0.9}, {'phoneme': 'ə', 'score': 0.8}]}, ...]
     """
     # Load pre-trained model and processor
-    processor = Wav2Vec2Processor.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme", dtype=torch.float16)
-    model = Wav2Vec2ForCTC.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme", dtype=torch.float16).eval()
-    model.to(device)
+    # processor = Wav2Vec2Processor.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme", dtype=torch.float16)
+    # model = Wav2Vec2ForCTC.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme", dtype=torch.float16).eval()
+    # model.to(device)
 
     # Read and process the input audio
     audio_input, sample_rate = sf.read(input_audio)
@@ -102,8 +111,38 @@ def analyze_audio_thread(audio_path, expected_ipa):
     scores = get_phoneme_scores(audio_path, expected_ipa)
     print(scores)
 
+def stream_decode(duration=5, chunk_ms=200):
+    """Record audio and decode phonemes for each 200ms chunk as they arrive.
+    Args:
+        duration (int): Total recording duration in seconds.
+        chunk_ms (int): Chunk size in milliseconds.
+    """
+    sample_rate = 16000
+    chunk_samples = int(sample_rate * chunk_ms / 1000)
+
+    audio_queue = queue.Queue()
+
+    def callback(indata, frames, time, status):
+        audio_queue.put(indata[:, 0].copy())
+
+    print(f"Recording for {duration}s, decoding every {chunk_ms}ms...", flush=True)
+    total_chunks = int(duration * 1000 / chunk_ms)
+
+    with sd.InputStream(samplerate=sample_rate, channels=1, dtype="float32",
+                        blocksize=chunk_samples, callback=callback):
+        for i in range(total_chunks):
+            chunk = audio_queue.get()
+            inputs = processor(chunk, sampling_rate=sample_rate,
+                               return_tensors="pt", padding=True).to(device)
+            with torch.no_grad():
+                logits = model(**inputs).logits
+            predicted_ids = torch.argmax(logits, dim=-1)
+            decoded = processor.decode(predicted_ids[0])
+            raw_ids = predicted_ids[0].tolist()
+            # print(f"[chunk {i+1:02d}] decoded={repr(decoded)} raw_ids={raw_ids[:10]}", flush=True)
+            print(repr(decoded), " ", flush=True)
+
+    print("Done.")
+
 if __name__ == "__main__":
-    expected_sentence = "the quick brown fox jumps over the lazy dog"
-    input_audio = "./tests/reference.wav"
-    scores = get_phoneme_scores(input_audio, expected_sentence)
-    print(scores)
+    stream_decode(duration=5)
