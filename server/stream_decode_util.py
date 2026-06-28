@@ -169,3 +169,64 @@ def stream_decode_util(audio_chunks, reference_phonemes, processor, model, devic
                     "decoded_logit": lv,
                     "score": score,
                 }
+
+
+def test_stream_decode_util():
+    import numpy as np
+    from transformers import Wav2Vec2Processor, Wav2Vec2ForCTC
+
+    processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
+    model = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base-960h")
+    device = "cpu"
+
+    sample_rate = 16000
+    audio_chunk = np.zeros(sample_rate, dtype=np.float32)
+
+    reference_phonemes = ["h", "ə", "l", "oʊ"]
+
+    results = list(stream_decode_util([audio_chunk], reference_phonemes, processor, model, device, sample_rate))
+
+    for result in results:
+        print(result)
+
+
+if __name__ == "__main__":
+    import queue
+    import sounddevice as sd
+    import eng_to_ipa as ipa
+    from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
+
+    device = "cpu"
+    duration = 5
+    chunk_ms = 500
+    sample_rate = 16000
+    chunk_samples = int(sample_rate * chunk_ms / 1000)
+
+    print("Loading model...", flush=True)
+    processor = Wav2Vec2Processor.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme")
+    model = Wav2Vec2ForCTC.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme").eval()
+    model.to(device)
+    print("Model loaded.", flush=True)
+
+    reference_sentence = "The quick brown fox jumps over the lazy dog"
+    reference_phonemes = [p for p in processor.tokenizer.tokenize(ipa.convert(reference_sentence).replace(" ", "")) if p != "ˈ"]
+    print("Reference phonemes:", reference_phonemes)
+
+    audio_queue = queue.Queue()
+
+    def callback(indata, _frames, _time, _status):
+        audio_queue.put(indata[:, 0].copy())
+
+    total_chunks = int(duration * 1000 / chunk_ms)
+
+    def chunk_generator():
+        with sd.InputStream(samplerate=sample_rate, channels=1, dtype="float32",
+                            blocksize=chunk_samples, callback=callback):
+            print(f"Recording for {duration}s, decoding every {chunk_ms}ms...", flush=True)
+            for _ in range(total_chunks):
+                yield audio_queue.get()
+
+    for event in stream_decode_util(chunk_generator(), reference_phonemes, processor, model, device, sample_rate):
+        print(f"  -> {event}", flush=True)
+
+    print("Done.")
