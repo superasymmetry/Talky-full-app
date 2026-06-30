@@ -23,7 +23,7 @@ class TestMongoDB(unittest.TestCase):
                 "ʃ", "sh", "ʒ", "tʃ", "ch", "dʒ", "j", "m", "n", "ŋ", "w", "y",
                 "a", "e", "i", "o", "u"]
         phoneme_scores = [{"phoneme": ph, "avgScore": None, "attempts": None} for ph in phonemes]
-        initial_history = {ph: 0 for ph in phonemes}
+        initial_history = dict.fromkeys(phonemes, 0)
         
         user_doc = {
             "userId": self.test_user_id,

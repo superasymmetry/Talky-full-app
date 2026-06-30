@@ -2,6 +2,7 @@
 
 Flask==3.1.2
 flask-cors==6.0.2
+flask-socketio==5.5.1
 Werkzeug==3.1.5
 python-dotenv==1.2.1
 gunicorn==23.0.0
