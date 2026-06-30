@@ -333,7 +333,7 @@ def home():
     users = list(users_collection.find({}, {"_id": 0}))
     return jsonify(users)
 
-@app.route("/health")
+@app.route("/health", methods=["GET", "HEAD"])
 def health():
     return jsonify({"status": "ok"})
 

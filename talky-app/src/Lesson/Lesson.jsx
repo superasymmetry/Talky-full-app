@@ -82,7 +82,6 @@ export default function Lesson() {
   const [showIntro, setShowIntro] = useState(true);
   const videoUrl = "https://youtu.be/IwWw6Xe09O0?t=31";
   const [score, setScore] = useState(0);
-  const [expectedIPAs, setExpectedIPAs] = useState([]);
   const [wordsToIPA, setWordsToIPA] = useState(null);
   const [currentWordsToIPA, setCurrentWordsToIPA] = useState(null);
   const [wordResults, setWordResults] = useState([]);
@@ -156,7 +155,6 @@ export default function Lesson() {
       .then((response) => response.json())
       .then((data) => {
         setCardData(data.sentences ?? data);
-        setExpectedIPAs(data.expected_ipas);
         setWordsToIPA(data.words_to_ipas);
       })
       .catch((error) => console.error("Error fetching data:", error));
