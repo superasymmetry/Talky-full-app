@@ -1,6 +1,3 @@
-import eventlet
-eventlet.monkey_patch(thread=False)
-
 import collections
 import eng_to_ipa as ipa
 import numpy as np
@@ -29,7 +26,7 @@ ALLOWED_ORIGINS = os.environ.get(
 ).split(",")
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGINS, async_mode='eventlet')
+socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGINS, async_mode='threading')
 cors = CORS(app, resources={r"/api/*": {"origins": ALLOWED_ORIGINS}})
 
 # Register routes
@@ -357,4 +354,4 @@ def health():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
-    socketio.run(app, host='0.0.0.0', port=port, debug=False, use_reloader=False)
+    socketio.run(app, host='0.0.0.0', port=port, debug=False, use_reloader=False, allow_unsafe_werkzeug=True)
