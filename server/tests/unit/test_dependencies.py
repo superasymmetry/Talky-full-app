@@ -80,10 +80,6 @@ class DependencyImportTest(unittest.TestCase):
         from pydub import AudioSegment
         self.assertIsNotNone(AudioSegment)
 
-    def test_nltk(self):
-        import nltk
-        self.assertIsNotNone(nltk.__version__)
-
     def test_eng_to_ipa(self):
         import eng_to_ipa as ipa
         result = ipa.convert("cat")

@@ -12,19 +12,11 @@ from user_routes import user_bp
 from score_routes import score_bp
 import threading
 import torch
-import difflib
-import torchaudio
-import soundfile as sf
 from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
-from gtts import gTTS
-import jiwer
-import pyaudio_recording
-from g2p_en import G2p
+import re
 import json
-import nltk
 import threading, queue
 from stream_decode_util import stream_decode_util
-nltk.download('cmudict')
 
 load_dotenv()
 
@@ -129,7 +121,33 @@ arpabet_to_ipa = {
     "Z": "z",
     "ZH": "ʒ"
 }
-                
+
+# IPA digraphs that must be treated as a single phoneme token
+_IPA_DIGRAPHS = {"aʊ", "aɪ", "eɪ", "oʊ", "ɔɪ", "tʃ"}
+_IPA_SKIP = set(" ˈˌːˑ'")
+
+def _word_to_phonemes(word):
+    """Convert an English word to a list of IPA phoneme strings using eng_to_ipa."""
+    clean = re.sub(r"[^a-zA-Z'-]", "", word)
+    if not clean:
+        return []
+    ipa_str = ipa.convert(clean)
+    if not ipa_str or "*" in ipa_str:
+        return []
+    result = []
+    i = 0
+    while i < len(ipa_str):
+        two = ipa_str[i:i+2]
+        if two in _IPA_DIGRAPHS:
+            result.append(two)
+            i += 2
+        elif ipa_str[i] not in _IPA_SKIP:
+            result.append(ipa_str[i])
+            i += 1
+        else:
+            i += 1
+    return result
+
 def _load_model_once():
     global _processor, _model, _feedback_model
     if _processor is None or _model is None:
@@ -181,13 +199,10 @@ def lessons():
     expected_ipas = []
     words_to_ipa_list = []
     try:
-        g2p = G2p()
         for sentence in sentences.values():
             sentence_phonemes = collections.OrderedDict()
             for word in sentence.split():
-                raw_phonemes = [p for p in g2p(word) if p != ' ']
-                raw_phonemes = [p for p in raw_phonemes if p.isalpha() or p.isalnum()]
-                phonemes = [arpabet_to_ipa[p] for p in raw_phonemes if p in arpabet_to_ipa]
+                phonemes = _word_to_phonemes(word)
                 print("word, phonemes", word, phonemes)
                 sentence_phonemes[word] = phonemes
             expected_ipas.append(sentence_phonemes)
