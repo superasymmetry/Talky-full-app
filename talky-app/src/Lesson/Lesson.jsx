@@ -1,5 +1,6 @@
 import { ContactShadows, Environment, OrbitControls, Sky, useAnimations, useGLTF } from '@react-three/drei'
 import { Suspense, forwardRef, useEffect, useRef, useState } from 'react'
+import toast, { Toaster } from 'react-hot-toast';
 
 import Back from './Back.jsx';
 import { Canvas } from '@react-three/fiber'
@@ -109,7 +110,7 @@ export default function Lesson() {
 
   // Initialize socket once — listeners are stable across renders
   useEffect(() => {
-    const socket = io(API_BASE, { autoConnect: false });
+    const socket = io(API_BASE, { autoConnect: false, transports: ['websocket', 'polling'] });
     socketRef.current = socket;
 
     // After the transport connects, emit 'start' with session metadata
@@ -155,9 +156,16 @@ export default function Lesson() {
       .then((response) => response.json())
       .then((data) => {
         setCardData(data.sentences ?? data);
-        setWordsToIPA(data.words_to_ipas);
+        const ipas = data.words_to_ipas;
+        if (!ipas || ipas.length === 0) {
+          toast.error('Phoneme data failed to load. Please reload the page.');
+        }
+        setWordsToIPA(ipas);
       })
-      .catch((error) => console.error("Error fetching data:", error));
+      .catch((error) => {
+        console.error("Error fetching data:", error);
+        toast.error('Failed to load lesson. Please check your connection and reload.');
+      });
   }, []);
 
   // TTS for current sentence
@@ -255,7 +263,10 @@ export default function Lesson() {
   const startRecording = async () => {
     const sentence = cardData?.[currentSentenceIndex.toString()];
     const words_ipa = wordsToIPA?.[currentSentenceIndex - 1];
-    if (!sentence || !words_ipa) return;
+    if (!sentence || !words_ipa) {
+      toast.error('Lesson data not ready yet — please wait a moment and try again.');
+      return;
+    }
 
     setIsRecording(true);
     setWordResults([]);
@@ -440,6 +451,7 @@ export default function Lesson() {
 
   return (
     <div style={{ position: 'fixed', inset: 0, margin: 0, padding: 0, overflow: 'hidden' }}>
+      <Toaster position="top-center" />
       <Canvas
         style={{ width: '100%', height: '100%' }}
         camera={{ position: [-15, 8, 10], fov: 50 }}
