@@ -6,6 +6,7 @@ flask-socketio==5.5.1
 Werkzeug==3.1.5
 python-dotenv==1.2.1
 gunicorn==23.0.0
+eventlet==0.40.0
 
 torch==2.10.0+cpu
 torchaudio==2.10.0+cpu

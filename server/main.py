@@ -1,3 +1,6 @@
+import eventlet
+eventlet.monkey_patch()
+
 import collections
 import eng_to_ipa as ipa
 import numpy as np
@@ -26,7 +29,7 @@ ALLOWED_ORIGINS = os.environ.get(
 ).split(",")
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGINS, async_mode='threading')
+socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGINS, async_mode='eventlet')
 cors = CORS(app, resources={r"/api/*": {"origins": ALLOWED_ORIGINS}})
 
 # Register routes
