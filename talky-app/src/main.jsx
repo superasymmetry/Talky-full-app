@@ -1,4 +1,4 @@
-import { StrictMode, useEffect } from 'react'
+﻿import { StrictMode, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import './index.css'
@@ -7,7 +7,6 @@ import Lesson from './Lesson/Lesson.jsx'
 import SoundBank from './SoundBank/SoundBank.jsx'
 import SoundBankCategory from './SoundBank/SoundBankCategory.jsx'
 import Profile from './Auth0/Profile.jsx'
-import Game from './Lesson/Game.jsx'
 import Statistics from './Statistics/Statistics.jsx';
 
 import { Auth0Provider, useAuth0 } from '@auth0/auth0-react'
@@ -17,6 +16,7 @@ const domain = import.meta.env.VITE_AUTH0_DOMAIN;
 const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID;
 const audience = import.meta.env.VITE_AUTH0_AUDIENCE;
 
+// eslint-disable-next-line react-refresh/only-export-components
 const UserCreator = ({ children }) => {
   const { user, isAuthenticated } = useAuth0()
   useEffect(() => {
@@ -49,7 +49,6 @@ createRoot(document.getElementById('root')).render(
             <Route path="/app" element={<App/>}/>
             <Route path="/lessons/:id" element={<Lesson />}/>
             <Route path="/soundbank" element={<SoundBank/>}/>
-            <Route path="/game" element={<Game/>}/>
             <Route path="/soundbank/:id" element={<SoundBankCategory/>}/>
             <Route path="/profile" element={<Profile/>}/>
             <Route path="/statistics" element={<Statistics/>}/>
@@ -60,3 +59,4 @@ createRoot(document.getElementById('root')).render(
     </Auth0Provider>
   </StrictMode>,
 )
+

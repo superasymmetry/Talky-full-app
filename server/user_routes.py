@@ -88,7 +88,6 @@ def adduser():
         "lessons": [
             {"id": "1", "phoneme": "r", "words": ["rainbow", "racecar"], "score": 0},
             {"id": "2", "phoneme": "r", "words": ["red", "read"], "score": 0},
-            {"id": "game", "phoneme": "l", "words": ["lion", "leaf"], "score": 0},
             {"id": "3", "phoneme": "l", "words": ["lion", "leaf"], "score": 0},
             {"id": "4", "phoneme": "l", "words": ["letter", "learn"], "score": 0},
         ],

@@ -1,4 +1,4 @@
-import { check, brainwaveSymbol } from "../assets";
+﻿import { check } from "../assets";
 import logo from "../assets/logo.png";
 import { collabContent, collabText, collabApps } from "../constants";
 import Button from "./Button";
@@ -85,3 +85,4 @@ const Collaboration = () => {
 };
 
 export default Collaboration;
+

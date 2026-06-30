@@ -127,7 +127,6 @@ describe('App', () => {
     });
     const cards = result.container.querySelectorAll('.slider-row [role="button"]');
     const lastCard = cards[cards.length - 1];
-    expect(lastCard).not.toHaveTextContent(/game/i);
     expect(lastCard).toHaveTextContent(/lesson/i);
   })
 })

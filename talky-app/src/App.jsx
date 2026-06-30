@@ -23,9 +23,9 @@ function App() {
       .then(data => {
         const lessonsArray = (data.lessons || []).map(lesson => ({
           id: lesson.id,
-          name: lesson.id === 'game' ? 'Game' : `Lesson ${lesson.id}`,
+          name: `Lesson ${lesson.id}`,
           description: lesson.words?.join(', ') || lesson.phoneme || '',
-          img: lesson.id === 'game' ? 'gamecontroller.png' : 'rocketship.png'
+          img: 'rocketship.png'
         }));
         
         setLessons(lessonsArray);
