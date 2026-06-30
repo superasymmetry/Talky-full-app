@@ -12,14 +12,13 @@ class SmokeTest(unittest.TestCase):
         import main
         import user_routes
         import score_routes
-        self.assertTrue(True)
 
     def test_database_connection(self):
         import database
-        self.assertTrue(database.client is not None)
-        self.assertTrue(database.db is not None)
-        self.assertTrue(database.users_collection is not None)
-    
+        self.assertIsNotNone(database.client)
+        self.assertIsNotNone(database.db)
+        self.assertIsNotNone(database.users_collection)
+
     def test_user_document_structure(self):
         import database
         user = database.users_collection.find_one()

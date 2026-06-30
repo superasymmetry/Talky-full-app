@@ -15,7 +15,7 @@ jobs:
     environment: production
     steps:
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@068c0c7a4e59a5ae12fb7cb454b05735d830c82b
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
