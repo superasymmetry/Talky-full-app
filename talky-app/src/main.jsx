@@ -6,6 +6,7 @@ import App from './App.jsx'
 import Lesson from './Lesson/Lesson.jsx'
 import SoundBank from './SoundBank/SoundBank.jsx'
 import SoundBankCategory from './SoundBank/SoundBankCategory.jsx'
+import VoiceSettings from './SoundBank/VoiceSettings.jsx'
 import Profile from './Auth0/Profile.jsx'
 import Game from './Lesson/Game.jsx'
 import Statistics from './Statistics/Statistics.jsx';
@@ -51,6 +52,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="/soundbank" element={<SoundBank/>}/>
             <Route path="/game" element={<Game/>}/>
             <Route path="/soundbank/:id" element={<SoundBankCategory/>}/>
+            <Route path="/voice-settings" element={<VoiceSettings/>}/>
             <Route path="/profile" element={<Profile/>}/>
             <Route path="/statistics" element={<Statistics/>}/>
             <Route path="/" element={<LandingPage/>}/>

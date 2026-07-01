@@ -1,9 +1,10 @@
-import { Canvas, useFrame } from '@react-three/fiber'
+import { Canvas } from '@react-three/fiber'
 import { ContactShadows, Environment, OrbitControls, Sky, useAnimations, useGLTF } from '@react-three/drei'
 import { Suspense, forwardRef, useEffect, useRef, useState } from 'react'
 
 import Back from './Back.jsx';
 import { useMatch } from 'react-router-dom';
+import { speakText, stopSpeech } from '../tts.js';
 
 useGLTF.preload('/robot-draco.glb')
 
@@ -19,7 +20,6 @@ function extractWordScores(res) {
 
 const Model = forwardRef(function Model(props, ref) {
   const { scene, animations } = useGLTF('/robot-draco.glb');
-  const robot = scene.getObjectByName('Robot');
   const { actions } = useAnimations(animations, scene);
 
   useEffect(() => {
@@ -70,6 +70,30 @@ export default function Lesson() {
   const [currentWordsToIPA, setCurrentWordsToIPA] = useState(null);
   const [returnedWordsToIPA, setReturnedWordsToIPA] = useState(null);
   const wordScoresRef = useRef([]);
+  const skipNextSentenceSpeechRef = useRef(false);
+
+  const encouragementPhrases = [
+    'Nice work.',
+    'Great job.',
+    'You got it.',
+    'Keep going.'
+  ];
+
+  const retryPhrases = [
+    'Let us try that again.',
+    'Almost there.',
+    'Give that one more try.',
+    'You are close.'
+  ];
+
+  const pickPhrase = (phrases) => phrases[Math.floor(Math.random() * phrases.length)];
+
+  const speakSentence = (sentence) => {
+    stopSpeech();
+    return speakText(sentence).catch((err) => {
+      console.warn('TTS failed', err);
+    });
+  };
 
   const toEmbed = (u) => {
     try {
@@ -79,7 +103,9 @@ export default function Lesson() {
       if (v) return `https://www.youtube.com/embed/${v}`;
       if (url.hostname === 'youtu.be') return `https://www.youtube.com/embed/${url.pathname.slice(1)}`;
       return u;
-    } catch (e) { return null; }
+    } catch {
+      return null;
+    }
   }
   
   // Fetch lesson data
@@ -97,7 +123,7 @@ export default function Lesson() {
         console.log('Words to IPA:', data.words_to_ipas);
       })
       .catch((error) => console.error("Error fetching data:", error));
-  }, []);
+  }, [API_BASE, lessonId]);
 
 
   // Speak the first sentence
@@ -105,29 +131,20 @@ export default function Lesson() {
     if (!cardData || showIntro) return;
     const currentSentence = cardData[String(currentSentenceIndex)] || cardData[currentSentenceIndex] || '';
     if (!currentSentence) return;
-    try {
-      window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(currentSentence);
-      u.lang = 'en-US';
-      const savedVoice = localStorage.getItem('ttsVoice');
-      console.log("Saved voice:", savedVoice);
-      if (savedVoice) {
-        const voices = window.speechSynthesis.getVoices();
-        const voice = voices.find(v => v.name === savedVoice);
-        if (voice) u.voice = voice;
-      }
-      window.speechSynthesis.speak(u);
-    } catch (err) {
-      console.warn('TTS failed', err);
+    if (skipNextSentenceSpeechRef.current) {
+      skipNextSentenceSpeechRef.current = false;
+      return;
     }
+    speakSentence(currentSentence);
   }, [cardData, currentSentenceIndex, showIntro]);
 
   // display percent progress for each phoneme
   
 
-  const startBackendRecording = async (seconds = 5) => {
+  const startBackendRecording = async () => {
     setIsRecordingBackend(true)
     setBackendFilename(null)
+    stopSpeech();
     try {
       const res = await fetch(`${API_BASE}/api/record`, {
         method: 'POST',
@@ -146,15 +163,8 @@ export default function Lesson() {
       if (data.passed) {
         wordScoresRef.current.push(...extractWordScores(data.res));
         actions?.ThumbsUp?.play?.();
-        const utter = new SpeechSynthesisUtterance("Great job!");
         setScore(score => (score ?? 0) + data.score);
-        const savedVoice = localStorage.getItem('ttsVoice');
-        if (savedVoice) {
-          const voices = window.speechSynthesis.getVoices();
-          const voice = voices.find(v => v.name === savedVoice);
-          if (voice) utter.voice = voice;
-        }
-        window.speechSynthesis.speak(utter);
+        speakSentence(pickPhrase(encouragementPhrases));
         setDoneSentence(true);
         actions?.Walking?.play?.();
         // Move robot forward along its facing
@@ -175,14 +185,7 @@ export default function Lesson() {
           ? data.feedback.map(f => (typeof f === 'string' ? f : `${f.word || ''} ${f.issue || ''}`.trim())).join(' ')
           : String(data.feedback || 'No, try again.')
         setFeedbackText(feedbackMsg)
-        const utter = new SpeechSynthesisUtterance(feedbackMsg);
-        const savedVoice = localStorage.getItem('ttsVoice');
-        if (savedVoice) {
-          const voices = window.speechSynthesis.getVoices();
-          const voice = voices.find(v => v.name === savedVoice);
-          if (voice) utter.voice = voice;
-        }
-        window.speechSynthesis.speak(utter)
+        speakSentence(`${pickPhrase(retryPhrases)} ${feedbackMsg}`)
       }
     } catch (err) {
       console.error('Backend record error:', err)
@@ -196,6 +199,7 @@ export default function Lesson() {
     setDoneSentence(false);
     console.log("cardData is", cardData);
     if (cardData && cardData[(currentSentenceIndex + 1).toString()]) {
+      stopSpeech();
       setCurrentSentenceIndex(prev => prev + 1);
       if (actions) {
         Object.values(actions).forEach(action => action.stop());
@@ -269,7 +273,14 @@ export default function Lesson() {
           <div style={{ marginBottom: '2rem', fontSize: '1.2rem' }}>Loading video...</div>
         )}
         <button
-          onClick={() => setShowIntro(false)}
+          onClick={() => {
+            const currentSentence = cardData?.[String(currentSentenceIndex)] || cardData?.[currentSentenceIndex] || '';
+            skipNextSentenceSpeechRef.current = true;
+            setShowIntro(false);
+            if (currentSentence) {
+              speakSentence(currentSentence);
+            }
+          }}
           style={{
             padding: '12px 24px',
             borderRadius: 25,
@@ -414,7 +425,7 @@ export default function Lesson() {
               <button
                 onClick={() => {
                   setFeedbackText('')
-                  window.speechSynthesis.cancel()
+                  stopSpeech()
                 }}
                 style={{
                   position: 'absolute',
@@ -436,14 +447,14 @@ export default function Lesson() {
         )}
 
         {/* next button - only show when finished*/}
-        {true && (
+        {doneSentence && (
           <button
             aria-label="Next lesson"
             onMouseEnter={() => setNextHover(true)}
             onMouseLeave={() => setNextHover(false)}
             onClick={() => {
               goToNextSentence();
-              window.speechSynthesis.cancel()
+              stopSpeech()
             }}
             style={{
               display: 'flex',

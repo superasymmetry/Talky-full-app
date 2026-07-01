@@ -1,0 +1,36 @@
+Some weights of Wav2Vec2ForCTC were not initialized from the model checkpoint at facebook/wav2vec2-base-960h and are newly initialized: ['wav2vec2.masked_spec_embed']
+You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
+[nltk_data] Downloading package cmudict to
+[nltk_data]     C:\Users\kyram\AppData\Roaming\nltk_data...
+[nltk_data]   Package cmudict is already up-to-date!
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on http://127.0.0.1:8080
+Press CTRL+C to quit
+127.0.0.1 - - [27/Jun/2026 18:24:11] "GET /api/tts/voices HTTP/1.1" 200 -
+127.0.0.1 - - [27/Jun/2026 18:24:43] "GET /api/tts/voices HTTP/1.1" 200 -
+127.0.0.1 - - [27/Jun/2026 18:24:43] "GET /api/tts/voices HTTP/1.1" 200 -
+127.0.0.1 - - [27/Jun/2026 18:24:47] "OPTIONS /api/tts HTTP/1.1" 200 -
+127.0.0.1 - - [27/Jun/2026 18:24:48] "POST /api/tts HTTP/1.1" 500 -
+127.0.0.1 - - [27/Jun/2026 18:24:54] "OPTIONS /api/tts HTTP/1.1" 200 -
+127.0.0.1 - - [27/Jun/2026 18:24:54] "POST /api/tts HTTP/1.1" 500 -
+127.0.0.1 - - [27/Jun/2026 18:24:59] "POST /api/tts HTTP/1.1" 200 -
+127.0.0.1 - - [27/Jun/2026 18:25:03] "OPTIONS /api/tts HTTP/1.1" 200 -
+127.0.0.1 - - [27/Jun/2026 18:25:04] "POST /api/tts HTTP/1.1" 500 -
+127.0.0.1 - - [27/Jun/2026 18:25:12] "OPTIONS /api/tts HTTP/1.1" 200 -
+127.0.0.1 - - [27/Jun/2026 18:25:14] "POST /api/tts HTTP/1.1" 200 -
+127.0.0.1 - - [27/Jun/2026 18:25:17] "POST /api/tts HTTP/1.1" 200 -
+127.0.0.1 - - [27/Jun/2026 18:25:19] "OPTIONS /api/tts HTTP/1.1" 200 -
+127.0.0.1 - - [27/Jun/2026 18:25:20] "POST /api/tts HTTP/1.1" 500 -
+127.0.0.1 - - [27/Jun/2026 18:25:25] "OPTIONS /api/tts HTTP/1.1" 200 -
+127.0.0.1 - - [27/Jun/2026 18:25:26] "POST /api/tts HTTP/1.1" 500 -
+127.0.0.1 - - [27/Jun/2026 18:25:31] "OPTIONS /api/tts HTTP/1.1" 200 -
+127.0.0.1 - - [27/Jun/2026 18:25:32] "POST /api/tts HTTP/1.1" 500 -
+127.0.0.1 - - [27/Jun/2026 18:25:57] "POST /api/tts HTTP/1.1" 500 -
+127.0.0.1 - - [27/Jun/2026 18:26:00] "POST /api/tts HTTP/1.1" 500 -
+127.0.0.1 - - [27/Jun/2026 18:26:14] "POST /api/tts HTTP/1.1" 500 -
+127.0.0.1 - - [27/Jun/2026 18:26:16] "POST /api/tts HTTP/1.1" 500 -
+127.0.0.1 - - [27/Jun/2026 18:26:25] "POST /api/tts HTTP/1.1" 500 -
+127.0.0.1 - - [27/Jun/2026 18:26:27] "POST /api/tts HTTP/1.1" 500 -
+127.0.0.1 - - [27/Jun/2026 18:26:28] "GET /api/tts/voices HTTP/1.1" 200 -
+127.0.0.1 - - [27/Jun/2026 18:28:13] "GET /api/tts/voices HTTP/1.1" 200 -
+127.0.0.1 - - [27/Jun/2026 18:28:34] "GET /api/tts/voices HTTP/1.1" 200 -

@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Header from '../Header/Header.jsx';
 import Footer from '../Footer.jsx';
 import Card from '../Card.jsx';
+import { speakText, stopSpeech } from '../tts.js';
 
 const toTitleCase = (str) =>
   typeof str === 'string'
@@ -21,32 +22,19 @@ function SoundBank({
   const tiltOptions = { max: 6, speed: 300, scale: 1.01 };
 
   const speakWord = (word) => {
-    if (!window.speechSynthesis || !word) return;
-    window.speechSynthesis.cancel();
+    if (!word) return;
+    stopSpeech();
 
-    const utterance = new SpeechSynthesisUtterance(word);
-    // kid-friendly defaults
-    utterance.lang = "en-US";
-    utterance.rate = 0.95;
-    utterance.pitch = 1.2;
-
-    // prefer saved voice name, then common female candidates, then first available
-    const savedVoiceName = localStorage.getItem('ttsVoice'); // name string or null
-    const voices = window.speechSynthesis.getVoices() || [];
-    let chosen =
-      (savedVoiceName && voices.find((v) => v.name === savedVoiceName)) ||
-      voices.find((v) => (v.lang || '').startsWith('en') && /female|woman|girl/i.test(v.name)) ||
-      voices.find((v) => (v.lang || '').startsWith('en')) ||
-      voices[0];
-
-    if (chosen) utterance.voice = chosen;
-
-    utterance.onend = () => {
+    speakText(word, {
+      onEnd: () => {
+        setSelectedIndex(null);
+        setHighlightedIndex(null);
+      }
+    }).catch((err) => {
+      console.warn('TTS failed', err);
       setSelectedIndex(null);
       setHighlightedIndex(null);
-    };
-
-    window.speechSynthesis.speak(utterance);
+    });
   };
 
   // Ensure 16 tiles
@@ -116,7 +104,7 @@ export default function SoundBankCategory() {
   const [isLoading, setIsLoading] = useState(false);
   const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
-  const refreshWords = async (signal) => {
+  const refreshWords = useCallback(async (signal) => {
     setIsLoading(true);
     try {
       const res = await fetch(`${API_BASE}/api/wordbank?category=${id}`, { signal });
@@ -135,7 +123,7 @@ export default function SoundBankCategory() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [API_BASE, id]);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -144,8 +132,11 @@ export default function SoundBankCategory() {
     setWords([]);
     setIsLoading(true);
     refreshWords(ac.signal);
-    return () => ac.abort();
-  }, [id]);
+    return () => {
+      ac.abort();
+      stopSpeech();
+    };
+  }, [id, refreshWords]);
 
   const handleRandomize = () => {
     setIsRandomizing(true);

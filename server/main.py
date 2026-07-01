@@ -33,6 +33,11 @@ cors = CORS(app)
 app.register_blueprint(user_bp)
 app.register_blueprint(score_bp)
 
+from tts.tts import tts_bp
+app.register_blueprint(tts_bp)
+
+print(app.url_map)
+
 print("\n=== Registered Routes ===")
 for rule in app.url_map.iter_rules():
     print(f"{rule.methods} -> {rule.rule}")
