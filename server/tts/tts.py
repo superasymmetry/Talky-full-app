@@ -2,7 +2,8 @@ from flask import (
     Blueprint,
     request,
     Response,
-    jsonify
+    jsonify,
+    stream_with_context
 )
 
 from . import (
@@ -43,7 +44,7 @@ def tts():
         # Select the active provider using the environment variable.
         # This keeps the route independent from the actual TTS vendor.
         provider = get_tts_provider()
-        audio_bytes = provider.generate_audio(text, voice_key=voice_key if isinstance(voice_key, str) else None)
+        audio_stream = provider.stream_audio(text, voice_key=voice_key if isinstance(voice_key, str) else None)
     except Exception as error:
         # Convert provider failures into JSON so the frontend can show a useful
         # message instead of receiving a generic server crash.
@@ -51,8 +52,8 @@ def tts():
             "error": str(error)
         }), 500
 
-    # Send the generated audio bytes back as an MP3 response.
+    # Stream the audio as it is produced so the server does not buffer the full file first.
     return Response(
-        audio_bytes,
+        stream_with_context(audio_stream),
         mimetype="audio/mpeg"
     )

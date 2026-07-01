@@ -148,6 +148,7 @@ export default function VoiceSettings({ embed = false }) {
 
   const resetSelection = () => {
     stopSpeech();
+    setIsSpeaking(false);
     setSelectedVoiceKey(voiceOptions[0].key);
     localStorage.removeItem(savedKey);
   };
@@ -218,7 +219,10 @@ export default function VoiceSettings({ embed = false }) {
           Preview {isSpeaking ? '...' : ''}
         </button>
         <button
-          onClick={() => stopSpeech()}
+          onClick={() => {
+            stopSpeech();
+            setIsSpeaking(false);
+          }}
           style={{ padding: '0.5rem 0.75rem', background: '#d36060', borderRadius: '0.5rem', border: '1px solid #e2e8f0', cursor: 'pointer' }}
         >
           Stop

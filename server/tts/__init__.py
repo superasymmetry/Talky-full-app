@@ -1,4 +1,5 @@
 import os
+from functools import lru_cache
 
 from .elevenlabs_provider import (
     ElevenLabsProvider
@@ -12,6 +13,7 @@ from .presets import public_voice_presets
 # This module is the small factory layer for the TTS system.
 # The rest of the server asks for "a provider" instead of hard-coding
 # ElevenLabs or OpenAI everywhere, which keeps the app easy to swap later.
+@lru_cache(maxsize=1)
 def get_tts_provider():
 
     # TTS_PROVIDER controls which backend should generate audio.
