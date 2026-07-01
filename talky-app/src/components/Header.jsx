@@ -77,7 +77,9 @@ const Header = () => {
         {/* <Button className="hidden lg:flex" href="#login">
           Sign in
         </Button> */}
-        <LoginButton className="hidden lg:flex"/>
+        <div className="hidden lg:flex w-[12rem] justify-end flex-shrink-0">
+          <LoginButton />
+        </div>
 
         <Button
           className="ml-auto lg:hidden"

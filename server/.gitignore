@@ -2,8 +2,8 @@
 .env*
 *.env
 
-server/.env
-*.env
+talky-key.pem
+*.wav
 
 __pycache__/
 

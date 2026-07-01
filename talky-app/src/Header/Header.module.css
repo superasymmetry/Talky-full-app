@@ -50,7 +50,6 @@
 .navLink {
   color: #fff;
   text-decoration: none;
-  font-weight: 600;
   padding: 0.65rem 1.4rem;
   border-radius: 8px;
   transition: all 0.3s ease;
@@ -63,7 +62,6 @@
 
   display: inline-flex;   /* added: make anchors and buttons behave the same */
   align-items: center;    /* vertically center label inside control */
-  line-height: 1;         /* normalize line-height across elements */
   vertical-align: middle; /* keep inline alignment consistent */
   font: inherit;          /* ensure buttons use same font metrics as anchors */
 }

@@ -2,6 +2,7 @@ import collections
 import eng_to_ipa as ipa
 import numpy as np
 from flask import Flask, request, jsonify
+from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 from groq import Groq
 import os
@@ -9,25 +10,24 @@ from dotenv import load_dotenv
 from database import client, db, users_collection
 from user_routes import user_bp
 from score_routes import score_bp
-from gop_eval import compute_pronunciation_score
 import threading
 import torch
-import difflib
-import torchaudio
-import soundfile as sf
 from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
-from gtts import gTTS
-import jiwer
-import pyaudio_recording
-from g2p_en import G2p
+import re
 import json
-import nltk
-nltk.download('cmudict')
+import threading, queue
+from stream_decode_util import stream_decode_util
 
 load_dotenv()
 
+ALLOWED_ORIGINS = os.environ.get(
+    "ALLOWED_ORIGINS",
+    "https://talkwithtalky.org,https://d26pahabsgpl8k.cloudfront.net,http://localhost:3000,http://localhost:5173"
+).split(",")
+
 app = Flask(__name__)
-cors = CORS(app)
+socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGINS, async_mode='threading')
+cors = CORS(app, resources={r"/api/*": {"origins": ALLOWED_ORIGINS}})
 
 # Register routes
 app.register_blueprint(user_bp)
@@ -48,6 +48,8 @@ _model = None
 _feedback_model = None
 _load_lock = threading.Lock()
 device = "cuda" if torch.cuda.is_available() else "cpu"
+
+sessions = {}
 
 phoneme_word_bank = {
     "p": ["pat", "pop", "paper", "puppy", "apple", "stop", "pepper", "paint"],
@@ -124,218 +126,43 @@ arpabet_to_ipa = {
     "Z": "z",
     "ZH": "ʒ"
 }
-                
+
+# IPA digraphs that must be treated as a single phoneme token
+_IPA_DIGRAPHS = {"aʊ", "aɪ", "eɪ", "oʊ", "ɔɪ", "tʃ"}
+_IPA_SKIP = set(" ˈˌːˑ'")
+
+def _word_to_phonemes(word):
+    """Convert an English word to a list of IPA phoneme strings using eng_to_ipa."""
+    clean = re.sub(r"[^a-zA-Z'-]", "", word)
+    if not clean:
+        return []
+    ipa_str = ipa.convert(clean)
+    if not ipa_str or "*" in ipa_str:
+        return []
+    result = []
+    i = 0
+    while i < len(ipa_str):
+        two = ipa_str[i:i+2]
+        if two in _IPA_DIGRAPHS:
+            result.append(two)
+            i += 2
+        elif ipa_str[i] not in _IPA_SKIP:
+            result.append(ipa_str[i])
+            i += 1
+        else:
+            i += 1
+    return result
+
 def _load_model_once():
     global _processor, _model, _feedback_model
     if _processor is None or _model is None:
         with _load_lock:
             if _processor is None or _model is None:
-                _processor = Wav2Vec2Processor.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme", dtype=torch.float16)
-                _model = Wav2Vec2ForCTC.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme", dtype=torch.float16).eval()
+                _processor = Wav2Vec2Processor.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme")
+                _model = Wav2Vec2ForCTC.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme").eval()
                 _model.to(device)
                 _feedback_model = Groq(api_key=os.environ.get("GROQ_API_KEY"))
     return _processor, _model, _feedback_model
-
-def compute_pronunciation_score(audio_path, expected_text):
-    processor, model, feedback_model = _load_model_once()
-
-    waveform, rate = sf.read(audio_path)
-    waveform = torch.tensor(waveform, dtype=torch.float32).unsqueeze(0)
-    if rate != 16000:
-        waveform = torchaudio.functional.resample(waveform, rate, 16000)
-
-    input_values = processor(waveform.squeeze(), sampling_rate=16000, return_tensors="pt").input_values
-    with torch.no_grad():
-        logits = model(input_values).logits
-
-    probs = torch.nn.functional.softmax(logits, dim=-1)
-    conf_score = float(torch.mean(torch.max(probs, dim=-1).values).item())
-
-    predicted_ids = torch.argmax(logits, dim=-1)
-    transcription = processor.batch_decode(predicted_ids)[0].lower()
-
-    expected_text = expected_text.lower().strip()
-    transcription = transcription.lower().strip()
-    seq = difflib.SequenceMatcher(None, expected_text, transcription)
-    similarity = seq.ratio()
-
-    gop_score = (similarity * 0.6 + conf_score * 0.4) * 100
-    if gop_score > 80:
-        feedback = "Great job!"
-    else:
-        _feedback_prompt = f"This is the transcription of a spoken sentence that I spoke: '{transcription}'. The expected sentence was: '{expected_text}'. Based on common speech impediments (r, w, l, th, f, s, v, b, ch, sh sounds), please deduce which sounds were mispronounced, as well as the words that were mispronounced, and provide me constructive feedback on how to improve the pronunciation. Output one short sentence of feedback and ONLY the one short sentence."
-        feedback = _feedback_model.chat.completions.create(
-            messages=[{"role": "user", "content": _feedback_prompt}],
-            model="llama-3.1-8b-instant",
-        ).choices[0].message.content.strip()
-        feedback = "Hmm, try again. " + feedback
-    return (transcription, feedback, gop_score)
-
-def phoneme_error_rate(reference, hypothesis):
-    # Tokenize by space
-    ref = reference.split()
-    hyp = hypothesis.split()
-    # Join with space for jiwer
-    ref_str = " ".join(ref)
-    hyp_str = " ".join(hyp)
-    wer = jiwer.wer(ref_str, hyp_str) * 100
-    return wer
-
-def eval_phonemes(audio_path, expected_text, expected_ipa):
-    processor, model, feedback_model = _load_model_once()
-    audio_input, sample_rate = sf.read(audio_path)
-    inputs = processor(audio_input, sampling_rate=16_000, return_tensors="pt", padding=True).to(device).to(torch.float16)
-
-    with torch.no_grad():
-        logits = model(inputs.input_values, attention_mask=inputs.attention_mask).logits
-    probs = torch.nn.functional.softmax(logits, dim=-1)[0].cpu().numpy()
-    print("probs shape", probs.shape)
-    print("probs", probs)
-    predicted_ids = torch.argmax(logits, axis=-1)      
-    predicted_sentences = processor.batch_decode(predicted_ids)
-    print("predicted", predicted_sentences)
-
-    id2phoneme = list(processor.tokenizer.get_vocab().keys())
-    phoneme2id = {p: i for i, p in enumerate(id2phoneme)}
-
-    # expected ipa is something like: ['DH', 'AH0', 'K', 'W', 'IH1', 'B', 'R', 'AW1', 'N', 'F', 'AA1', 'X', 'JH', 'AH0', 'M', 'P', 'S']
-    # want to convert to ipa symbols
-    clean_expected_ipa = ipa.convert(expected_text).split()
-    clean_expected_ipa = [p for p in clean_expected_ipa if p.isalpha() or p.isalnum()]
-    
-    # Compute phoneme goodness score
-    phoneme_err = 0
-    T, N = probs.shape[0], len(clean_expected_ipa)
-    frame_splits = np.array_split(np.arange(T), N)
-    phoneme_scores = []
-    for i, p in enumerate(clean_expected_ipa):
-        frames = frame_splits[i]
-        if len(frames) == 0:
-            phoneme_scores.append({'phoneme': p, 'score': 0.0})
-            continue
-        idx = phoneme2id.get(p, None)
-        if idx is not None:
-            expected_probs = probs[frames, idx]
-            margin = expected_probs - np.partition(probs[frames, :], -2, axis=-1)[:, -2]
-            score = float(np.mean(margin))
-            phoneme_scores.append({'phoneme': p, 'score': score})
-        else:
-            phoneme_scores.append({'phoneme': p, 'score': 0.0})
-        print("phoneme, score", p, phoneme_scores[-1]['score'])
-
-    if phoneme_err < 100:
-        feedback = "Great, you've completed this sentence! Go on."
-    else:
-        _feedback_prompt = f"This is the transcription of a spoken sentence that I spoke: '{predicted_sentences[0]}'. The expected sentence was: '{expected_text}'. Based on common speech impediments (r, w, l, th, f, s, v, b, ch, sh sounds), please deduce which sounds were mispronounced, as well as the words that were mispronounced, and provide me constructive feedback on how to improve the pronunciation. Output one short sentence of feedback and ONLY the one short sentence."
-        feedback = _feedback_model.chat.completions.create(
-            messages=[{"role": "user", "content": _feedback_prompt}],
-            model="llama-3.1-8b-instant",
-        ).choices[0].message.content.strip()
-        feedback = "Hmm, try again. " + feedback
-    return (predicted_sentences[0], feedback, phoneme_err, expected_ipa)
-
-def get_phoneme_scores(input_audio, expected_sentence):
-    """Evaluate phoneme accuracy of input audio against expected sentence.
-    Args:
-        input_audio (str): Path to the input audio file.
-        expected_sentence (str): The expected sentence in text form.
-    Returns:
-        phoneme_scores (list): List of dictionaries with phoneme and its score.
-        e.g. [{'word': 'the', 'phonemes': [{'phoneme': 'ð', 'score': 0.9}, {'phoneme': 'ə', 'score': 0.8}]}, ...]
-    """
-    expected_sentence = expected_sentence.rstrip('.')
-
-    # Load pre-trained model and processor
-    processor = Wav2Vec2Processor.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme", dtype=torch.float16)
-    model = Wav2Vec2ForCTC.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme", dtype=torch.float16).eval()
-    model.to(device)
-
-    # Read and process the input audio
-    audio_input, sample_rate = sf.read(input_audio)
-    inputs = processor(audio_input, sampling_rate=16_000, return_tensors="pt", padding=True).to(device).to(torch.float16)
-    with torch.no_grad():
-        logits = model(inputs.input_values, attention_mask=inputs.attention_mask).logits
-    log_probs = torch.nn.functional.log_softmax(logits, dim=-1)[0].cpu().numpy()
-    probs = torch.nn.functional.softmax(logits, dim=-1)[0].cpu().numpy()
-    id2phoneme = list(processor.tokenizer.get_vocab().keys())
-    phoneme2id = {p: i for i, p in enumerate(id2phoneme)}
-
-    # Convert expected sentence to IPA phonemes
-    converted_ipa = ipa.convert(expected_sentence)
-    words_ipa = converted_ipa.split()
-    expected_ipa = converted_ipa.replace(" ", "")
-    expected_ipa = [c for c in expected_ipa if c in phoneme2id]
-    print("expected ipa", expected_ipa)
-    if len(expected_ipa) == 0:
-        return [{'word': expected_sentence, 'phonemes': []}], 0.0
-
-    # Convert expected IPA to indices
-    target = [phoneme2id[p] for p in expected_ipa]
-    T, N = log_probs.shape[0], len(target)
-
-    # Viterbi forced alignment
-    trellis = np.full((T + 1, N + 1), -np.inf, dtype=np.float32)
-    trellis[0, 0] = 0
-    for t in range(T):
-        for n in range(N + 1):
-            # Stay at current phoneme
-            if n < N:
-                trellis[t + 1, n] = np.logaddexp(trellis[t + 1, n], trellis[t, n] + log_probs[t, target[n]])
-            # Move to next phoneme
-            if n > 0 and n <= N:
-                trellis[t + 1, n] = np.logaddexp(trellis[t + 1, n], trellis[t, n - 1] + log_probs[t, target[n - 1]])
-
-    # Backtrack to get alignment
-    t, n = T, N
-    path = []
-    while t > 0 and n > 0:
-        p_stay = trellis[t - 1, n] + log_probs[t - 1, target[n - 1]]
-        p_move = trellis[t - 1, n - 1] + log_probs[t - 1, target[n - 1]]
-        if n > 0 and p_move >= p_stay:
-            path.append((t - 1, n - 1))
-            t -= 1
-            n -= 1
-        else:
-            path.append((t - 1, n - 1))
-            t -= 1
-    path = path[::-1]
-
-    # Assign frames to phonemes
-    phoneme_frames = [[] for _ in range(N)]
-    for t_idx, n_idx in path:
-        if n_idx < N:
-            phoneme_frames[n_idx].append(t_idx)
-    # phoneme frames looks something like: [[1, 2, 3], [4], [5], [6, 7, 8, 9, 10...], ...]
-
-    # Compute scores
-    probs = np.exp(log_probs)
-    phoneme_scores = []
-    total_score = 0.0
-    num_scores = 0
-    for i, frame_idxs in enumerate(phoneme_frames):
-        p = expected_ipa[i]
-        max_probs = np.max(probs[frame_idxs, :], axis=1)
-        second_max_probs = np.partition(probs[frame_idxs, :], -2, axis=1)[:, -2]
-        score = float(np.mean(max_probs - second_max_probs))
-        total_score += score
-        num_scores += 1
-        phoneme_scores.append({'phoneme': p, 'score': score})
-    
-    print("phoneme scores", phoneme_scores)
-    res = []
-    words = expected_sentence.split()
-    for i, pword in enumerate(words_ipa):
-        phonemes = []
-        for char in pword:
-            if phoneme_scores:
-                if char == phoneme_scores[0]['phoneme']:
-                    phonemes.append(phoneme_scores.pop(0))
-        res.append({'word': words[i], 'phonemes': phonemes})
-    print("res", res)
-    avg_score = total_score / num_scores
-    print("avg score", avg_score)
-
-    return res, avg_score
 
 @app.route('/api/lessons', methods=['GET', 'POST'])
 def lessons():
@@ -377,13 +204,10 @@ def lessons():
     expected_ipas = []
     words_to_ipa_list = []
     try:
-        g2p = G2p()
         for sentence in sentences.values():
             sentence_phonemes = collections.OrderedDict()
             for word in sentence.split():
-                raw_phonemes = [p for p in g2p(word) if p != ' ']
-                raw_phonemes = [p for p in raw_phonemes if p.isalpha() or p.isalnum()]
-                phonemes = [arpabet_to_ipa[p] for p in raw_phonemes if p in arpabet_to_ipa]
+                phonemes = _word_to_phonemes(word)
                 print("word, phonemes", word, phonemes)
                 sentence_phonemes[word] = phonemes
             expected_ipas.append(sentence_phonemes)
@@ -395,30 +219,6 @@ def lessons():
         words_to_ipa_list = []
     return jsonify({"sentences": sentences, "expected_ipas": expected_ipas, "words_to_ipas": words_to_ipa_list})
 
-@app.route('/api/record', methods=['POST', 'GET'])
-def backend_record():
-    '''For API call in Lesson.jsx: records audio, computes pronunciation score, and returns feedback
-        Inputs: JSON with "card" field (sentence to be spoken)
-        Returns: JSON with "score", "feedback", "passed", "transcription", and "reference" fields
-    '''
-    if request.method == 'POST':
-        sentence = request.get_json()['card']
-        expected_ipa = request.get_json()['expected_ipa']
-        filename = pyaudio_recording.record_audio(record_seconds=4)
-        # transcription, feedback, score, _ = eval_phonemes(filename, sentence, expected_ipa)
-        res, score = get_phoneme_scores(filename, sentence)
-        feedback = "Great job!" if score > 0.8 else "Hmm, try again."
-        return jsonify({"score": score, "feedback": feedback, "passed": score > 0.8, "reference": sentence, "res": res}), 200
-
-@app.route('/api/record/test', methods=['POST'])
-def backend_record_test():
-    audio_file = request.files['audio']
-    sentence = request.form.get('card')
-    os.makedirs("testfiles", exist_ok=True)
-    audio_file.save("testfiles/uploaded_test.wav")
-    res, score = get_phoneme_scores("testfiles/uploaded_test.wav", sentence)
-    feedback = "Great job!" if score > 0.8 else "Hmm, try again."
-    return jsonify({"score": score, "feedback": feedback, "passed": score > 0.8, "reference": sentence, "res": res}), 200
 
 @app.route('/api/wordbank', methods=['GET', 'POST'])
 def wordbank():
@@ -467,14 +267,96 @@ def wordbank():
 
     return jsonify(chat_completion.choices[0].message.content)
 
+def finalize_session(sid):
+    session = sessions.pop(sid, None)
+    if not session:
+        return
+    results = session['results']
+    total_words = len(session.get('words_ipa', []))
+    avg = len(results) / total_words if total_words > 0 else 0.0
+    socketio.emit('result', {
+        'score': avg,
+        'passed': avg >= 0.8,
+        'feedback': "Great job!" if avg >= 0.8 else "Hmm, try again.",
+        'res': results,
+    }, to=sid)
+
+@socketio.on('connect')
+def handle_connect(auth=None):
+    print(f"Client connected: {request.sid}")
+
+@socketio.on('start')
+def handle_start(data):
+    sid = request.sid
+    words_ipa = data['words_ipa']
+    flat_phonemes = [p for w in words_ipa for p in w['phonemes']]
+    position_to_word_idx = [
+        word_idx
+        for word_idx, w in enumerate(words_ipa)
+        for _ in w['phonemes']
+    ]
+    chunk_queue = queue.Queue()
+    session = {'words_ipa': words_ipa, 'queue': chunk_queue, 'results': []}
+    sessions[sid] = session
+
+    def run():
+        processor, model, _ = _load_model_once()
+        word_phoneme_scores = [[] for _ in words_ipa]
+
+        def drain():
+            while (item := chunk_queue.get()) is not None:
+                yield item
+
+        for match in stream_decode_util(drain(), flat_phonemes, processor, model, device):
+            word_idx = position_to_word_idx[match['position']]
+            word_phoneme_scores[word_idx].append({'phoneme': match['phoneme'], 'score': match['score']})
+            word_entry = words_ipa[word_idx]
+            if len(word_phoneme_scores[word_idx]) == len(word_entry['phonemes']):
+                scores = word_phoneme_scores[word_idx]
+                result = {
+                    'word_index': word_idx,
+                    'word': word_entry['word'],
+                    'phonemes': scores,
+                    'score': sum(p['score'] for p in scores) / len(scores),
+                }
+                session['results'].append(result)
+                socketio.emit('partial_result', result, to=sid)
+        finalize_session(sid)
+
+    threading.Thread(target=run, daemon=True).start()
+    print(f"Session started for {sid}: {data['sentence']}")
+
+
+@socketio.on('chunk')
+def handle_chunk(data):
+    session = sessions.get(request.sid)
+    if session:
+        session['queue'].put(np.frombuffer(data, dtype=np.float32))
+
+
+@socketio.on('stop')
+def handle_stop():
+    session = sessions.get(request.sid)
+    if session:
+        session['queue'].put(None)
+
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    session = sessions.pop(request.sid, None)
+    if session:
+        session['queue'].put(None)  # unblock the background thread
+
+
 @app.route("/")
 def home():
     users = list(users_collection.find({}, {"_id": 0}))
     return jsonify(users)
 
-@app.route("/health")
+@app.route("/health", methods=["GET", "HEAD"])
 def health():
     return jsonify({"status": "ok"})
 
 if __name__ == '__main__':
-    app.run(port=8080, debug=True, use_reloader=False)
+    port = int(os.environ.get('PORT', 8080))
+    socketio.run(app, host='0.0.0.0', port=port, debug=False, use_reloader=False, allow_unsafe_werkzeug=True)
