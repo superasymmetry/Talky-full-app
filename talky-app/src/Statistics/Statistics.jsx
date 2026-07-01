@@ -25,7 +25,11 @@ import {
   WordTabs,
 } from './components.jsx';
 
-const getUserId = () => localStorage.getItem('userId') || 'demo';
+const VALID_USER_ID = /^[a-zA-Z0-9_-]{1,128}$/;
+const getUserId = () => {
+  const id = localStorage.getItem('userId') || 'demo';
+  return VALID_USER_ID.test(id) ? id : 'demo';
+};
 
 const Layout = ({ children }) => (
   <div className="min-h-screen bg-n-8 text-n-1">

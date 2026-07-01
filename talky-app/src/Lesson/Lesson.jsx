@@ -4,9 +4,8 @@ import toast, { Toaster } from 'react-hot-toast';
 
 import Back from './Back.jsx';
 import { Canvas } from '@react-three/fiber'
-import { useMatch } from 'react-router-dom';
 import { io } from 'socket.io-client';
-
+import { useMatch } from 'react-router-dom';
 
 useGLTF.preload('/robot-draco.glb')
 
@@ -64,6 +63,13 @@ const getPhonemeStyle = (score) => {
     return { background: '#fef08a', color: '#92400e' };
   }
   return { background: '#fecaca', color: '#991b1b' };
+};
+
+// To ensure that tainted data is validated before being used to construct a client-side request URL
+const VALID_USER_ID = /^[a-zA-Z0-9_-]{1,128}$/;
+const getValidUserId = (key) => {
+  const id = localStorage.getItem(key) || 'demo';
+  return VALID_USER_ID.test(id) ? id : 'demo';
 };
 
 export default function Lesson() {
@@ -151,7 +157,7 @@ export default function Lesson() {
 
   // Fetch lesson data
   useEffect(() => {
-    const userId = localStorage.getItem('user_id') || 'demo';
+    const userId = getValidUserId('user_id');
     fetch(`${API_BASE}/api/lessons?user_id=${encodeURIComponent(userId)}&lesson_id=${encodeURIComponent(lessonId)}`)
       .then((response) => response.json())
       .then((data) => {
@@ -339,7 +345,7 @@ export default function Lesson() {
       setIsFinished(true);
       const currentLessonId = parseInt(window.location.pathname.split('/').pop());
 
-      const userId = localStorage.getItem('userId') || 'demo';
+      const userId = getValidUserId('userId');
       fetch(`${API_BASE}/api/user/updateUserProgress`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -26,7 +26,7 @@ ALLOWED_ORIGINS = os.environ.get(
 ).split(",")
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGINS, async_mode='threading')
+socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGINS, async_mode='gevent')
 cors = CORS(app, resources={r"/api/*": {"origins": ALLOWED_ORIGINS}})
 
 # Register routes
@@ -343,7 +343,7 @@ def handle_disconnect():
         session['queue'].put(None)  # unblock the background thread
 
 
-@app.route("/")
+@app.route("/", methods=["GET"])
 def home():
     users = list(users_collection.find({}, {"_id": 0}))
     return jsonify(users)
