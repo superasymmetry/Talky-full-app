@@ -69,7 +69,7 @@ def stream_decode_util(audio_chunks, reference_phonemes, processor, model, devic
                 chunk_phonemes.append(normalize(t))
                 phoneme_logits.append(logits_np[fi, idx])
                 chunk_frames.append(fi)
-        print(f"[chunk {i+1:02d}] {chunk_phonemes}", flush=True)
+        # print(f"[chunk {i+1:02d}] {chunk_phonemes}", flush=True)
 
         # Pre-align: if no chunk phonemes match at the current pointer, scan forward/backward
         # to detect whether the user skipped over some reference phonemes.
@@ -95,7 +95,7 @@ def stream_decode_util(audio_chunks, reference_phonemes, processor, model, devic
                     if best_skip > 0:
                         for k in range(best_skip):
                             omitted_ph = reference_phonemes[pointer + k]
-                            print(f"  [omitted] {normalize(omitted_ph)!r}", flush=True)
+                            # print(f"  [omitted] {normalize(omitted_ph)!r}", flush=True)
                             yield {
                                 "phoneme": omitted_ph,
                                 "position": pointer + k,
@@ -109,7 +109,7 @@ def stream_decode_util(audio_chunks, reference_phonemes, processor, model, devic
 
         for j, (fi, p, lv) in enumerate(zip(chunk_frames, chunk_phonemes, phoneme_logits)):
             if pointer >= len(reference_phonemes):
-                print(f"  [insertion] {p!r}: {lv:.4f}", flush=True)
+                # print(f"  [insertion] {p!r}: {lv:.4f}", flush=True)
                 continue
             target_p = normalize(reference_phonemes[pointer])
             target_id = phoneme2id.get(normalize(reference_phonemes[pointer]))
@@ -140,7 +140,7 @@ def stream_decode_util(audio_chunks, reference_phonemes, processor, model, devic
                 if skip_to is not None:
                     for k in range(skip_to):
                         omitted_ph = reference_phonemes[pointer + k]
-                        print(f"  [omitted] {normalize(omitted_ph)!r}", flush=True)
+                        # print(f"  [omitted] {normalize(omitted_ph)!r}", flush=True)
                         yield {
                             "phoneme": omitted_ph,
                             "position": pointer + k,
@@ -157,7 +157,7 @@ def stream_decode_util(audio_chunks, reference_phonemes, processor, model, devic
                 else:
                     label = "insertion"
                     pos = None
-            print(f"  [{label}] {p!r}: {lv:.4f}  target={target_p!r}: {target_lv:.4f}", flush=True)
+            # print(f"  [{label}] {p!r}: {lv:.4f}  target={target_p!r}: {target_lv:.4f}", flush=True)
             if pos is not None:
                 score = 1.0 if label == "correct" else 0.5
                 yield {

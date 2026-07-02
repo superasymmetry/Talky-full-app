@@ -223,12 +223,6 @@ const wordRowShape = PropTypes.shape({
   timestamp: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
 });
 
-WordTabs.propTypes = {
-  hardest: PropTypes.arrayOf(wordRowShape).isRequired,
-  improved: PropTypes.arrayOf(wordRowShape).isRequired,
-  recent: PropTypes.arrayOf(wordRowShape).isRequired,
-};
-
 const TAB_DEFS = [
   { id: 'hardest', label: 'Needs practice', empty: 'Complete a few words to see the trickiest ones.', valueClass: 'text-color-3', format: (r) => `${fmtPct(r.value)} avg` },
   { id: 'improved', label: 'Most improved', empty: 'Practice each word a couple of times to track improvement.', valueClass: 'text-color-4', format: (r) => `+${fmtPct(r.value)}` },
@@ -278,4 +272,10 @@ export const WordTabs = ({ hardest, improved, recent }) => {
       )}
     </Card>
   );
+};
+
+WordTabs.propTypes = {
+  hardest: PropTypes.arrayOf(wordRowShape).isRequired,
+  improved: PropTypes.arrayOf(wordRowShape).isRequired,
+  recent: PropTypes.arrayOf(wordRowShape).isRequired,
 };

@@ -38,6 +38,9 @@ jobs:
     - name: Checkout repository code
       uses: actions/checkout@v4
 
+    - name: Install system dependencies
+      run: sudo apt-get install -y portaudio19-dev
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
@@ -45,7 +48,7 @@ jobs:
         cache: 'pip'
         cache-dependency-path: server/requirements.txt
 
-    - name: Install dependencies
+    - name: Install Python dependencies
       run: pip install -r server/requirements.txt pytest
 
     - name: Run unit tests
@@ -56,3 +59,78 @@ jobs:
         AUTH0_DOMAIN: dummy.auth0.com
         AUTH0_AUDIENCE: dummy
       run: python -m pytest tests/unit/ -v
+
+    - name: Run integration tests
+      working-directory: server
+      env:
+        MONGO_URI: mongodb://localhost:27017/talky_test
+        GROQ_API_KEY: dummy
+        AUTH0_DOMAIN: dummy.auth0.com
+        AUTH0_AUDIENCE: dummy
+      run: python -m pytest tests/integration/ -v
+
+  e2e-test:
+    runs-on: ubuntu-latest
+
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+
+    steps:
+    - name: Checkout repository code
+      uses: actions/checkout@v4
+
+    - name: Install system dependencies
+      run: sudo apt-get install -y portaudio19-dev
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+        cache-dependency-path: server/requirements.txt
+
+    - name: Install Python dependencies
+      run: pip install -r server/requirements.txt pytest playwright
+
+    - name: Install Playwright browsers
+      run: playwright install chromium --with-deps
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22.17.1'
+
+    - name: Install frontend dependencies
+      run: cd talky-app && npm install
+
+    - name: Start Flask server
+      working-directory: server
+      env:
+        MONGO_URI: mongodb://localhost:27017/talky_test
+        GROQ_API_KEY: dummy
+        AUTH0_DOMAIN: dummy.auth0.com
+        AUTH0_AUDIENCE: dummy
+        PORT: '8080'
+      run: python main.py &
+
+    - name: Start Vite dev server
+      working-directory: talky-app
+      env:
+        VITE_API_URL: http://localhost:8080
+        VITE_AUTH0_DOMAIN: dummy.auth0.com
+        VITE_AUTH0_CLIENT_ID: dummy
+        VITE_AUTH0_AUDIENCE: dummy
+      run: npm run dev &
+
+    - name: Wait for servers to be ready
+      run: npx wait-on http://localhost:8080/health http://localhost:5173 --timeout 60000
+
+    - name: Run e2e tests
+      working-directory: server
+      env:
+        MONGO_URI: mongodb://localhost:27017/talky_test
+        CI: 'true'
+      run: python -m pytest tests/e2e/ -v

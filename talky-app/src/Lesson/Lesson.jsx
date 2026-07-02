@@ -93,6 +93,7 @@ export default function Lesson() {
   const [currentWordsToIPA, setCurrentWordsToIPA] = useState(null);
   const [wordResults, setWordResults] = useState([]);
   const wordScoresRef = useRef([]);
+  const sentencePassedRef = useRef(false);
 
   // Audio + socket refs
   const socketRef = useRef(null);
@@ -234,6 +235,8 @@ export default function Lesson() {
     socketRef.current?.disconnect();
 
     if (data.passed) {
+      if (sentencePassedRef.current) return;
+      sentencePassedRef.current = true;
       wordScoresRef.current.push(...extractWordScores(data.res));
       actions?.ThumbsUp?.play?.();
       speakText("Great job!");
@@ -267,6 +270,10 @@ export default function Lesson() {
   };
 
   const startRecording = async () => {
+    if (sentencePassedRef.current) {
+      toast("You've already passed this exercise! Click Next to continue.", { icon: '✅' });
+      return;
+    }
     const sentence = cardData?.[currentSentenceIndex.toString()];
     const words_ipa = wordsToIPA?.[currentSentenceIndex - 1];
     if (!sentence || !words_ipa) {
@@ -330,6 +337,7 @@ export default function Lesson() {
   };
 
   const goToNextSentence = async () => {
+    sentencePassedRef.current = false;
     setDoneSentence(false);
     if (cardData && cardData[(currentSentenceIndex + 1).toString()]) {
       setCurrentSentenceIndex(prev => prev + 1);

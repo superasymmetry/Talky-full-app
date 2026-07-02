@@ -203,7 +203,7 @@ def lessons():
             sentence_phonemes = collections.OrderedDict()
             for word in sentence.split():
                 phonemes = _word_to_phonemes(word)
-                print("word, phonemes", word, phonemes)
+                # print("word, phonemes", word, phonemes)
                 sentence_phonemes[word] = phonemes
             expected_ipas.append(sentence_phonemes)
             words_to_ipa = [{"word": word, "phonemes": phonemes} for word, phonemes in sentence_phonemes.items()]
