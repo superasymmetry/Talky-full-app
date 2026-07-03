@@ -28,6 +28,15 @@ vi.mock('react-router-dom', async () => {
 describe('App', () => {
   beforeEach(() => {
     navigate.mockReset()
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        lessons: [
+          { id: 1, words: ['cat'] },
+          { id: 2, words: ['dog'] },
+        ],
+      }),
+    })
   })
 
   it('renders without crashing', () => {
@@ -67,7 +76,10 @@ describe('App', () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
-        lessons: [{ id: 1, words: ['cat'] }]
+        lessons: [
+          { id: 1, words: ['cat'] },
+          { id: 2, words: ['dog'] },
+        ],
       })
     });
     const result = render(
@@ -76,18 +88,19 @@ describe('App', () => {
       </MemoryRouter>
     );
     const lesson1 = await waitFor(() => {
-      const el = result.container.querySelector('[id="1"]');
+      const el = result.container.querySelector('#lesson-1');
       if (!el) throw new Error('lesson not rendered yet');
       return el;
     });
     expect(lesson1).toBeInTheDocument();
     expect(() => lesson1.click()).not.toThrow();
+    expect(navigate).toHaveBeenCalledWith('/lessons/1')
   });
 
   it('navigates to numeric lesson routes', () => {
     render(
       <MemoryRouter>
-        <Card name="Lesson 1" id="lesson-1" navigateId="1" />
+        <Card name="Lesson 1" id="lesson-1" />
       </MemoryRouter>
     )
 
