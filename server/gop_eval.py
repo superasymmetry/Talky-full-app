@@ -6,8 +6,11 @@ from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 
 import pyaudio_recording
 
+# Load model on GPU if available
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"[GOP_EVAL] Loading model on device: {device}")
 processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
-model = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base-960h").eval()
+model = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base-960h").eval().to(device)
 
 def compute_pronunciation_score(audio_path, expected_text):
     waveform, rate = sf.read(audio_path)
@@ -15,7 +18,7 @@ def compute_pronunciation_score(audio_path, expected_text):
     if rate != 16000:
         waveform = torchaudio.functional.resample(waveform, rate, 16000)
 
-    input_values = processor(waveform.squeeze(), sampling_rate=16000, return_tensors="pt").input_values
+    input_values = processor(waveform.squeeze(), sampling_rate=16000, return_tensors="pt").input_values.to(device)
     with torch.no_grad():
         logits = model(input_values).logits
 

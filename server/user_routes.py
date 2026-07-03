@@ -12,6 +12,48 @@ user_bp = Blueprint("user_bp", __name__)
 def _utc_now_iso():
     return datetime.now(timezone.utc).isoformat()
 
+
+def _build_default_game_state():
+    owned_tiles = []
+    start = -1.5
+    for x in range(4):
+        for z in range(4):
+            owned_tiles.append(f"{start + x},{start + z}")
+
+    return {
+        "ownedTiles": owned_tiles,
+        "energy": 80,
+        "lastEnergyUpdatedAt": _utc_now_iso(),
+        "capturedTiles": 16,
+    }
+
+
+def _reconcile_game_state(state, now=None):
+    if not state:
+        state = _build_default_game_state()
+
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    last_updated_at = state.get("lastEnergyUpdatedAt")
+    if last_updated_at:
+        try:
+            last_updated_dt = datetime.fromisoformat(last_updated_at.replace("Z", "+00:00"))
+        except ValueError:
+            last_updated_dt = now
+    else:
+        last_updated_dt = now
+
+    elapsed_minutes = max(0, int((now - last_updated_dt).total_seconds() // 60))
+    current_energy = min(80, int(state.get("energy", 80)) + elapsed_minutes)
+
+    return {
+        **state,
+        "energy": current_energy,
+        "lastEnergyUpdatedAt": now.isoformat(),
+    }
+
+
 # Default categories for new users
 DEFAULT_PHONEMES = ["l", "r", "s", "th", "ch", "sh"]  # add more as needed
 DEFAULT_POSITIONS = ["initial", "medial", "final"]
@@ -91,7 +133,8 @@ def adduser():
             {"id": "4", "phoneme": "l", "words": ["letter", "learn"], "score": 0},
         ],
         "level": {"current": 1, "subpoints": 20, "maxval": 100},
-        "maxLessonId": 4
+        "maxLessonId": 4,
+        "gameState": _build_default_game_state(),
     }
     users_collection.insert_one(user_doc)
     print("added user,", user_doc)
@@ -152,13 +195,69 @@ def get_user_lessons():
         Returns: JSON array of lessons in order
     '''
     user_id = request.args.get("user_id")
+    print(f"[LESSONS] Received request for user_id: {user_id}")
     if not user_id:
+        print("[LESSONS] ERROR: user_id parameter is missing")
         return jsonify({"error": "user_id is required"}), 400
     
+    print(f"[LESSONS] Querying MongoDB for user: {user_id}")
     user = users_collection.find_one({"userId": user_id}, {"lessons": 1, "_id": 0})
+    print(f"[LESSONS] MongoDB query result: {user}")
     if not user or "lessons" not in user:
+        print(f"[LESSONS] ERROR: User not found or lessons data missing. User doc: {user}")
         return jsonify({"error": "User not found or lessons data missing"}), 404
+    print(f"[LESSONS] SUCCESS: Returning {len(user['lessons'])} lessons for user {user_id}")
     return jsonify({"lessons": user["lessons"]})
+
+
+@user_bp.route('/api/user/game-state', methods=['GET', 'POST'])
+def game_state():
+    user_id = request.args.get("user_id") or (request.get_json(silent=True) or {}).get("userId")
+    if not user_id:
+        return jsonify({"error": "user_id is required"}), 400
+
+    now = datetime.now(timezone.utc)
+    user = users_collection.find_one({"userId": user_id}, {"gameState": 1, "_id": 0})
+    if request.method == "GET":
+        if not user or not user.get("gameState"):
+            default_state = _reconcile_game_state(_build_default_game_state(), now=now)
+            users_collection.update_one(
+                {"userId": user_id},
+                {"$set": {"gameState": default_state}},
+                upsert=True,
+            )
+            return jsonify({"gameState": default_state})
+
+        reconciled_state = _reconcile_game_state(user["gameState"], now=now)
+        users_collection.update_one(
+            {"userId": user_id},
+            {"$set": {"gameState": reconciled_state}},
+            upsert=True,
+        )
+        return jsonify({"gameState": reconciled_state})
+
+    payload = request.get_json(silent=True) or {}
+    incoming_state = payload.get("gameState") or {}
+    if not incoming_state:
+        return jsonify({"error": "gameState is required"}), 400
+
+    existing_state = (user or {}).get("gameState") if user else None
+    base_state = _reconcile_game_state(existing_state or _build_default_game_state(), now=now)
+
+    next_state = {
+        **base_state,
+        **incoming_state,
+        "energy": incoming_state.get("energy", base_state.get("energy", 80)),
+        "lastEnergyUpdatedAt": incoming_state.get("lastEnergyUpdatedAt") or now.isoformat(),
+        "capturedTiles": incoming_state.get("capturedTiles", len(incoming_state.get("ownedTiles", []))),
+    }
+
+    users_collection.update_one(
+        {"userId": user_id},
+        {"$set": {"gameState": next_state}},
+        upsert=True,
+    )
+    return jsonify({"gameState": next_state})
 
 
 @user_bp.route('/api/user/generatenextlesson', methods=['GET', 'POST'])

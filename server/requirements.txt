@@ -11,4 +11,4 @@ numpy
 difflib
 eng-to-ipa
 unittest
-playwright
+requests

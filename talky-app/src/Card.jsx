@@ -35,6 +35,13 @@ function Card(props) {
     }, [options, disabled]);
 
     const navigate = useNavigate();
+    const normalizeLessonId = (value) => {
+        if (typeof value !== 'string') return value;
+        const trimmed = value.trim();
+        if (!trimmed) return value;
+        return trimmed.startsWith('lesson-') ? trimmed.slice('lesson-'.length) : trimmed;
+    };
+
     const handleCardClick = () => {
         if (disabled || noNavigate) return;
 
@@ -51,7 +58,8 @@ function Card(props) {
             if (typeof id === 'string' && id.startsWith('/')) {
                 navigate(id);
             } else {
-                navigate(`/lessons/${id}`);
+                const normalizedId = normalizeLessonId(id);
+                navigate(`/lessons/${normalizedId}`);
             }
         }
     }

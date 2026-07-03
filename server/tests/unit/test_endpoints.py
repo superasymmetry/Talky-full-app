@@ -5,6 +5,12 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 class EndpointTest(unittest.TestCase):
+    def test_resolve_lesson_from_prefixed_id(self):
+        import main
+        lessons = [{"id": "3", "words": ["hello"]}]
+        lesson = main._resolve_lesson(lessons, "lesson-3")
+        self.assertEqual(lesson["id"], "3")
+
     def test_api_lessons(self):
         import main
         client = main.app.test_client()

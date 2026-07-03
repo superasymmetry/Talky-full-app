@@ -42,7 +42,8 @@ _processor = None
 _model = None
 _feedback_model = None
 _load_lock = threading.Lock()
-device = "cuda" if torch.cuda.is_available() else "cpu"
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"PyTorch device selected: {device}")
 
 phoneme_word_bank = {
     "p": ["pat", "pop", "paper", "puppy", "apple", "stop", "pepper", "paint"],
@@ -125,8 +126,13 @@ def _load_model_once():
     if _processor is None or _model is None:
         with _load_lock:
             if _processor is None or _model is None:
-                _processor = Wav2Vec2Processor.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme", dtype=torch.float16)
-                _model = Wav2Vec2ForCTC.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme", dtype=torch.float16).eval()
+                model_dtype = torch.float16 if device.type == "cuda" else torch.float32
+                print(f"Loading phoneme model with dtype={model_dtype} on device={device}")
+                _processor = Wav2Vec2Processor.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme")
+                _model = Wav2Vec2ForCTC.from_pretrained(
+                    "vitouphy/wav2vec2-xls-r-300m-timit-phoneme",
+                    torch_dtype=model_dtype
+                ).eval()
                 _model.to(device)
                 _feedback_model = Groq(api_key=os.environ.get("GROQ_API_KEY"))
     return _processor, _model, _feedback_model
@@ -240,10 +246,7 @@ def get_phoneme_scores(input_audio, expected_sentence):
     """
     expected_sentence = expected_sentence.rstrip('.')
 
-    # Load pre-trained model and processor
-    processor = Wav2Vec2Processor.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme", dtype=torch.float16)
-    model = Wav2Vec2ForCTC.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme", dtype=torch.float16).eval()
-    model.to(device)
+    processor, model, _ = _load_model_once()
 
     # Read and process the input audio
     audio_input, sample_rate = sf.read(input_audio)
@@ -332,6 +335,40 @@ def get_phoneme_scores(input_audio, expected_sentence):
 
     return res, avg_score
 
+
+def _normalize_lesson_id(lesson_id):
+    if lesson_id is None:
+        return None
+    text = str(lesson_id).strip()
+    if text.startswith("lesson-"):
+        text = text[len("lesson-"):]
+    return text
+
+
+def _resolve_lesson(lessons, lesson_id):
+    if not lessons:
+        return None
+
+    normalized_id = _normalize_lesson_id(lesson_id)
+    if normalized_id is None:
+        return None
+
+    for lesson in lessons:
+        lesson_id_value = lesson.get("id")
+        if lesson_id_value is not None and str(lesson_id_value).strip() == normalized_id:
+            return lesson
+
+    try:
+        lesson_index = int(normalized_id)
+    except ValueError:
+        lesson_index = None
+
+    if lesson_index is not None and 0 <= lesson_index < len(lessons):
+        return lessons[lesson_index]
+
+    return None
+
+
 @app.route('/api/lessons', methods=['GET', 'POST'])
 def lessons():
     user_id = request.args.get('user_id')
@@ -339,7 +376,10 @@ def lessons():
     print("user id------------------", user_id)
     user = users_collection.find_one({"userId": user_id})
     print("typeof lesson", type(lesson_id))
-    lesson = user.get('lessons', [])[int(lesson_id)]
+    lessons_list = user.get('lessons', []) if user else []
+    lesson = _resolve_lesson(lessons_list, lesson_id)
+    if lesson is None:
+        return jsonify({"message": "Lesson not found"}), 404
     word_list = lesson.get('words', [])
     print(word_list)
     prompt = f"""
@@ -407,13 +447,22 @@ def backend_record():
 
 @app.route('/api/record/test', methods=['POST'])
 def backend_record_test():
-    audio_file = request.files['audio']
     sentence = request.form.get('card')
+    audio_file = request.files.get('audio')
+    print(f"Received /api/record/test for sentence: {repr(sentence)}")
+    if audio_file is None:
+        print("No audio file received in request")
+        return jsonify({"error": "No audio file provided"}), 400
+
     os.makedirs("testfiles", exist_ok=True)
-    audio_file.save("testfiles/uploaded_test.wav")
-    res, score = get_phoneme_scores("testfiles/uploaded_test.wav", sentence)
+    save_path = "testfiles/uploaded_test.wav"
+    audio_file.save(save_path)
+    print(f"Saved audio to {save_path}")
+
+    res, score = get_phoneme_scores(save_path, sentence)
+    print(f"Phoneme scoring complete: score={score}, res={res}")
     feedback = "Great job!" if score > 0.8 else "Hmm, try again."
-    return jsonify({"score": score, "feedback": feedback, "passed": score > 0.8, "reference": sentence, "res": res}), 200
+    return jsonify({"score": score, "feedback": feedback, "passed": score > 0.8, "reference": sentence, "res": res, "filename": save_path}), 200
 
 @app.route('/api/wordbank', methods=['GET', 'POST'])
 def wordbank():

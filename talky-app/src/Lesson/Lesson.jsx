@@ -51,9 +51,13 @@ export default function Lesson() {
   const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
   const [nextHover, setNextHover] = useState(false)
   const [isRecordingBackend, setIsRecordingBackend] = useState(false)
+  const [isCapturing, setIsCapturing] = useState(false)
   const [backendFilename, setBackendFilename] = useState(null)
   const [cardData, setCardData] = useState(null);
   const [actions, setActions] = useState(null);
+  const recorderRef = useRef(null)
+  const streamRef = useRef(null)
+  const captureTimerRef = useRef(null)
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(1);
   const [isFinished, setIsFinished] = useState(false);
   const [doneSentence, setDoneSentence] = useState(false);
@@ -81,6 +85,139 @@ export default function Lesson() {
       return u;
     } catch (e) { return null; }
   }
+
+  const audioBufferToWav = (audioBuffer) => {
+    const numChannels = audioBuffer.numberOfChannels;
+    const sampleRate = audioBuffer.sampleRate;
+    const numSamples = audioBuffer.length;
+    const buffer = new ArrayBuffer(44 + numSamples * numChannels * 2);
+    const view = new DataView(buffer);
+    let offset = 0;
+
+    const writeString = (s) => {
+      for (let i = 0; i < s.length; i += 1) {
+        view.setUint8(offset, s.charCodeAt(i));
+        offset += 1;
+      }
+    };
+
+    const writeUint32 = (value) => {
+      view.setUint32(offset, value, true);
+      offset += 4;
+    };
+
+    const writeUint16 = (value) => {
+      view.setUint16(offset, value, true);
+      offset += 2;
+    };
+
+    writeString('RIFF');
+    writeUint32(36 + numSamples * numChannels * 2);
+    writeString('WAVE');
+    writeString('fmt ');
+    writeUint32(16);
+    writeUint16(1);
+    writeUint16(numChannels);
+    writeUint32(sampleRate);
+    writeUint32(sampleRate * numChannels * 2);
+    writeUint16(numChannels * 2);
+    writeUint16(16);
+    writeString('data');
+    writeUint32(numSamples * numChannels * 2);
+
+    const channels = [];
+    for (let i = 0; i < numChannels; i += 1) {
+      channels.push(audioBuffer.getChannelData(i));
+    }
+
+    for (let i = 0; i < numSamples; i += 1) {
+      for (let channel = 0; channel < numChannels; channel += 1) {
+        let sample = channels[channel][i];
+        sample = Math.max(-1, Math.min(1, sample));
+        view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+        offset += 2;
+      }
+    }
+
+    return view.buffer;
+  };
+
+  const stopCapture = () => {
+    if (captureTimerRef.current) {
+      window.clearTimeout(captureTimerRef.current);
+      captureTimerRef.current = null;
+    }
+
+    const recorder = recorderRef.current
+    if (recorder && recorder.state !== 'inactive') {
+      recorder.stop();
+    }
+  }
+
+  const captureAudio = async (seconds = 5) => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error('Microphone access is not supported in this browser.');
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    streamRef.current = stream;
+    const recordedChunks = [];
+
+    let recorder;
+    try {
+      recorder = new MediaRecorder(stream);
+      recorderRef.current = recorder;
+    } catch (err) {
+      stream.getTracks().forEach((track) => track.stop());
+      throw new Error('Audio recording is not supported: ' + err.message);
+    }
+
+    setIsCapturing(true);
+
+    return new Promise((resolve, reject) => {
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          recordedChunks.push(event.data);
+        }
+      };
+
+      recorder.onerror = (event) => {
+        stream.getTracks().forEach((track) => track.stop());
+        setIsCapturing(false);
+        reject(new Error(event.error?.message || 'Recording error'));
+      };
+
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        recorderRef.current = null;
+        setIsCapturing(false);
+
+        if (!recordedChunks.length) {
+          return reject(new Error('No audio recorded.'));
+        }
+
+        const blob = new Blob(recordedChunks, { type: recordedChunks[0].type || 'audio/webm' });
+        try {
+          const arrayBuffer = await blob.arrayBuffer();
+          const audioContext = new AudioContext();
+          const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+          const wavBuffer = audioBufferToWav(audioBuffer);
+          resolve(new Blob([wavBuffer], { type: 'audio/wav' }));
+        } catch (err) {
+          reject(new Error('Failed to encode audio: ' + err.message));
+        }
+      };
+
+      recorder.start();
+      if (seconds > 0) {
+        captureTimerRef.current = window.setTimeout(() => {
+          if (recorder.state !== 'inactive') {
+            recorder.stop();
+          }
+        }, seconds * 1000);
+      }
+    });
+  };
   
   // Fetch lesson data
   useEffect(() => {
@@ -129,10 +266,19 @@ export default function Lesson() {
     setIsRecordingBackend(true)
     setBackendFilename(null)
     try {
-      const res = await fetch(`${API_BASE}/api/record`, {
+      const sentence = cardData?.[currentSentenceIndex.toString()] || cardData?.[currentSentenceIndex]
+      if (!sentence) {
+        throw new Error('Unable to determine the current sentence for recording.')
+      }
+
+      const audioBlob = await captureAudio(seconds)
+      const formData = new FormData()
+      formData.append('card', sentence)
+      formData.append('audio', audioBlob, 'lesson_recording.wav')
+
+      const res = await fetch(`${API_BASE}/api/record/test`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ card: cardData[currentSentenceIndex.toString()], expected_ipa: expectedIPAs[currentSentenceIndex - 1] }),
+        body: formData,
       })
       const data = await res.json()
       console.log('Backend record response:', data)
@@ -474,20 +620,26 @@ export default function Lesson() {
       {/* record button */}
       <div style={{ position: 'absolute', left: 24, bottom: 24, zIndex: 30 }}>
         <button
-          onClick={() => startBackendRecording(5)}
-          disabled={isRecordingBackend}
+          onClick={() => {
+            if (isCapturing) {
+              stopCapture();
+            } else {
+              startBackendRecording(5);
+            }
+          }}
+          disabled={isRecordingBackend && !isCapturing}
           style={{
             padding: '10px 14px',
             borderRadius: 20,
             border: 'none',
-            background: isRecordingBackend ? '#ff6b6b' : 'linear-gradient(90deg,#6dd3ff,#6b73ff)',
+            background: isCapturing ? '#ff6b6b' : isRecordingBackend ? '#4f46e5' : 'linear-gradient(90deg,#6dd3ff,#6b73ff)',
             color: 'white',
             fontWeight: 700,
-            cursor: isRecordingBackend ? 'default' : 'pointer',
+            cursor: isRecordingBackend && !isCapturing ? 'default' : 'pointer',
             boxShadow: '0 8px 20px rgba(0,0,0,0.15)',
           }}
         >
-          {isRecordingBackend ? 'Recording...' : 'Record'}
+          {isCapturing ? 'Stop' : isRecordingBackend ? 'Uploading...' : 'Record'}
         </button>
         {backendFilename && (
           <div style={{ marginTop: 8, color: 'white', textShadow: '0 1px 3px rgba(0,0,0,0.6)' }}>

@@ -10,7 +10,10 @@ import { useAuth0 } from '@auth0/auth0-react'
 function App() {
   const { user, isAuthenticated, isLoading } = useAuth0();
   const scroller = useRef(null);
-  const [lessons, setLessons] = useState([]);
+  const [lessons, setLessons] = useState([
+    { id: '1', name: 'Lesson 1', description: 'Warm up with simple sounds', img: 'rocketship.png' },
+    { id: '2', name: 'Lesson 2', description: 'Practice longer phrases', img: 'rocketship.png' }
+  ]);
   
   useEffect(() => {
     if (isLoading) return;
@@ -33,6 +36,7 @@ function App() {
       .catch(err => console.error('Failed to fetch lessons:', err));
   }, [isAuthenticated, isLoading, user]);
   const soundBankCard = { id: "soundbank", name: "Sound Bank", description: "Browse sound categories", to: "/soundbank" }
+  const practiceCard = { id: "practice", name: "Practice Game", description: "Build your phoneme city!", to: "/practice-game" }
   const scrollBy = (delta) => scroller.current?.scrollBy({ left: delta, behavior: 'smooth' })
 
   return (
@@ -50,7 +54,7 @@ function App() {
             >
               {lessons.map((card, index) => (
                 <div key={card.id} className="min-w-[240px] snap-center" style={{ position: 'relative' }}>
-                  <Card {...card} showRocket={true} disabled={index === lessons.length - 1} id={`${card.id}`} />
+                  <Card {...card} showRocket={true} disabled={index === lessons.length - 1} id={`lesson-${card.id}`} />
                   {index === lessons.length - 1 && (
                     <img src="/padlock.jpg"
                         style={{
@@ -75,6 +79,9 @@ function App() {
           <div className="flex justify-center">
             <div className="w-full max-w-sm">
               <Card {...soundBankCard} />
+              <div className="mt-4">
+                <Card {...practiceCard} />
+              </div>
             </div>
           </div>
         </section>
