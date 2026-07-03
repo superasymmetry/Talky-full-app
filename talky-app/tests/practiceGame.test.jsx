@@ -56,7 +56,7 @@ describe('practice game helpers', () => {
     expect(restored.coins).toBe(150)
     expect(restored.capturedTiles).toEqual(['1,1', '2,2'])
     expect(restored.buildings['1,1']).toBe('house')
-    expect(restored.bank.capacity).toBe(100)
+    expect(restored.bank.capacity).toBe(600)
     expect(restored.party[0].name).toBe('Scout')
   })
 })

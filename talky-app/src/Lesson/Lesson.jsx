@@ -73,7 +73,6 @@ export default function Lesson() {
   const [cardData, setCardData] = useState(null);
   const [actions, setActions] = useState(null);
   const recorderRef = useRef(null)
-  const streamRef = useRef(null)
   const captureTimerRef = useRef(null)
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(1);
   const [isFinished, setIsFinished] = useState(false);
