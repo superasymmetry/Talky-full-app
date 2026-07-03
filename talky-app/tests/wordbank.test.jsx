@@ -4,14 +4,10 @@ import { MemoryRouter } from 'react-router-dom';
 import SoundBankCategory from '../src/SoundBank/SoundBankCategory.jsx';
 import { vi } from 'vitest';
 
-global.SpeechSynthesisUtterance = function (text) {
-    this.text = text;
-    this.lang = '';
-    this.rate = 1;
-    this.pitch = 1;
-    this.voice = null;
-    this.onend = null;
-};
+vi.mock('../src/tts.js', () => ({
+  speakText: vi.fn().mockResolvedValue(),
+  stopSpeech: vi.fn()
+}));
 
 // Mock Card to just render props for test
 vi.mock('../src/Card.jsx', () => ({
@@ -73,8 +69,6 @@ describe('SoundBankCategory', () => {
     });
 
     it('synthesizes speech when clicked on card', async () => {
-        const speakMock = vi.fn();
-        window.speechSynthesis = { speak: speakMock, cancel: vi.fn(), getVoices: () => [] };
 
         render(
             <MemoryRouter>
@@ -87,6 +81,6 @@ describe('SoundBankCategory', () => {
         const emojis = await screen.findAllByTestId('emoji');
         fireEvent.click(emojis[0].parentElement);
 
-        expect(speakMock).toHaveBeenCalled();
+        expect(speakText).toHaveBeenCalled();
     });
 });
