@@ -20,9 +20,11 @@ _MEMORY_CACHE_LIMIT = 32
 _memory_cache: OrderedDict[str, bytes] = OrderedDict()
 _cache_lock = Lock()
 
-_DISK_CACHE_DIR = Path(os.getenv("TTS_CACHE_DIR", "/tmp/tts_cache"))
-_DISK_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-
+_DISK_CACHE_DIR = Path(
+    os.getenv("TTS_CACHE_DIR", "/var/lib/yourapp/tts_cache")
+)
+_DISK_CACHE_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+os.chmod(_DISK_CACHE_DIR, 0o700)
 
 def _cache_key(text: str, voice_id: str) -> str:
     # Hash so keys are fixed-length and filesystem-safe no matter how long

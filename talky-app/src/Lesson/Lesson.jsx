@@ -4,7 +4,6 @@ import { Suspense, forwardRef, useEffect, useRef, useState } from 'react'
 import toast, { Toaster } from 'react-hot-toast';
 
 import Back from './Back.jsx';
-import { Canvas } from '@react-three/fiber'
 import { useMatch } from 'react-router-dom';
 import { io } from 'socket.io-client';
 
@@ -105,8 +104,15 @@ export default function Lesson() {
     'You are close.'
   ];
 
-  const pickPhrase = (phrases) => phrases[Math.floor(Math.random() * phrases.length)];
+  const pickPhrase = (phrases) => {
+    if (!phrases || phrases.length === 0) return '';
 
+    const array = new Uint32Array(1);
+    window.crypto.getRandomValues(array);
+
+    return phrases[array[0] % phrases.length];
+  };
+  
   const speakSentence = (sentence) => {
     stopSpeech();
     return speakText(sentence).catch((err) => {

@@ -11,6 +11,9 @@ from . import (
     get_tts_voice_options
 )
 
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Blueprint for the backend TTS route.
 # Flask registers this blueprint in main.py so the frontend can POST text here.
@@ -48,8 +51,9 @@ def tts():
     except Exception as error:
         # Convert provider failures into JSON so the frontend can show a useful
         # message instead of receiving a generic server crash.
+        logger.exception("TTS generation failed")
         return jsonify({
-            "error": str(error)
+            "error": "Failed to generate speech."
         }), 500
 
     # Stream the audio as it is produced so the server does not buffer the full file first.

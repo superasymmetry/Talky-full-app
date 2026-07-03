@@ -20,14 +20,35 @@ from stream_decode_util import stream_decode_util
 
 load_dotenv()
 
-ALLOWED_ORIGINS = os.environ.get(
-    "ALLOWED_ORIGINS",
-    "https://talkwithtalky.org,https://d26pahabsgpl8k.cloudfront.net,http://localhost:3000,http://localhost:5173"
-).split(",")
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get(
+        "ALLOWED_ORIGINS",
+        "https://talkwithtalky.org,https://d26pahabsgpl8k.cloudfront.net,http://localhost:3000,http://localhost:5173"
+    ).split(",")
+]
+
+# Prevent accidentally allowing every website
+if "*" in ALLOWED_ORIGINS:
+    raise ValueError("Wildcard '*' is not allowed for CORS origins.")
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGINS, async_mode='threading')
-cors = CORS(app, resources={r"/api/*": {"origins": ALLOWED_ORIGINS}})
+
+socketio = SocketIO(
+    app,
+    cors_allowed_origins=ALLOWED_ORIGINS,
+    async_mode="threading"
+)
+
+CORS(
+    app,
+    resources={
+        r"/api/*": {
+            "origins": ALLOWED_ORIGINS,
+            "supports_credentials": False,
+        }
+    },
+)
 
 # Register routes
 app.register_blueprint(user_bp)
