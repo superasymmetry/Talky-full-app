@@ -4,13 +4,13 @@ import soundfile as sf
 
 def record_audio(filename="./input.wav", record_seconds=5, rate=16000):
     chunk = 1024
-    format = pyaudio.paInt16
+    f = pyaudio.paInt16
     channels = 1
 
     audio = pyaudio.PyAudio()
     print(f"\nRecording for {record_seconds} seconds")
 
-    stream = audio.open(format=format, channels=channels,
+    stream = audio.open(format=f, channels=channels,
                         rate=rate, input=True,
                         frames_per_buffer=chunk)
 

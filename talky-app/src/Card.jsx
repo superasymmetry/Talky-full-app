@@ -50,10 +50,6 @@ function Card(props) {
             navigate(path);
             return;
         }
-        if (name === "Game") {
-            navigate('/game');
-            return;
-        }
         if (id !== undefined && id !== null) {
             if (typeof id === 'string' && id.startsWith('/')) {
                 navigate(id);

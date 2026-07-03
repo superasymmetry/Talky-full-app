@@ -8,6 +8,8 @@ import random
 
 user_bp = Blueprint("user_bp", __name__)
 
+USER_ID_REQUIRED = "user_id is required"
+
 
 def _utc_now_iso():
     return datetime.now(timezone.utc).isoformat()
@@ -114,7 +116,7 @@ def adduser():
                 "ʃ", "sh", "ʒ", "tʃ", "ch", "dʒ", "j", "m", "n", "ŋ", "w", "y",
                 "a", "e", "i", "o", "u"]
     phoneme_scores = [{"phoneme": ph, "avgScore": None, "attempts": None} for ph in phonemes]
-    initial_history = {ph: 0 for ph in phonemes}
+    initial_history = dict.fromkeys(phonemes, 0)
     initial_history["timestamp"] = _utc_now_iso()
 
     user_doc = {
@@ -128,7 +130,6 @@ def adduser():
         "lessons": [
             {"id": "1", "phoneme": "r", "words": ["rainbow", "racecar"], "score": 0},
             {"id": "2", "phoneme": "r", "words": ["red", "read"], "score": 0},
-            {"id": "game", "phoneme": "l", "words": ["lion", "leaf"], "score": 0},
             {"id": "3", "phoneme": "l", "words": ["lion", "leaf"], "score": 0},
             {"id": "4", "phoneme": "l", "words": ["letter", "learn"], "score": 0},
         ],
@@ -148,7 +149,7 @@ def get_user_level():
     '''
     user_id = request.args.get("user_id")
     if not user_id:
-        return jsonify({"error": "user_id is required"}), 400
+        return jsonify({"error": USER_ID_REQUIRED}), 400
     user = users_collection.find_one({"userId": user_id}, {"level": 1})
     if not user or "level" not in user:
         return jsonify({"error": "User not found or level data missing"}), 404
@@ -162,7 +163,7 @@ def get_user_progress_weakness():
     '''
     user_id = request.args.get("user_id")
     if not user_id:
-        return jsonify({"error": "user_id is required"}), 400
+        return jsonify({"error": USER_ID_REQUIRED}), 400
     
     user = users_collection.find_one({"userId": user_id}, {"progress.phonemeScores": 1})
     
@@ -180,7 +181,7 @@ def get_user_history():
     '''
     user_id = request.args.get("user_id")
     if not user_id:
-        return jsonify({"error": "user_id is required"}), 400
+        return jsonify({"error": USER_ID_REQUIRED}), 400
     
     user = users_collection.find_one({"userId": user_id}, {"history": 1})
     if not user or "history" not in user:
@@ -270,7 +271,7 @@ def generatenextlesson():
     user_id = request.json.get("user_id")
     currentLessonId = request.json.get("currentLessonId")
     if not user_id:
-        return jsonify({"error": "user_id is required"}), 400
+        return jsonify({"error": USER_ID_REQUIRED}), 400
     
     user = users_collection.find_one({"userId": user_id})
     print(user)

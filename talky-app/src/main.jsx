@@ -1,4 +1,4 @@
-import { StrictMode, useEffect } from 'react'
+﻿import { StrictMode, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import './index.css'
@@ -18,6 +18,7 @@ const domain = import.meta.env.VITE_AUTH0_DOMAIN;
 const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID;
 const audience = import.meta.env.VITE_AUTH0_AUDIENCE;
 
+// eslint-disable-next-line react-refresh/only-export-components
 const UserCreator = ({ children }) => {
   const { user, isAuthenticated } = useAuth0()
   useEffect(() => {
@@ -62,3 +63,4 @@ createRoot(document.getElementById('root')).render(
     </Auth0Provider>
   </StrictMode>,
 )
+

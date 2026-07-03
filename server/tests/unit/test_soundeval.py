@@ -18,7 +18,7 @@ class TestPhonemeScore(unittest.TestCase):
         # expected_ipa =  ['ð', 'ə', 'k', 'w', 'ɪ', 'k', 'b', 'ʊ', 'n', 'f', 'ɑ', 'k', 's', 'ʤ', 'ə', 'm', 'p', 's', 'ʊ', 'v', 'ə', 'ð', 'ə', 'l', 'ɪ', 'z', 'i', 'd', 'g']
         expected_sentence = "the quick brown fox jumps over the lazy dog"
         res, avg_score = get_phoneme_scores(audio_path, expected_sentence)
-        self.assertEqual(avg_score > 70.0, True)
+        self.assertGreater(avg_score, 70.0)
         self.assertEqual(len(res), 1)
         self.assertEqual(res[0]['word'], 'the')
         self.assertEqual(len(res[0]['phonemes']), 5)
@@ -51,7 +51,7 @@ class TestPhonemeScore(unittest.TestCase):
         audio_path = 'reference.wav'
         expected_sentence = "the quick brown fox jumps over the lazy dog cat hat"
         res, avg_score = get_phoneme_scores(audio_path, expected_sentence)
-        self.assertEqual(avg_score < 70.0, True)
+        self.assertLess(avg_score, 70.0)
         self.assertEqual(len(res), 3)
         self.assertEqual(res[0]['word'], 'the')
         self.assertEqual(res[1]['word'], 'quick')
@@ -63,7 +63,7 @@ class TestPhonemeScore(unittest.TestCase):
         audio_path = 'mispronounced.wav'
         expected_sentence = "the quick brown fox jumps over the lazy dog"
         res, avg_score = get_phoneme_scores(audio_path, expected_sentence)
-        self.assertEqual(avg_score < 0.70, True)
+        self.assertLess(avg_score, 0.70)
         self.assertEqual(len(res), 9)
         self.assertEqual(res[0]['word'], 'the')
     
@@ -72,7 +72,7 @@ class TestPhonemeScore(unittest.TestCase):
         audio_path = 'same_words.wav'
         expected_sentence = "the the the the the"
         res, avg_score = get_phoneme_scores(audio_path, expected_sentence)
-        self.assertEqual(avg_score > 70.0, True)
+        self.assertGreater(avg_score, 70.0)
         self.assertEqual(len(res), 1)
         self.assertEqual(res[0]['word'], 'the')
         self.assertEqual(len(res[0]['phonemes']), 5)
@@ -87,7 +87,7 @@ class TestPhonemeScore(unittest.TestCase):
         res1, avg_score1 = get_phoneme_scores(audio_path, expected_sentence.rstrip('.'))
         self.assertEqual(avg_score, avg_score1)
         self.assertEqual(res, res1)
-        self.assertEqual(avg_score > 70.0, True)
+        self.assertGreater(avg_score, 70.0)
         self.assertEqual(len(res), 1)
         self.assertEqual(res[0]['word'], 'the')
         self.assertEqual(len(res[0]['phonemes']), 5)

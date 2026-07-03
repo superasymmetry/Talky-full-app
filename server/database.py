@@ -12,6 +12,10 @@ if not MONGO_URI:
         "Set MONGO_URI in server/.env or your system environment."
     )
 
+# Create a unique index on userId to prevent full collection scans
+users_collection.create_index("userId", unique=True)
+
+# Send a ping to confirm a successful connection
 try:
     print("[DATABASE] Attempting to connect to MongoDB...")
     client = MongoClient(

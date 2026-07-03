@@ -1,9 +1,12 @@
-import { Canvas, useFrame } from '@react-three/fiber'
 import { ContactShadows, Environment, OrbitControls, Sky, useAnimations, useGLTF } from '@react-three/drei'
 import { Suspense, forwardRef, useEffect, useRef, useState } from 'react'
+import toast, { Toaster } from 'react-hot-toast';
 
 import Back from './Back.jsx';
+import { Canvas } from '@react-three/fiber'
 import { useMatch } from 'react-router-dom';
+import { io } from 'socket.io-client';
+
 
 useGLTF.preload('/robot-draco.glb')
 
@@ -17,9 +20,22 @@ function extractWordScores(res) {
   });
 }
 
+async function resampleTo16k(float32Array, fromSampleRate) {
+  if (fromSampleRate === 16000) return float32Array;
+  const targetLength = Math.ceil(float32Array.length * 16000 / fromSampleRate);
+  const offlineCtx = new OfflineAudioContext(1, targetLength, 16000);
+  const buffer = offlineCtx.createBuffer(1, float32Array.length, fromSampleRate);
+  buffer.copyToChannel(float32Array, 0);
+  const source = offlineCtx.createBufferSource();
+  source.buffer = buffer;
+  source.connect(offlineCtx.destination);
+  source.start();
+  const rendered = await offlineCtx.startRendering();
+  return rendered.getChannelData(0);
+}
+
 const Model = forwardRef(function Model(props, ref) {
   const { scene, animations } = useGLTF('/robot-draco.glb');
-  const robot = scene.getObjectByName('Robot');
   const { actions } = useAnimations(animations, scene);
 
   useEffect(() => {
@@ -38,7 +54,10 @@ const Model = forwardRef(function Model(props, ref) {
 })
 
 const getPhonemeStyle = (score) => {
-  if (score === null || score === undefined || score >= 0.9) {
+  if (score === null || score === undefined) {
+    return { background: '#e5e7eb', color: '#6b7280' };
+  }
+  if (score >= 0.9) {
     return { background: '#bbf7d0', color: '#166534' };
   }
   if (score >= 0.7) {
@@ -50,9 +69,7 @@ const getPhonemeStyle = (score) => {
 export default function Lesson() {
   const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
   const [nextHover, setNextHover] = useState(false)
-  const [isRecordingBackend, setIsRecordingBackend] = useState(false)
-  const [isCapturing, setIsCapturing] = useState(false)
-  const [backendFilename, setBackendFilename] = useState(null)
+  const [isRecording, setIsRecording] = useState(false)
   const [cardData, setCardData] = useState(null);
   const [actions, setActions] = useState(null);
   const recorderRef = useRef(null)
@@ -69,11 +86,19 @@ export default function Lesson() {
   const [showIntro, setShowIntro] = useState(true);
   const videoUrl = "https://youtu.be/IwWw6Xe09O0?t=31";
   const [score, setScore] = useState(0);
-  const [expectedIPAs, setExpectedIPAs] = useState([]);
   const [wordsToIPA, setWordsToIPA] = useState(null);
   const [currentWordsToIPA, setCurrentWordsToIPA] = useState(null);
-  const [returnedWordsToIPA, setReturnedWordsToIPA] = useState(null);
+  const [wordResults, setWordResults] = useState([]);
   const wordScoresRef = useRef([]);
+
+  // Audio + socket refs
+  const socketRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const processorRef = useRef(null);
+  const streamRef = useRef(null);
+  const accumChunksRef = useRef([]);
+  const chunkIntervalRef = useRef(null);
+  const pendingSessionRef = useRef(null); // holds { sentence, words_ipa } until connect fires
 
   const toEmbed = (u) => {
     try {
@@ -83,142 +108,50 @@ export default function Lesson() {
       if (v) return `https://www.youtube.com/embed/${v}`;
       if (url.hostname === 'youtu.be') return `https://www.youtube.com/embed/${url.pathname.slice(1)}`;
       return u;
-    } catch (e) { return null; }
+    } catch (e) { console.error("Error parsing URL:", e); return null; }
   }
 
-  const audioBufferToWav = (audioBuffer) => {
-    const numChannels = audioBuffer.numberOfChannels;
-    const sampleRate = audioBuffer.sampleRate;
-    const numSamples = audioBuffer.length;
-    const buffer = new ArrayBuffer(44 + numSamples * numChannels * 2);
-    const view = new DataView(buffer);
-    let offset = 0;
+  // Initialize socket once — listeners are stable across renders
+  useEffect(() => {
+    const socket = io(API_BASE, { autoConnect: false, transports: ['websocket', 'polling'] });
+    socketRef.current = socket;
 
-    const writeString = (s) => {
-      for (let i = 0; i < s.length; i += 1) {
-        view.setUint8(offset, s.charCodeAt(i));
-        offset += 1;
-      }
-    };
-
-    const writeUint32 = (value) => {
-      view.setUint32(offset, value, true);
-      offset += 4;
-    };
-
-    const writeUint16 = (value) => {
-      view.setUint16(offset, value, true);
-      offset += 2;
-    };
-
-    writeString('RIFF');
-    writeUint32(36 + numSamples * numChannels * 2);
-    writeString('WAVE');
-    writeString('fmt ');
-    writeUint32(16);
-    writeUint16(1);
-    writeUint16(numChannels);
-    writeUint32(sampleRate);
-    writeUint32(sampleRate * numChannels * 2);
-    writeUint16(numChannels * 2);
-    writeUint16(16);
-    writeString('data');
-    writeUint32(numSamples * numChannels * 2);
-
-    const channels = [];
-    for (let i = 0; i < numChannels; i += 1) {
-      channels.push(audioBuffer.getChannelData(i));
-    }
-
-    for (let i = 0; i < numSamples; i += 1) {
-      for (let channel = 0; channel < numChannels; channel += 1) {
-        let sample = channels[channel][i];
-        sample = Math.max(-1, Math.min(1, sample));
-        view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
-        offset += 2;
-      }
-    }
-
-    return view.buffer;
-  };
-
-  const stopCapture = () => {
-    if (captureTimerRef.current) {
-      window.clearTimeout(captureTimerRef.current);
-      captureTimerRef.current = null;
-    }
-
-    const recorder = recorderRef.current
-    if (recorder && recorder.state !== 'inactive') {
-      recorder.stop();
-    }
-  }
-
-  const captureAudio = async (seconds = 5) => {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error('Microphone access is not supported in this browser.');
-    }
-
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    streamRef.current = stream;
-    const recordedChunks = [];
-
-    let recorder;
-    try {
-      recorder = new MediaRecorder(stream);
-      recorderRef.current = recorder;
-    } catch (err) {
-      stream.getTracks().forEach((track) => track.stop());
-      throw new Error('Audio recording is not supported: ' + err.message);
-    }
-
-    setIsCapturing(true);
-
-    return new Promise((resolve, reject) => {
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          recordedChunks.push(event.data);
-        }
-      };
-
-      recorder.onerror = (event) => {
-        stream.getTracks().forEach((track) => track.stop());
-        setIsCapturing(false);
-        reject(new Error(event.error?.message || 'Recording error'));
-      };
-
-      recorder.onstop = async () => {
-        stream.getTracks().forEach((track) => track.stop());
-        recorderRef.current = null;
-        setIsCapturing(false);
-
-        if (!recordedChunks.length) {
-          return reject(new Error('No audio recorded.'));
-        }
-
-        const blob = new Blob(recordedChunks, { type: recordedChunks[0].type || 'audio/webm' });
-        try {
-          const arrayBuffer = await blob.arrayBuffer();
-          const audioContext = new AudioContext();
-          const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-          const wavBuffer = audioBufferToWav(audioBuffer);
-          resolve(new Blob([wavBuffer], { type: 'audio/wav' }));
-        } catch (err) {
-          reject(new Error('Failed to encode audio: ' + err.message));
-        }
-      };
-
-      recorder.start();
-      if (seconds > 0) {
-        captureTimerRef.current = window.setTimeout(() => {
-          if (recorder.state !== 'inactive') {
-            recorder.stop();
-          }
-        }, seconds * 1000);
+    // After the transport connects, emit 'start' with session metadata
+    socket.on('connect', () => {
+      if (pendingSessionRef.current) {
+        socket.emit('start', pendingSessionRef.current);
+        pendingSessionRef.current = null;
       }
     });
-  };
-  
+
+    socket.on('partial_result', (data) => {
+      setWordResults(prev => {
+        const next = [...prev];
+        next[data.word_index] = { word: data.word, phonemes: data.phonemes };
+        return next;
+      });
+    });
+
+    socket.on('result', (data) => {
+      handleFinalResult(data);
+    });
+
+    return () => {
+      socket.off('connect');
+      socket.off('partial_result');
+      socket.off('result');
+      socket.disconnect();
+    };
+  }, []);
+
+  // Show expected phonemes as soon as the sentence changes
+  useEffect(() => {
+    if (wordsToIPA && currentSentenceIndex > 0) {
+      setCurrentWordsToIPA(wordsToIPA[currentSentenceIndex - 1] || null);
+      setWordResults([]);
+    }
+  }, [wordsToIPA, currentSentenceIndex]);
+
   // Fetch lesson data
   useEffect(() => {
     const userId = localStorage.getItem('user_id') || 'demo';
@@ -226,18 +159,19 @@ export default function Lesson() {
       .then((response) => response.json())
       .then((data) => {
         setCardData(data.sentences ?? data);
-        console.log('Fetched lesson data:', data);
-        setExpectedIPAs(data.expected_ipas);
-        // TODO: remove these hooks once the backend is fixed
-        console.log('Expected IPAs:', data.expected_ipas);
-        setWordsToIPA(data.words_to_ipas);
-        console.log('Words to IPA:', data.words_to_ipas);
+        const ipas = data.words_to_ipas;
+        if (!ipas || ipas.length === 0) {
+          toast.error('Phoneme data failed to load. Please reload the page.');
+        }
+        setWordsToIPA(ipas);
       })
-      .catch((error) => console.error("Error fetching data:", error));
+      .catch((error) => {
+        console.error("Error fetching data:", error);
+        toast.error('Failed to load lesson. Please check your connection and reload.');
+      });
   }, []);
 
-
-  // Speak the first sentence
+  // TTS for current sentence
   useEffect(() => {
     if (!cardData || showIntro) return;
     const currentSentence = cardData[String(currentSentenceIndex)] || cardData[currentSentenceIndex] || '';
@@ -247,7 +181,6 @@ export default function Lesson() {
       const u = new SpeechSynthesisUtterance(currentSentence);
       u.lang = 'en-US';
       const savedVoice = localStorage.getItem('ttsVoice');
-      console.log("Saved voice:", savedVoice);
       if (savedVoice) {
         const voices = window.speechSynthesis.getVoices();
         const voice = voices.find(v => v.name === savedVoice);
@@ -259,88 +192,142 @@ export default function Lesson() {
     }
   }, [cardData, currentSentenceIndex, showIntro]);
 
-  // display percent progress for each phoneme
-  
-
-  const startBackendRecording = async (seconds = 5) => {
-    setIsRecordingBackend(true)
-    setBackendFilename(null)
-    try {
-      const sentence = cardData?.[currentSentenceIndex.toString()] || cardData?.[currentSentenceIndex]
-      if (!sentence) {
-        throw new Error('Unable to determine the current sentence for recording.')
-      }
-
-      const audioBlob = await captureAudio(seconds)
-      const formData = new FormData()
-      formData.append('card', sentence)
-      formData.append('audio', audioBlob, 'lesson_recording.wav')
-
-      const res = await fetch(`${API_BASE}/api/record/test`, {
-        method: 'POST',
-        body: formData,
-      })
-      const data = await res.json()
-      console.log('Backend record response:', data)
-      if (!res.ok) throw new Error(data.error || 'Record failed')
-
-      setBackendFilename(data.filename)
-      setReturnedWordsToIPA(data.res.map(({word, phonemes}) => ({
-        word, phonemes
-      })));
-      setCurrentWordsToIPA(wordsToIPA[currentSentenceIndex - 1] || null);
-      if (data.passed) {
-        wordScoresRef.current.push(...extractWordScores(data.res));
-        actions?.ThumbsUp?.play?.();
-        const utter = new SpeechSynthesisUtterance("Great job!");
-        setScore(score => (score ?? 0) + data.score);
-        const savedVoice = localStorage.getItem('ttsVoice');
-        if (savedVoice) {
-          const voices = window.speechSynthesis.getVoices();
-          const voice = voices.find(v => v.name === savedVoice);
-          if (voice) utter.voice = voice;
-        }
-        window.speechSynthesis.speak(utter);
-        setDoneSentence(true);
-        actions?.Walking?.play?.();
-        // Move robot forward along its facing
-        if (robotRef.current) {
-          robotRef.current.translateZ(30 / 7);
-          robotRef.current.updateMatrixWorld();
-          const p = robotRef.current.position;
-          setRobotPos([p.x, p.y, p.z]);
-        }
-        actions?.Idle?.play?.();
-      } else {
-        actions && actions.No.play();
-        // reduce score
-        setScore(score => Math.max(0, (score ?? 0) - (100 - data.score)));
-        // give feedback (text to speech)
-        console.log('Feedback data:', data)
-        const feedbackMsg = Array.isArray(data.feedback)
-          ? data.feedback.map(f => (typeof f === 'string' ? f : `${f.word || ''} ${f.issue || ''}`.trim())).join(' ')
-          : String(data.feedback || 'No, try again.')
-        setFeedbackText(feedbackMsg)
-        const utter = new SpeechSynthesisUtterance(feedbackMsg);
-        const savedVoice = localStorage.getItem('ttsVoice');
-        if (savedVoice) {
-          const voices = window.speechSynthesis.getVoices();
-          const voice = voices.find(v => v.name === savedVoice);
-          if (voice) utter.voice = voice;
-        }
-        window.speechSynthesis.speak(utter)
-      }
-    } catch (err) {
-      console.error('Backend record error:', err)
-      alert('Record failed: ' + err.message)
-    } finally {
-      setIsRecordingBackend(false)
+  const speakText = (text) => {
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = 'en-US';
+    const savedVoice = localStorage.getItem('ttsVoice');
+    if (savedVoice) {
+      const voices = window.speechSynthesis.getVoices();
+      const voice = voices.find(v => v.name === savedVoice);
+      if (voice) utter.voice = voice;
     }
-  }
+    window.speechSynthesis.speak(utter);
+  };
+
+  const stopRecording = () => {
+    if (chunkIntervalRef.current) {
+      clearInterval(chunkIntervalRef.current);
+      chunkIntervalRef.current = null;
+    }
+    if (processorRef.current) {
+      processorRef.current.disconnect();
+      processorRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
+    accumChunksRef.current = [];
+    setIsRecording(false);
+  };
+
+  const handleFinalResult = (data) => {
+    setWordResults(data.res || []);
+    stopRecording();
+    socketRef.current?.disconnect();
+
+    if (data.passed) {
+      wordScoresRef.current.push(...extractWordScores(data.res));
+      actions?.ThumbsUp?.play?.();
+      speakText("Great job!");
+      setScore(s => (s ?? 0) + data.score);
+      setDoneSentence(true);
+      actions?.Walking?.play?.();
+      if (robotRef.current) {
+        robotRef.current.translateZ(30 / 7);
+        robotRef.current.updateMatrixWorld();
+        const p = robotRef.current.position;
+        setRobotPos([p.x, p.y, p.z]);
+      }
+      actions?.Idle?.play?.();
+    } else {
+      actions?.No?.play?.();
+      setScore(s => Math.max(0, (s ?? 0) - (100 - data.score)));
+      const feedbackMsg = String(data.feedback || 'No, try again.');
+      setFeedbackText(feedbackMsg);
+      speakText(feedbackMsg);
+    }
+  };
+
+  const sendChunk = async (chunks, sampleRate) => {
+    if (!chunks.length || !socketRef.current?.connected) return;
+    const totalLength = chunks.reduce((sum, c) => sum + c.length, 0);
+    const flat = new Float32Array(totalLength);
+    let offset = 0;
+    for (const c of chunks) { flat.set(c, offset); offset += c.length; }
+    const resampled = await resampleTo16k(flat, sampleRate);
+    socketRef.current.emit('chunk', resampled.buffer);
+  };
+
+  const startRecording = async () => {
+    const sentence = cardData?.[currentSentenceIndex.toString()];
+    const words_ipa = wordsToIPA?.[currentSentenceIndex - 1];
+    if (!sentence || !words_ipa) {
+      toast.error('Lesson data not ready yet — please wait a moment and try again.');
+      return;
+    }
+
+    setIsRecording(true);
+    setWordResults([]);
+
+    // Store session metadata so the 'connect' listener can emit 'start'
+    const socket = socketRef.current;
+    if (socket.connected) socket.disconnect();
+    pendingSessionRef.current = { sentence, words_ipa };
+    socket.connect();
+
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    } catch (err) {
+      console.error('Microphone access denied:', err);
+      setIsRecording(false);
+      alert('Microphone access is required to record.');
+      socket.disconnect();
+      return;
+    }
+    streamRef.current = stream;
+
+    const ctx = new AudioContext();
+    audioContextRef.current = ctx;
+    const source = ctx.createMediaStreamSource(stream);
+
+    const BUFFER_SIZE = 2048;
+    const CHUNK_INTERVAL_MS = 500;
+
+    // ScriptProcessorNode is deprecated but avoids needing a separate worklet file
+    const processor = ctx.createScriptProcessor(BUFFER_SIZE, 1, 1);
+    processorRef.current = processor;
+    accumChunksRef.current = [];
+
+    processor.onaudioprocess = (e) => {
+      accumChunksRef.current.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    };
+
+    chunkIntervalRef.current = setInterval(() => {
+      const chunks = accumChunksRef.current.splice(0);
+      if (chunks.length > 0) sendChunk(chunks, ctx.sampleRate);
+    }, CHUNK_INTERVAL_MS);
+
+    source.connect(processor);
+    processor.connect(ctx.destination);
+  };
+
+  const toggleRecording = () => {
+    if (isRecording) {
+      socketRef.current?.emit('stop'); // ask server to finalize; disconnect happens in handleFinalResult
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  };
 
   const goToNextSentence = async () => {
     setDoneSentence(false);
-    console.log("cardData is", cardData);
     if (cardData && cardData[(currentSentenceIndex + 1).toString()]) {
       setCurrentSentenceIndex(prev => prev + 1);
       if (actions) {
@@ -348,7 +335,6 @@ export default function Lesson() {
         actions.Idle && actions.Idle.play();
       }
     } else {
-      console.log('No more sentences');
       if (actions) {
         Object.values(actions).forEach(action => action.stop());
         actions.Dance && actions.Dance.play();
@@ -356,7 +342,6 @@ export default function Lesson() {
       setIsFinished(true);
       const currentLessonId = parseInt(window.location.pathname.split('/').pop());
 
-      // update scores in mongodb
       const userId = localStorage.getItem('userId') || 'demo';
       fetch(`${API_BASE}/api/user/updateUserProgress`, {
         method: 'POST',
@@ -368,22 +353,19 @@ export default function Lesson() {
           wordScores: wordScoresRef.current
         })
       }).catch(err => console.error('Failed to update user progress:', err));
-      
+
       try {
-        const userId = localStorage.getItem('userId') || 'demo';
         await fetch(`${API_BASE}/api/user/generatenextlesson`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ user_id: userId, currentLessonId: currentLessonId }),
-          });
-        console.log('Next lesson generated');
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: userId, currentLessonId: currentLessonId }),
+        });
       } catch (err) {
         console.error('Failed to generate next lesson:', err);
       }
     }
- }
+  }
+
   if (showIntro) {
     return (
       <div style={{
@@ -472,6 +454,7 @@ export default function Lesson() {
 
   return (
     <div style={{ position: 'fixed', inset: 0, margin: 0, padding: 0, overflow: 'hidden' }}>
+      <Toaster position="top-center" />
       <Canvas
         style={{ width: '100%', height: '100%' }}
         camera={{ position: [-15, 8, 10], fov: 50 }}
@@ -482,35 +465,30 @@ export default function Lesson() {
           <Sky distance={450000} sunPosition={[2, 1, 0]} inclination={0.45} azimuth={0.25} />
           <Environment preset="sunset" background={false} />
 
-          {/* sun */}
           <ambientLight intensity={0.6} />
           <directionalLight position={[5, 10, 5]} intensity={1.2} castShadow shadow-mapSize-width={2048} shadow-mapSize-height={2048} />
 
-          {/* ground */}
           <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -1.01, 0]} receiveShadow>
             <planeGeometry args={[100, 100]} />
             <meshStandardMaterial color="#6aa84f" roughness={1} metalness={0} />
           </mesh>
 
-          {/* road and finish flag */}
           <mesh rotation={[-Math.PI / 2, 0, 0]} position={[5, -1.0, 0]} receiveShadow>
             <planeGeometry args={[30, 4]} />
             <meshStandardMaterial color="#333" roughness={0.9} metalness={0.1} />
           </mesh>
 
           <group position={[20, -1, 0]}>
-            {/* pole */}
             <mesh position={[0, 1, 0]} castShadow>
               <cylinderGeometry args={[0.03, 0.03, 2, 8]} />
               <meshStandardMaterial color="#444" />
             </mesh>
-            {/* flag */}
             <mesh position={[0, 1.7, 0.45]} rotation={[0, Math.PI / 2, 0]} castShadow>
               <planeGeometry args={[1, 0.6]} />
               <meshStandardMaterial color="#e53935" side={2} />
             </mesh>
           </group>
-          {/* soft contact shadow under model */}
+
           <ContactShadows position={robotPos} opacity={0.6} width={4} height={4} blur={2} far={2} />
 
           <Model
@@ -535,9 +513,7 @@ export default function Lesson() {
           pointerEvents: 'auto',
         }}
       >
-
-      {/* feedback modal */}
-      {feedbackText && (
+        {feedbackText && (
           <div style={{
             position: 'fixed',
             inset: 0,
@@ -581,8 +557,7 @@ export default function Lesson() {
           </div>
         )}
 
-        {/* next button - only show when finished*/}
-        {true && (
+        {doneSentence && (
           <button
             aria-label="Next lesson"
             onMouseEnter={() => setNextHover(true)}
@@ -617,38 +592,37 @@ export default function Lesson() {
         )}
       </div>
 
-      {/* record button */}
+      {/* Record toggle button */}
       <div style={{ position: 'absolute', left: 24, bottom: 24, zIndex: 30 }}>
         <button
-          onClick={() => {
-            if (isCapturing) {
-              stopCapture();
-            } else {
-              startBackendRecording(5);
-            }
-          }}
-          disabled={isRecordingBackend && !isCapturing}
+          onClick={toggleRecording}
           style={{
             padding: '10px 14px',
             borderRadius: 20,
             border: 'none',
-            background: isCapturing ? '#ff6b6b' : isRecordingBackend ? '#4f46e5' : 'linear-gradient(90deg,#6dd3ff,#6b73ff)',
+            background: isRecording
+              ? 'linear-gradient(90deg, #ff6b6b, #ff4444)'
+              : 'linear-gradient(90deg,#6dd3ff,#6b73ff)',
             color: 'white',
             fontWeight: 700,
-            cursor: isRecordingBackend && !isCapturing ? 'default' : 'pointer',
-            boxShadow: '0 8px 20px rgba(0,0,0,0.15)',
+            cursor: 'pointer',
+            boxShadow: isRecording
+              ? '0 0 0 3px rgba(255,100,100,0.4)'
+              : '0 8px 20px rgba(0,0,0,0.15)',
+            animation: isRecording ? 'pulse 1.2s infinite' : 'none',
           }}
         >
-          {isCapturing ? 'Stop' : isRecordingBackend ? 'Uploading...' : 'Record'}
+          {isRecording ? 'Stop' : 'Record'}
         </button>
-        {backendFilename && (
-          <div style={{ marginTop: 8, color: 'white', textShadow: '0 1px 3px rgba(0,0,0,0.6)' }}>
-            Saved: {backendFilename}
-          </div>
-        )}
+        <style>{`
+          @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 0 3px rgba(255,100,100,0.4); }
+            50% { box-shadow: 0 0 0 8px rgba(255,100,100,0.1); }
+          }
+        `}</style>
       </div>
 
-      {/* Current sentence display */}
+      {/* Current sentence + live phoneme display */}
       <div style={{
         position: 'absolute',
         top: 24,
@@ -666,13 +640,11 @@ export default function Lesson() {
           {cardData ? cardData[currentSentenceIndex.toString()] || 'End of lesson' : 'Loading...'}
         </div>
 
-        {/* display words corresponding to their ipas */}
         {currentWordsToIPA && (
           <div style={{ margin: '12px 0' }}>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               {currentWordsToIPA.map(({ word, phonemes }, wordIdx) => {
-                // Use index to match returned word
-                const returnedWord = returnedWordsToIPA?.[wordIdx];
+                const returnedWord = wordResults?.[wordIdx];
                 return (
                   <div key={word + wordIdx} style={{
                     border: '1px solid #ddd',
@@ -691,22 +663,21 @@ export default function Lesson() {
                         if (returnedWord && returnedWord.phonemes[i] && returnedWord.phonemes[i].phoneme === ph) {
                           score = returnedWord.phonemes[i].score;
                         }
-                        const style = {
-                          ...getPhonemeStyle(score),
-                          display: 'inline-block',
-                          padding: '2px 5px',
-                          borderRadius: 4,
-                          fontWeight: 500,
-                          fontSize: 12,
-                          margin: 1,
-                          minWidth: 14,
-                          textAlign: 'center',
-                          cursor: score !== null ? 'pointer' : 'default'
-                        };
                         return (
                           <span
                             key={i}
-                            style={style}
+                            style={{
+                              ...getPhonemeStyle(score),
+                              display: 'inline-block',
+                              padding: '2px 5px',
+                              borderRadius: 4,
+                              fontWeight: 500,
+                              fontSize: 12,
+                              margin: 1,
+                              minWidth: 14,
+                              textAlign: 'center',
+                              cursor: score !== null ? 'pointer' : 'default'
+                            }}
                             title={score !== null ? `Score: ${(score * 100).toFixed(1)}%` : 'No score'}
                           >
                             {ph}
