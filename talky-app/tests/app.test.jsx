@@ -23,6 +23,10 @@ global.fetch = vi.fn();
 
 beforeEach(() => {
   fetch.mockReset();
+  fetch.mockResolvedValue({
+    ok: true,
+    json: async () => ({ lessons: [] }),
+  });
 });
 
 // ----------------------
@@ -103,7 +107,7 @@ describe('App', () => {
       </MemoryRouter>
     );
 
-    const cards = await screen.findAllByRole('button');
+    const cards = await screen.findAllByTestId('lesson-card');
     expect(cards.length).toBe(mockLessons.length);
   });
 
@@ -125,7 +129,7 @@ describe('App', () => {
       </MemoryRouter>
     );
 
-    const cards = await screen.findAllByRole('button');
+    const cards = await screen.findAllByTestId('lesson-card');
     const lastCard = cards[cards.length - 1];
 
     expect(lastCard).toHaveTextContent(/lesson|bird|dog|cat/i);

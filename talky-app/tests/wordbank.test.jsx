@@ -3,13 +3,13 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import SoundBankCategory from '../src/SoundBank/SoundBankCategory.jsx';
 import { vi } from 'vitest';
+import { speakText } from '../src/tts.js';
 
 vi.mock('../src/tts.js', () => ({
   speakText: vi.fn().mockResolvedValue(),
   stopSpeech: vi.fn()
 }));
 
-// Mock Card to just render props for test
 vi.mock('../src/Card.jsx', () => ({
     default: ({ name, content }) => (
         <div>
@@ -19,7 +19,6 @@ vi.mock('../src/Card.jsx', () => ({
     )
 }));
 
-// Mock fetch
 global.fetch = vi.fn(() =>
     Promise.resolve({
         ok: true,
@@ -77,7 +76,6 @@ describe('SoundBankCategory', () => {
         );
         await waitFor(() => expect(fetch).toHaveBeenCalled());
 
-        // Find all emojis and click the parent of the first one
         const emojis = await screen.findAllByTestId('emoji');
         fireEvent.click(emojis[0].parentElement);
 
