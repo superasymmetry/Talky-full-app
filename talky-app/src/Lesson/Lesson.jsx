@@ -4,9 +4,8 @@ import toast, { Toaster } from 'react-hot-toast';
 
 import Back from './Back.jsx';
 import { Canvas } from '@react-three/fiber'
-import { useMatch } from 'react-router-dom';
 import { io } from 'socket.io-client';
-
+import { useMatch } from 'react-router-dom';
 
 useGLTF.preload('/robot-draco.glb')
 
@@ -66,6 +65,13 @@ const getPhonemeStyle = (score) => {
   return { background: '#fecaca', color: '#991b1b' };
 };
 
+// To ensure that tainted data is validated before being used to construct a client-side request URL
+const VALID_USER_ID = /^[a-zA-Z0-9_-]{1,128}$/;
+const getValidUserId = (key) => {
+  const id = localStorage.getItem(key) || 'demo';
+  return VALID_USER_ID.test(id) ? id : 'demo';
+};
+
 export default function Lesson() {
   const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
   const [nextHover, setNextHover] = useState(false)
@@ -87,6 +93,7 @@ export default function Lesson() {
   const [currentWordsToIPA, setCurrentWordsToIPA] = useState(null);
   const [wordResults, setWordResults] = useState([]);
   const wordScoresRef = useRef([]);
+  const sentencePassedRef = useRef(false);
 
   // Audio + socket refs
   const socketRef = useRef(null);
@@ -151,7 +158,7 @@ export default function Lesson() {
 
   // Fetch lesson data
   useEffect(() => {
-    const userId = localStorage.getItem('user_id') || 'demo';
+    const userId = getValidUserId('user_id');
     fetch(`${API_BASE}/api/lessons?user_id=${encodeURIComponent(userId)}&lesson_id=${encodeURIComponent(lessonId)}`)
       .then((response) => response.json())
       .then((data) => {
@@ -228,6 +235,8 @@ export default function Lesson() {
     socketRef.current?.disconnect();
 
     if (data.passed) {
+      if (sentencePassedRef.current) return;
+      sentencePassedRef.current = true;
       wordScoresRef.current.push(...extractWordScores(data.res));
       actions?.ThumbsUp?.play?.();
       speakText("Great job!");
@@ -261,6 +270,10 @@ export default function Lesson() {
   };
 
   const startRecording = async () => {
+    if (sentencePassedRef.current) {
+      toast("You've already passed this exercise! Click Next to continue.", { icon: '✅' });
+      return;
+    }
     const sentence = cardData?.[currentSentenceIndex.toString()];
     const words_ipa = wordsToIPA?.[currentSentenceIndex - 1];
     if (!sentence || !words_ipa) {
@@ -324,6 +337,7 @@ export default function Lesson() {
   };
 
   const goToNextSentence = async () => {
+    sentencePassedRef.current = false;
     setDoneSentence(false);
     if (cardData && cardData[(currentSentenceIndex + 1).toString()]) {
       setCurrentSentenceIndex(prev => prev + 1);
@@ -339,7 +353,7 @@ export default function Lesson() {
       setIsFinished(true);
       const currentLessonId = parseInt(window.location.pathname.split('/').pop());
 
-      const userId = localStorage.getItem('userId') || 'demo';
+      const userId = getValidUserId('userId');
       fetch(`${API_BASE}/api/user/updateUserProgress`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

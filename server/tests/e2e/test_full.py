@@ -88,7 +88,7 @@ def _mock_socketio(ws_route):
 class TestLesson(unittest.TestCase):
     def test_phoneme_colors_and_tooltip(self):
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=False)
+            browser = p.chromium.launch(headless=os.getenv("CI") == "true")
             context = browser.new_context(permissions=["microphone"])
             page = context.new_page()
 

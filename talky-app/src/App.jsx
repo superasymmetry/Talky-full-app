@@ -19,7 +19,7 @@ function App() {
     const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080';
     
     fetch(`${API_BASE}/api/user/lessons?user_id=${userId}`)
-      .then(res => res.ok ? res.json() : Promise.reject(`HTTP ${res.status}`))
+      .then(res => res.ok ? res.json() : Promise.reject(new Error('Failed to fetch lessons')))
       .then(data => {
         const lessonsArray = (data.lessons || []).map(lesson => ({
           id: lesson.id,
