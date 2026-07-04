@@ -26,7 +26,7 @@ ALLOWED_ORIGINS = os.environ.get(
 ).split(",")
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGINS, async_mode='gevent')
+socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGINS, async_mode='threading')
 cors = CORS(app, resources={r"/api/*": {"origins": ALLOWED_ORIGINS}})
 
 # Register routes
