@@ -85,7 +85,7 @@ const Profile = () => {
     const payload = {
       userId: user.sub || user.email,
       nickname,
-      age: parseInt(age, 10) || 16,
+      age: Number.parseInt(age, 10) || 16,
       role
     };
 

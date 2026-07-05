@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import PropTypes from 'prop-types';
 import {
   AreaChart,
   AreaSeries,
@@ -161,6 +162,67 @@ export const PhonemeMastery = ({ bars }) => (
   </Card>
 );
 
+Card.propTypes = {
+  title: PropTypes.node,
+  action: PropTypes.node,
+  children: PropTypes.node,
+  className: PropTypes.string,
+};
+
+Empty.propTypes = {
+  children: PropTypes.node,
+};
+
+StatTile.propTypes = {
+  label: PropTypes.node,
+  value: PropTypes.node,
+  sub: PropTypes.node,
+  accent: PropTypes.string,
+};
+
+LevelTile.propTypes = {
+  level: PropTypes.shape({
+    current: PropTypes.number,
+    subpoints: PropTypes.number,
+    maxval: PropTypes.number,
+  }),
+};
+
+Heatmap.propTypes = {
+  cells: PropTypes.arrayOf(
+    PropTypes.oneOfType([
+      PropTypes.oneOf([null]),
+      PropTypes.shape({
+        date: PropTypes.string.isRequired,
+        count: PropTypes.number.isRequired,
+      }),
+    ])
+  ).isRequired,
+};
+
+PhonemeChips.propTypes = {
+  phonemes: PropTypes.arrayOf(PropTypes.shape({ phoneme: PropTypes.string.isRequired })).isRequired,
+  selected: PropTypes.string,
+  onSelect: PropTypes.func.isRequired,
+};
+
+ProgressChart.propTypes = {
+  phonemes: PropTypes.arrayOf(PropTypes.shape({ phoneme: PropTypes.string.isRequired })).isRequired,
+  selected: PropTypes.string,
+  onSelect: PropTypes.func.isRequired,
+  series: PropTypes.array.isRequired,
+};
+
+PhonemeMastery.propTypes = {
+  bars: PropTypes.array.isRequired,
+};
+
+const wordRowShape = PropTypes.shape({
+  word: PropTypes.string.isRequired,
+  value: PropTypes.number,
+  timestamp: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+});
+
 const TAB_DEFS = [
   { id: 'hardest', label: 'Needs practice', empty: 'Complete a few words to see the trickiest ones.', valueClass: 'text-color-3', format: (r) => `${fmtPct(r.value)} avg` },
   { id: 'improved', label: 'Most improved', empty: 'Practice each word a couple of times to track improvement.', valueClass: 'text-color-4', format: (r) => `+${fmtPct(r.value)}` },
@@ -210,4 +272,10 @@ export const WordTabs = ({ hardest, improved, recent }) => {
       )}
     </Card>
   );
+};
+
+WordTabs.propTypes = {
+  hardest: PropTypes.arrayOf(wordRowShape).isRequired,
+  improved: PropTypes.arrayOf(wordRowShape).isRequired,
+  recent: PropTypes.arrayOf(wordRowShape).isRequired,
 };
