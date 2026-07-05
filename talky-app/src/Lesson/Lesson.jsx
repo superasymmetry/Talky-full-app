@@ -142,7 +142,7 @@ export default function Lesson() {
 
   // Initialize socket once — listeners are stable across renders
   useEffect(() => {
-    const socket = io(API_BASE, { autoConnect: false, transports: ['websocket', 'polling'] });
+    const socket = io(API_BASE, { autoConnect: false, transports: ['websocvoket', 'polling'] });
     socketRef.current = socket;
 
     // After the transport connects, emit 'start' with session metadata
