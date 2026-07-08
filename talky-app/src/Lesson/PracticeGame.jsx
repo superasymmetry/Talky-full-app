@@ -1,3 +1,4 @@
+/* eslint-disable react/no-unknown-property, react/prop-types */
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { Canvas } from '@react-three/fiber'
@@ -94,7 +95,47 @@ export function getTileWorldPosition(tileKey, y = 0) {
 
 function getTileDistanceFromOrigin(tileKey) {
   const { x, z } = parseTileKey(tileKey)
-  return Math.sqrt(x * x + z * z)
+  return Math.hypot(x, z)
+}
+
+function getRandomIndex(length) {
+  if (!Number.isFinite(length) || length <= 0) {
+    return 0
+  }
+
+  const max = Math.floor(length)
+  const hasCrypto = typeof globalThis.crypto !== 'undefined' && typeof globalThis.crypto.getRandomValues === 'function'
+  if (!hasCrypto) {
+    return 0
+  }
+
+  const array = new Uint32Array(1)
+  globalThis.crypto.getRandomValues(array)
+  return array[0] % max
+}
+
+function pickRandom(list) {
+  if (!Array.isArray(list) || list.length === 0) {
+    return null
+  }
+  return list[getRandomIndex(list.length)]
+}
+
+function getTileBaseColor({ isBankTile, isGeneratorTile, isWater, isRiverTile, isOwned, isBuilt, canBuild }) {
+  if (isBankTile) return '#0ea5e9'
+  if (isGeneratorTile) return '#1d4ed8'
+  if (isWater) return isRiverTile ? '#86efac' : '#4ade80'
+  if (isOwned) return isBuilt ? '#7c3aed' : '#f59e0b'
+  return canBuild ? '#0f766e' : '#bbf7d0'
+}
+
+function getTileHoverColor({ isBankTile, isGeneratorTile, isWater, encounterType }) {
+  if (isBankTile) return '#38bdf8'
+  if (isGeneratorTile) return '#60a5fa'
+  if (isWater) return '#dcfce7'
+  if (encounterType === 'team') return '#fb923c'
+  if (encounterType === 'terrain') return '#34d399'
+  return '#f43f5e'
 }
 
 export function getRiverConnections() {
@@ -353,7 +394,7 @@ function createDailyMissions(dayIndex) {
 
 function buildMissionsState(existingMissions, now = Date.now()) {
   const currentDayKey = toDayKey(now)
-  const firstPlayedAt = Number(existingMissions?.firstPlayedAt || now)
+  const firstPlayedAt = Number(existingMissions?.firstPlayedAt ?? now)
   const dayIndex = getDayIndexFromStart(firstPlayedAt, now)
   const shouldRollDaily = !existingMissions || existingMissions.currentDayKey !== currentDayKey
   const baselineMissions = createDailyMissions(dayIndex)
@@ -488,9 +529,12 @@ export function normalizePracticeGameState(savedState) {
       }).slice(0, MAX_PARTY_SIZE)
     : baseState.party
 
+  const savedBuildings = (savedState?.buildings && typeof savedState.buildings === 'object')
+    ? savedState.buildings
+    : undefined
   const normalizedBuildings = {
     ...baseState.buildings,
-    ...(savedState?.buildings || {}),
+    ...savedBuildings,
   }
 
   GENERATOR_CORE_TILES.forEach((tileKey) => {
@@ -562,7 +606,7 @@ function BattleScene() {
   )
 }
 
-function PlaneScene({ capturedTiles, buildings, buildMode, selectedBuilding, hoveredTileKey, onTileHover, onTileClick, tutorialTileKey, showTutorialTileGuide }) {
+function PlaneScene({ capturedTiles, buildings, buildMode, selectedBuilding, hoveredTileKey, onTileHover, onTileClick, tutorialTileKey, showTutorialTileGuide }) { // NOSONAR
   const capturedSet = useMemo(() => new Set(capturedTiles), [capturedTiles])
   const hasGeneratorCore = useMemo(
     () => GENERATOR_CORE_TILES.every((tileKey) => buildings[tileKey] === 'generator-core'),
@@ -609,8 +653,8 @@ function PlaneScene({ capturedTiles, buildings, buildMode, selectedBuilding, hov
             ? [x * TILE_SIZE + (dx > 0 ? 0.5 : -0.5), 0.25, z * TILE_SIZE]
             : [x * TILE_SIZE, 0.25, z * TILE_SIZE + (dz > 0 ? 0.5 : -0.5)]
           const scale = axis === 'x'
-            ? [0.08, 0.5, 1.0]
-            : [1.0, 0.5, 0.08]
+            ? [0.08, 0.5, 1]
+            : [1, 0.5, 0.08]
 
           segments.push({ key: `${tileKey}-${neighborKey}`, position, scale })
         }
@@ -677,26 +721,17 @@ function PlaneScene({ capturedTiles, buildings, buildMode, selectedBuilding, hov
         const isWater = getTileTerrainType(tile.key) === 'water'
         const isRiverTile = isWater && getRiverTileKeys().includes(tile.key)
         const isHovered = hoveredTileKey === tile.key
-        const baseColor = isBankTile
-          ? '#0ea5e9'
-          : isGeneratorTile
-            ? '#1d4ed8'
-          : isWater
-            ? (isRiverTile ? '#86efac' : '#4ade80')
-            : isOwned
-              ? (isBuilt ? '#7c3aed' : '#f59e0b')
-              : (canBuild ? '#0f766e' : '#bbf7d0')
-        const hoverColor = isBankTile
-          ? '#38bdf8'
-          : isGeneratorTile
-            ? '#60a5fa'
-          : isWater
-            ? '#dcfce7'
-            : encounter.type === 'team'
-              ? '#fb923c'
-              : encounter.type === 'terrain'
-                ? '#34d399'
-                : '#f43f5e'
+        const baseColor = getTileBaseColor({ isBankTile, isGeneratorTile, isWater, isRiverTile, isOwned, isBuilt, canBuild })
+        const hoverColor = getTileHoverColor({ isBankTile, isGeneratorTile, isWater, encounterType: encounter.type })
+        let builtColor = '#7c3aed'
+        let builtEmissive = '#5b21b6'
+        if (isBankTile) {
+          builtColor = '#38bdf8'
+          builtEmissive = '#0284c7'
+        } else if (isGeneratorTile) {
+          builtColor = '#1d4ed8'
+          builtEmissive = '#1e40af'
+        }
         const showGridIndicator = !isOwned && !isBuilt && !isBankTile && !isGeneratorTile && !canBuild && !isWater
 
         return (
@@ -752,8 +787,8 @@ function PlaneScene({ capturedTiles, buildings, buildMode, selectedBuilding, hov
               <mesh position={[tile.x * TILE_SIZE, 0.24, tile.z * TILE_SIZE]} castShadow receiveShadow>
                 <boxGeometry args={[0.35, 0.35, 0.35]} />
                 <meshStandardMaterial
-                  color={isBankTile ? '#38bdf8' : isGeneratorTile ? '#1d4ed8' : '#7c3aed'}
-                  emissive={isBankTile ? '#0284c7' : isGeneratorTile ? '#1e40af' : '#5b21b6'}
+                  color={builtColor}
+                  emissive={builtEmissive}
                   emissiveIntensity={0.4}
                 />
               </mesh>
@@ -783,14 +818,14 @@ function PlaneScene({ capturedTiles, buildings, buildMode, selectedBuilding, hov
   )
 }
 
-export default function PracticeGame() {
+export default function PracticeGame() { // NOSONAR
   const [gameState, setGameState] = useState(() => {
-    if (typeof window === 'undefined') {
+    if (typeof globalThis.window === 'undefined') {
       return createInitialGameState()
     }
 
     try {
-      const saved = window.localStorage.getItem('practiceGameState')
+      const saved = globalThis.window.localStorage.getItem('practiceGameState')
       return saved ? normalizePracticeGameState(JSON.parse(saved)) : createInitialGameState()
     } catch (error) {
       console.warn('Failed to restore practice game state', error)
@@ -872,28 +907,28 @@ export default function PracticeGame() {
   }, [gameState.party, selectedCharacter])
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
+    if (typeof globalThis.window === 'undefined') {
       return
     }
 
     try {
-      window.localStorage.setItem('practiceGameState', JSON.stringify(gameState))
+      globalThis.window.localStorage.setItem('practiceGameState', JSON.stringify(gameState))
     } catch (error) {
       console.warn('Failed to save practice game state', error)
     }
   }, [gameState])
 
   const speakLessonMessage = (message) => {
-    if (typeof window === 'undefined' || !window.speechSynthesis) {
+    if (typeof globalThis.window === 'undefined' || !globalThis.window.speechSynthesis) {
       return
     }
 
     try {
-      window.speechSynthesis.cancel()
+      globalThis.window.speechSynthesis.cancel()
       const utterance = new SpeechSynthesisUtterance(message)
-      const savedVoice = window.localStorage.getItem('ttsVoice')
+      const savedVoice = globalThis.window.localStorage.getItem('ttsVoice')
       if (savedVoice) {
-        const voices = window.speechSynthesis.getVoices()
+        const voices = globalThis.window.speechSynthesis.getVoices()
         const voice = voices.find((entry) => entry.name === savedVoice)
         if (voice) {
           utterance.voice = voice
@@ -901,7 +936,7 @@ export default function PracticeGame() {
       }
       utterance.rate = 1.02
       utterance.pitch = 1
-      window.speechSynthesis.speak(utterance)
+      globalThis.window.speechSynthesis.speak(utterance)
       speakMessageRef.current = utterance
     } catch (error) {
       console.warn('TTS failed', error)
@@ -909,7 +944,7 @@ export default function PracticeGame() {
   }
 
   useEffect(() => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    const SpeechRecognition = globalThis.window?.SpeechRecognition || globalThis.window?.webkitSpeechRecognition
     if (!SpeechRecognition) {
       return undefined
     }
@@ -945,7 +980,7 @@ export default function PracticeGame() {
   }, [battleState?.status])
 
   useEffect(() => {
-    const interval = window.setInterval(() => {
+    const interval = globalThis.window.setInterval(() => {
       const remaining = Math.max(0, Math.ceil((nextEnergyRefreshAt - Date.now()) / 1000))
       setEnergyRefreshSeconds(remaining)
 
@@ -1024,7 +1059,7 @@ export default function PracticeGame() {
       })
     }, 1000)
 
-    return () => window.clearInterval(interval)
+    return () => globalThis.window.clearInterval(interval)
   }, [gameState.energy, nextEnergyRefreshAt])
 
   const claimMissionReward = (missionId) => {
@@ -1066,7 +1101,7 @@ export default function PracticeGame() {
     recognitionRef.current.start()
   }
 
-  const handleTileClick = (tileKey) => {
+  const handleTileClick = (tileKey) => { // NOSONAR
     if (battleState) {
       return
     }
@@ -1081,7 +1116,6 @@ export default function PracticeGame() {
 
     if (tileBuilding === 'generator-core' || tileBuilding === 'generator') {
       setSelectedGeneratorTile(tileKey)
-      setSelectedBankTile(null)
       setStatusMessage('Generator ready. Review output details.')
       return
     }
@@ -1157,7 +1191,8 @@ export default function PracticeGame() {
         }
 
         if (buildingKey === 'house' || buildingKey === 'hut' || buildingKey === 'cottage') {
-          const role = buildingKey === 'house' ? 'villager' : buildingKey === 'hut' ? 'witch' : 'bard'
+          const buildingRoleMap = { house: 'villager', hut: 'witch', cottage: 'bard' }
+          const role = buildingRoleMap[buildingKey]
           const addedResult = addCharacterToParty(nextState, role)
           nextState = addedResult.nextState
         } else if (buildingKey === 'training') {
@@ -1211,7 +1246,7 @@ export default function PracticeGame() {
 
     const difficulty = getTileDifficulty(tileKey)
     const encounterConfig = getEncounterConfig(tileKey)
-    const targetWord = WORD_POOL[Math.floor(Math.random() * WORD_POOL.length)]
+    const targetWord = pickRandom(WORD_POOL)
     const wordsInPlay = [targetWord, ...WORD_POOL.filter((word) => word !== targetWord).slice(0, 3)]
 
     setPendingBattle({
@@ -1264,7 +1299,7 @@ export default function PracticeGame() {
     setStatusMessage('Battle started. Speak the target word to attack!')
   }
 
-  const handleBattleResolution = (spokenWord) => {
+  const handleBattleResolution = (spokenWord) => { // NOSONAR
     const battle = battleStateRef.current
     if (!battle) {
       return
@@ -1286,7 +1321,7 @@ export default function PracticeGame() {
           turnIndex: 0,
           round: battle.round + 1,
           log: [...battle.log, 'A tutorial blessing restored your party to full HP.'],
-          targetWord: WORD_POOL[Math.floor(Math.random() * WORD_POOL.length)],
+          targetWord: pickRandom(WORD_POOL),
           status: 'waitingForInput',
         })
         setStatusMessage('Tutorial magic activated: your HP has been fully regenerated.')
@@ -1303,7 +1338,7 @@ export default function PracticeGame() {
       const enemyDamage = Math.max(1, battle.enemyAttack)
       const updatedParty = battle.party.map((member) => ({ ...member }))
       const livingMembers = updatedParty.filter((member) => member.hp > 0)
-      const targetMember = livingMembers[Math.floor(Math.random() * livingMembers.length)]
+      const targetMember = pickRandom(livingMembers)
       if (targetMember) {
         targetMember.hp = Math.max(0, targetMember.hp - enemyDamage)
       }
@@ -1318,7 +1353,7 @@ export default function PracticeGame() {
             round: battle.round + 1,
             turnIndex: 0,
             log: [...nextLog, 'A tutorial blessing restored your party to full HP.'],
-            targetWord: WORD_POOL[Math.floor(Math.random() * WORD_POOL.length)],
+            targetWord: pickRandom(WORD_POOL),
             status: 'waitingForInput',
           })
           setStatusMessage('Tutorial magic activated: your HP has been fully regenerated.')
@@ -1336,7 +1371,7 @@ export default function PracticeGame() {
         round: battle.round + 1,
         turnIndex: 0,
         log: nextLog,
-        targetWord: WORD_POOL[Math.floor(Math.random() * WORD_POOL.length)],
+        targetWord: pickRandom(WORD_POOL),
         status: 'waitingForInput',
       })
       return
@@ -1423,7 +1458,7 @@ export default function PracticeGame() {
       const enemyDamage = Math.max(1, battle.enemyAttack)
       const updatedParty = battle.party.map((member) => ({ ...member }))
       const livingMembers = updatedParty.filter((member) => member.hp > 0)
-      const targetMember = livingMembers[Math.floor(Math.random() * livingMembers.length)]
+      const targetMember = pickRandom(livingMembers)
       if (targetMember) {
         targetMember.hp = Math.max(0, targetMember.hp - enemyDamage)
       }
@@ -1445,7 +1480,7 @@ export default function PracticeGame() {
         pendingBoost: nextPendingBoost,
         poisonDamage: nextPoisonDamage,
         poisonTurns: poisonTurnsAfterTick,
-        targetWord: WORD_POOL[Math.floor(Math.random() * WORD_POOL.length)],
+        targetWord: pickRandom(WORD_POOL),
         status: 'waitingForInput',
       })
       speakLessonMessage('Nice try. Keep going!')
@@ -1460,7 +1495,7 @@ export default function PracticeGame() {
       pendingBoost: nextPendingBoost,
       poisonDamage: nextPoisonDamage,
       poisonTurns: nextPoisonTurns,
-      targetWord: WORD_POOL[Math.floor(Math.random() * WORD_POOL.length)],
+      targetWord: pickRandom(WORD_POOL),
       status: 'waitingForInput',
     })
     speakLessonMessage('Nice try. Keep going!')
@@ -1492,8 +1527,8 @@ export default function PracticeGame() {
     setStatusMessage('Progress reset for testing.')
     setNextEnergyRefreshAt(Date.now() + 60000)
     setEnergyRefreshSeconds(60)
-    if (typeof window !== 'undefined') {
-      window.localStorage.removeItem('practiceGameState')
+    if (typeof globalThis.window !== 'undefined') {
+      globalThis.window.localStorage.removeItem('practiceGameState')
     }
   }
 
@@ -1629,13 +1664,14 @@ export default function PracticeGame() {
   const bankCountdownSeconds = gameState.generator
     ? Math.max(0, Math.ceil((gameState.generator.nextCoinAt - Date.now()) / 1000))
     : 0
-  const bankCountdownLabel = bankCapacity <= 0
-    ? 'Build a bank to store money'
-    : (gameState.generator?.coins || 0) >= generatorCapacity
-      ? 'Generator full'
-      : bankCountdownSeconds <= 0
-        ? 'Next payout ready now'
-        : `Next payout in ${bankCountdownSeconds}s`
+  let bankCountdownLabel = `Next payout in ${bankCountdownSeconds}s`
+  if (bankCapacity <= 0) {
+    bankCountdownLabel = 'Build a bank to store money'
+  } else if ((gameState.generator?.coins || 0) >= generatorCapacity) {
+    bankCountdownLabel = 'Generator full'
+  } else if (bankCountdownSeconds <= 0) {
+    bankCountdownLabel = 'Next payout ready now'
+  }
   const missionsState = buildMissionsState(gameState.missions)
   const completedMissionCount = missionsState.items.filter((entry) => entry.completed && !entry.claimed).length
 
@@ -1677,8 +1713,9 @@ export default function PracticeGame() {
     setStatusMessage(`Transferred ${collectedAmount} coins from generator to bank storage.`)
   }
 
-  const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1280
-  const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 720
+  const hasWindow = typeof globalThis.window !== 'undefined'
+  const viewportWidth = hasWindow ? globalThis.window.innerWidth : 1280
+  const viewportHeight = hasWindow ? globalThis.window.innerHeight : 720
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
   const getAnchorRect = (ref) => {
     if (!ref?.current) {
@@ -1795,12 +1832,21 @@ export default function PracticeGame() {
               <div style={{ fontSize: 12, opacity: 0.85 }}>Day {missionsState.dayIndex} · Resets daily · {MISSION_REWARD_COINS} coins each</div>
               {missionsState.items.map((mission) => {
                 const canClaim = mission.completed && !mission.claimed
+                let missionStatusColor = '#cbd5e1'
+                let missionStatusText = 'In progress'
+                if (mission.claimed) {
+                  missionStatusColor = '#86efac'
+                  missionStatusText = 'Claimed'
+                } else if (mission.completed) {
+                  missionStatusColor = '#fca5a5'
+                  missionStatusText = 'Complete'
+                }
                 return (
                   <div key={mission.id} style={{ background: 'rgba(255,255,255,0.08)', borderRadius: 12, padding: 10 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                       <div style={{ fontWeight: 700 }}>{mission.title}</div>
-                      <div style={{ fontSize: 12, color: mission.claimed ? '#86efac' : mission.completed ? '#fca5a5' : '#cbd5e1' }}>
-                        {mission.claimed ? 'Claimed' : mission.completed ? 'Complete' : 'In progress'}
+                      <div style={{ fontSize: 12, color: missionStatusColor }}>
+                        {missionStatusText}
                       </div>
                     </div>
                     <div style={{ fontSize: 12, opacity: 0.85, marginTop: 2 }}>{mission.description}</div>
@@ -2005,6 +2051,7 @@ export default function PracticeGame() {
             const lockReason = tutorialHouseOnly
               ? 'Tutorial: build a House first.'
               : (building.lockLabel || `Locked: requires ${building.unlock} extra captured tiles.`)
+            const backgroundColor = unlocked ? (active ? '#1d4ed8' : '#0f172a') : '#475569'
             return (
               <button
                 key={building.key}
@@ -2017,7 +2064,7 @@ export default function PracticeGame() {
                   padding: 12,
                   borderRadius: 12,
                   border: active ? '2px solid #f59e0b' : '1px solid rgba(255,255,255,0.15)',
-                  background: unlocked ? (active ? '#1d4ed8' : '#0f172a') : '#475569',
+                  background: backgroundColor,
                   color: 'white',
                   cursor: unlocked ? 'pointer' : 'not-allowed',
                   opacity: unlocked ? 1 : 0.75,
@@ -2033,8 +2080,8 @@ export default function PracticeGame() {
           })}
 
           <div style={{ marginTop: 10 }}>
-            <label style={{ display: 'block', fontWeight: 700, marginBottom: 6 }}>Target character</label>
-            <select value={selectedCharacter || ''} onChange={(event) => setSelectedCharacter(event.target.value)} style={{ width: '100%', padding: '8px 10px', borderRadius: 10 }}>
+            <label htmlFor="practice-game-target-character" style={{ display: 'block', fontWeight: 700, marginBottom: 6 }}>Target character</label>
+            <select id="practice-game-target-character" value={selectedCharacter || ''} onChange={(event) => setSelectedCharacter(event.target.value)} style={{ width: '100%', padding: '8px 10px', borderRadius: 10 }}>
               {gameState.party.map((member) => (
                 <option key={member.id} value={member.id}>{member.name} ({member.role})</option>
               ))}

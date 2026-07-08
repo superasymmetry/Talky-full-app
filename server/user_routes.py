@@ -199,7 +199,7 @@ def get_user_lessons():
     print(f"[LESSONS] Received request for user_id: {user_id}")
     if not user_id:
         print("[LESSONS] ERROR: user_id parameter is missing")
-        return jsonify({"error": "user_id is required"}), 400
+        return jsonify({"error": USER_ID_REQUIRED}), 400
     
     print(f"[LESSONS] Querying MongoDB for user: {user_id}")
     user = users_collection.find_one({"userId": user_id}, {"lessons": 1, "_id": 0})
@@ -215,7 +215,7 @@ def get_user_lessons():
 def game_state():
     user_id = request.args.get("user_id") or (request.get_json(silent=True) or {}).get("userId")
     if not user_id:
-        return jsonify({"error": "user_id is required"}), 400
+        return jsonify({"error": USER_ID_REQUIRED}), 400
 
     now = datetime.now(timezone.utc)
     user = users_collection.find_one({"userId": user_id}, {"gameState": 1, "_id": 0})
