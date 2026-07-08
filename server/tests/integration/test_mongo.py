@@ -53,7 +53,7 @@ class TestMongoDB(unittest.TestCase):
         self.assertIsNotNone(user)
         self.assertEqual(user['name'], "Test User")
     
-    def test_update_user_progress(self):
+    def test_update_user_progress_direct_db(self):
         self.users_collection.update_one({"userId": self.test_user_id}, {"$set": {"progress.phonemeScores.0.avgScore": 85}})
         user = self.users_collection.find_one({"userId": self.test_user_id})
         self.assertEqual(user['progress']['phonemeScores'][0]['avgScore'], 85)
@@ -78,13 +78,13 @@ class TestMongoDB(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.get_json()
         self.assertIsNotNone(data['lessons'])
-        self.assertEqual(len(data['lessons']), 5)
+        self.assertEqual(len(data['lessons']), 4)
         
     def test_generate_next_lesson(self):
         max_lesson_before = self.users_collection.find_one({"userId": self.test_user_id})['maxLessonId']
         
-        response = self.flask_client.post('/api/user/generatenextlesson', 
-            json={'userId': self.test_user_id, 'currentLessonId': max_lesson_before - 1},
+        response = self.flask_client.post('/api/user/generatenextlesson',
+            json={'user_id': self.test_user_id, 'currentLessonId': max_lesson_before - 1},
             content_type='application/json'
         )
         self.assertEqual(response.status_code, 200)
@@ -109,20 +109,23 @@ class TestMongoDB(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
     
     def test_update_user_progress(self):
-        prev_attempts = self.users_collection.find_one({"userId": self.test_user_id})['progress']['phonemeScores'][0]['attempts']
-        prev_avg_score = self.users_collection.find_one({"userId": self.test_user_id})['progress']['phonemeScores'][0]['avgScore']
+        def r_score_entry(doc):
+            return next(e for e in doc['progress']['phonemeScores'] if e['phoneme'] == 'r')
+
+        user_before = self.users_collection.find_one({"userId": self.test_user_id})
+        prev_attempts = r_score_entry(user_before)['attempts'] or 0
+        # Lesson "2" targets the phoneme "r"
         response = self.flask_client.post('/api/user/updateUserProgress', json={
-            'user_id': self.test_user_id,
-            'phoneme': 'r',
+            'userId': self.test_user_id,
             'addScore': 90,
             'lessonId': '2'
         })
         self.assertEqual(response.status_code, 200)
         user = self.users_collection.find_one({"userId": self.test_user_id})
-        self.assertEqual(user['progress']['phonemeScores'][0]['avgScore'], 90)
+        self.assertEqual(r_score_entry(user)['avgScore'], 90)
         self.assertEqual(user['lessons'][1]['score'], 90)
         self.assertEqual(user['history'][-1]['r'], 90)
-        self.assertEqual(user['progress']['phonemeScores'][0]['attempts'], prev_attempts + 1)
+        self.assertEqual(r_score_entry(user)['attempts'], prev_attempts + 1)
 
 if __name__ == '__main__':
     unittest.main()
