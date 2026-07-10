@@ -11,8 +11,6 @@ from database import client, db, users_collection
 from user_routes import user_bp
 from score_routes import score_bp
 import threading
-import torch
-from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 import re
 import json
 import threading, queue
@@ -68,7 +66,6 @@ _processor = None
 _model = None
 _feedback_model = None
 _load_lock = threading.Lock()
-device = "cuda" if torch.cuda.is_available() else "cpu"
 
 sessions = {}
 
@@ -179,6 +176,10 @@ def _load_model_once():
     if _processor is None or _model is None:
         with _load_lock:
             if _processor is None or _model is None:
+                import torch
+                from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
+
+                device = "cuda" if torch.cuda.is_available() else "cpu"
                 _processor = Wav2Vec2Processor.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme")
                 _model = Wav2Vec2ForCTC.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme").eval()
                 _model.to(device)

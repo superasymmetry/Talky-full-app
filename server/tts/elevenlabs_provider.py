@@ -1,5 +1,6 @@
 import hashlib
 import os
+import tempfile
 from collections import OrderedDict
 from pathlib import Path
 from threading import Lock
@@ -20,11 +21,30 @@ _MEMORY_CACHE_LIMIT = 32
 _memory_cache: OrderedDict[str, bytes] = OrderedDict()
 _cache_lock = Lock()
 
-_DISK_CACHE_DIR = Path(
-    os.getenv("TTS_CACHE_DIR", "/var/lib/yourapp/tts_cache")
-)
-_DISK_CACHE_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
-os.chmod(_DISK_CACHE_DIR, 0o700)
+def _initialize_disk_cache_dir() -> Path:
+    candidates = []
+
+    env_cache_dir = os.getenv("TTS_CACHE_DIR")
+    if env_cache_dir:
+        candidates.append(Path(env_cache_dir))
+
+    candidates.append(Path(tempfile.gettempdir()) / "talky_tts_cache")
+
+    for cache_dir in candidates:
+        try:
+            cache_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+            try:
+                os.chmod(cache_dir, 0o700)
+            except OSError:
+                pass
+            return cache_dir
+        except OSError:
+            continue
+
+    return Path(tempfile.gettempdir()) / "talky_tts_cache"
+
+
+_DISK_CACHE_DIR = _initialize_disk_cache_dir()
 
 def _cache_key(text: str, voice_id: str) -> str:
     # Hash so keys are fixed-length and filesystem-safe no matter how long
