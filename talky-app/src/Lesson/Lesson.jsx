@@ -201,7 +201,11 @@ export default function Lesson() {
         }
         setWordsToIPA(ipas);
       })
-      .catch((error) => console.error("Error fetching data:", error));
+
+      .catch((error) => {
+        console.error("Error fetching data:", error);
+        toast.error('Failed to load lesson. Please check your connection and reload.');
+      })
   }, [API_BASE, lessonId]);
 
   // TTS for current sentence
