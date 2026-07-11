@@ -48,7 +48,7 @@ def tts():
         # This keeps the route independent from the actual TTS vendor.
         provider = get_tts_provider()
         audio_stream = provider.stream_audio(text, voice_key=voice_key if isinstance(voice_key, str) else None)
-    except Exception as error:
+    except Exception:
         # Convert provider failures into JSON so the frontend can show a useful
         # message instead of receiving a generic server crash.
         logger.exception("TTS generation failed")

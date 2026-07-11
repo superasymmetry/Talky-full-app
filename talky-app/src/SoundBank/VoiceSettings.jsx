@@ -94,7 +94,7 @@ export default function VoiceSettings({ embed = false }) {
         setSelectedVoiceKey(nextSelected);
         localStorage.setItem(savedKey, nextSelected);
         setLoadError('');
-      } catch (error) {
+      } catch {
         if (cancelled) return;
 
         setVoiceOptions(defaultVoiceOptions);

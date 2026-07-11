@@ -154,7 +154,7 @@ async function playStreamedAudio(response, onEnd, abortSignal) {
           break;
         }
 
-        if (value && value.byteLength) {
+        if (value?.byteLength) {
           collectedChunks.push(value);
           appendQueue.push(value);
           await appendNextChunk();

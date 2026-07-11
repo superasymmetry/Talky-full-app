@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 import App from '../src/App';
@@ -108,7 +108,7 @@ describe('App', () => {
     );
 
     const cards = await screen.findAllByTestId('lesson-card');
-    expect(cards.length).toBe(mockLessons.length);
+    expect(cards).toHaveLength(mockLessons.length);
   });
 
   it('last module is a lesson, not a game', async () => {

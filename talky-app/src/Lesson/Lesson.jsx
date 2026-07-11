@@ -11,30 +11,6 @@ import { speakText, stopSpeech } from '../tts.js';
 
 useGLTF.preload('/robot-draco.glb')
 
-function extractWordScores(res) {
-  if (!Array.isArray(res)) return [];
-  const now = new Date().toISOString();
-  return res.map(({ word, phonemes }) => {
-    const valid = (phonemes || []).map(p => p.score).filter(s => s != null);
-    const avg = valid.length ? valid.reduce((a, b) => a + b, 0) / valid.length : 0;
-    return { word, score: avg, timestamp: now };
-  });
-}
-
-async function resampleTo16k(float32Array, fromSampleRate) {
-  if (fromSampleRate === 16000) return float32Array;
-  const targetLength = Math.ceil(float32Array.length * 16000 / fromSampleRate);
-  const offlineCtx = new OfflineAudioContext(1, targetLength, 16000);
-  const buffer = offlineCtx.createBuffer(1, float32Array.length, fromSampleRate);
-  buffer.copyToChannel(float32Array, 0);
-  const source = offlineCtx.createBufferSource();
-  source.buffer = buffer;
-  source.connect(offlineCtx.destination);
-  source.start();
-  const rendered = await offlineCtx.startRendering();
-  return rendered.getChannelData(0);
-}
-
 const Model = forwardRef(function Model(props, ref) {
   const { scene, animations } = useGLTF('/robot-draco.glb');
   const { actions } = useAnimations(animations, scene);
@@ -84,42 +60,19 @@ export default function Lesson() {
   const [isFinished, setIsFinished] = useState(false);
   const [doneSentence, setDoneSentence] = useState(false);
   const [feedbackText, setFeedbackText] = useState('');
-  const [robotPos, setRobotPos] = useState([-10, -1, 0]);
+  const [robotPos] = useState([-10, -1, 0]);
   const robotRef = useRef(null);
   const match = useMatch("/lessons/:id");
   const lessonId = match?.params?.id;
   const [showIntro, setShowIntro] = useState(true);
   const videoUrl = "https://youtu.be/IwWw6Xe09O0?t=31";
-  const [score, setScore] = useState(0);
+  const [score] = useState(0);
   const [wordsToIPA, setWordsToIPA] = useState(null);
   const [currentWordsToIPA, setCurrentWordsToIPA] = useState(null);
   const [wordResults, setWordResults] = useState([]);
   const wordScoresRef = useRef([]);
   const skipNextSentenceSpeechRef = useRef(false);
 
-  const encouragementPhrases = [
-    'Nice work.',
-    'Great job.',
-    'You got it.',
-    'Keep going.'
-  ];
-
-  const retryPhrases = [
-    'Let us try that again.',
-    'Almost there.',
-    'Give that one more try.',
-    'You are close.'
-  ];
-
-  const pickPhrase = (phrases) => {
-    if (!phrases || phrases.length === 0) return '';
-
-    const array = new Uint32Array(1);
-    window.crypto.getRandomValues(array);
-
-    return phrases[array[0] % phrases.length];
-  };
-  
   const speakSentence = (sentence) => {
     stopSpeech();
     return speakText(sentence).catch((err) => {
@@ -129,16 +82,8 @@ export default function Lesson() {
 
   // Audio + socket refs
   const socketRef = useRef(null);
-  const audioContextRef = useRef(null);
-  const processorRef = useRef(null);
-  const streamRef = useRef(null);
-  const accumChunksRef = useRef([]);
-  const chunkIntervalRef = useRef(null);
-  const pendingSessionRef = useRef(null); // holds { sentence, words_ipa } until connect fires
-
-  const handleFinalResult = () => {
-    setIsRecording(false);
-  };
+  const pendingSessionRef = useRef(null);
+  const sentencePassedRef = useRef(false);
 
   const toEmbed = (u) => {
     try {
@@ -150,6 +95,11 @@ export default function Lesson() {
       return u;
     } catch (e) { console.error("Error parsing URL:", e); return null; }
   }
+
+  const handleFinalResult = () => {
+    setIsRecording(false);
+    sentencePassedRef.current = true;
+  };
 
   // Initialize socket once — listeners are stable across renders
   useEffect(() => {
@@ -172,8 +122,8 @@ export default function Lesson() {
       });
     });
 
-    socket.on('result', (data) => {
-      handleFinalResult(data);
+    socket.on('result', () => {
+      handleFinalResult();
     });
 
     return () => {
@@ -182,7 +132,7 @@ export default function Lesson() {
       socket.off('result');
       socket.disconnect();
     };
-  }, []);
+  }, [API_BASE]);
 
   const startRecording = async () => {
     const currentSentence = cardData?.[String(currentSentenceIndex)] || cardData?.[currentSentenceIndex] || '';
@@ -202,14 +152,6 @@ export default function Lesson() {
     setIsRecording(false);
     socketRef.current?.emit('stop');
   };
-
-  // Show expected phonemes as soon as the sentence changes
-  useEffect(() => {
-    if (wordsToIPA && currentSentenceIndex > 0) {
-      setCurrentWordsToIPA(wordsToIPA[currentSentenceIndex - 1] || null);
-      setWordResults([]);
-    }
-  }, [wordsToIPA, currentSentenceIndex]);
 
   // Fetch lesson data
   useEffect(() => {
@@ -231,6 +173,13 @@ export default function Lesson() {
       })
   }, [API_BASE, lessonId]);
 
+  useEffect(() => {
+    if (wordsToIPA && currentSentenceIndex > 0) {
+      setCurrentWordsToIPA(wordsToIPA[currentSentenceIndex - 1] || null);
+      setWordResults([]);
+    }
+  }, [wordsToIPA, currentSentenceIndex]);
+
   // TTS for current sentence
   useEffect(() => {
     if (!cardData || showIntro) return;
@@ -245,86 +194,6 @@ export default function Lesson() {
 
   // display percent progress for each phoneme
   
-
-  const startBackendRecording = async () => {
-    setIsRecordingBackend(true)
-    setBackendFilename(null)
-    stopSpeech();
-    try {
-      const res = await fetch(`${API_BASE}/api/record`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ card: cardData[currentSentenceIndex.toString()], expected_ipa: expectedIPAs[currentSentenceIndex - 1] }),
-      })
-      const data = await res.json()
-      console.log('Backend record response:', data)
-      if (!res.ok) throw new Error(data.error || 'Record failed')
-
-      setBackendFilename(data.filename)
-      setReturnedWordsToIPA(data.res.map(({word, phonemes}) => ({
-        word, phonemes
-      })));
-      setCurrentWordsToIPA(wordsToIPA[currentSentenceIndex - 1] || null);
-      if (data.passed) {
-        wordScoresRef.current.push(...extractWordScores(data.res));
-        actions?.ThumbsUp?.play?.();
-        setScore(score => (score ?? 0) + data.score);
-        speakSentence(pickPhrase(encouragementPhrases));
-        setDoneSentence(true);
-        actions?.Walking?.play?.();
-        // Move robot forward along its facing
-        if (robotRef.current) {
-          robotRef.current.translateZ(30 / 7);
-          robotRef.current.updateMatrixWorld();
-          const p = robotRef.current.position;
-          setRobotPos([p.x, p.y, p.z]);
-        }
-        actions?.Idle?.play?.();
-      } else {
-        actions && actions.No.play();
-        // reduce score
-        setScore(score => Math.max(0, (score ?? 0) - (100 - data.score)));
-        // give feedback (text to speech)
-        console.log('Feedback data:', data)
-        const feedbackMsg = Array.isArray(data.feedback)
-          ? data.feedback.map(f => (typeof f === 'string' ? f : `${f.word || ''} ${f.issue || ''}`.trim())).join(' ')
-          : String(data.feedback || 'No, try again.')
-        setFeedbackText(feedbackMsg)
-        speakSentence(`${pickPhrase(retryPhrases)} ${feedbackMsg}`)
-      }
-    } catch (err) {
-      console.error('Microphone access denied:', err);
-      setIsRecording(false);
-      alert('Microphone access is required to record.');
-      socket.disconnect();
-      return;
-    }
-    streamRef.current = stream;
-
-    const ctx = new AudioContext();
-    audioContextRef.current = ctx;
-    const source = ctx.createMediaStreamSource(stream);
-
-    const BUFFER_SIZE = 2048;
-    const CHUNK_INTERVAL_MS = 500;
-
-    // ScriptProcessorNode is deprecated but avoids needing a separate worklet file
-    const processor = ctx.createScriptProcessor(BUFFER_SIZE, 1, 1);
-    processorRef.current = processor;
-    accumChunksRef.current = [];
-
-    processor.onaudioprocess = (e) => {
-      accumChunksRef.current.push(new Float32Array(e.inputBuffer.getChannelData(0)));
-    };
-
-    chunkIntervalRef.current = setInterval(() => {
-      const chunks = accumChunksRef.current.splice(0);
-      if (chunks.length > 0) sendChunk(chunks, ctx.sampleRate);
-    }, CHUNK_INTERVAL_MS);
-
-    source.connect(processor);
-    processor.connect(ctx.destination);
-  };
 
   const toggleRecording = () => {
     if (isRecording) {
