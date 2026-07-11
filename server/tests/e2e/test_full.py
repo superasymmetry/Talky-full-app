@@ -54,6 +54,28 @@ MOCK_RESULT = {
     "res": MOCK_PARTIAL_RESULTS,
 }
 
+
+def _mock_lessons(route):
+    route.fulfill(
+        status=200,
+        content_type="application/json",
+        body=json.dumps(
+            {
+                "sentences": {
+                    "1": "The quick brown fox",
+                },
+                "words_to_ipas": [
+                    [
+                        {"word": "the", "phonemes": ["ð", "ə"]},
+                        {"word": "quick", "phonemes": ["k", "w", "ɪ", "k"]},
+                        {"word": "brown", "phonemes": ["b", "ɹ", "aʊ", "n"]},
+                        {"word": "fox", "phonemes": ["f", "ɑ", "k", "s"]},
+                    ]
+                ],
+            }
+        ),
+    )
+
 # Socket.IO over EIO4 WebSocket framing helpers
 def _sio_event(name, data):
     return f'42{json.dumps([name, data])}'
@@ -62,7 +84,7 @@ def _sio_event(name, data):
 def _mock_socketio(ws_route):
     """Playwright WebSocket route handler that simulates the server socket.io responses."""
     # Engine.IO open packet
-    ws_route.send_to_page(
+    ws_route.send(
         '0{"sid":"testmock","upgrades":[],"pingInterval":25000,"pingTimeout":20000,"maxPayload":1000000}'
     )
 
@@ -71,18 +93,18 @@ def _mock_socketio(ws_route):
             return  # ignore binary audio chunks
         if message == "40":
             # Namespace connect — ack and queue up mock events
-            ws_route.send_to_page('40{"sid":"testmock"}')
+            ws_route.send('40{"sid":"testmock"}')
         elif message.startswith('42["start"'):
             # Emit partial results then final result
             def emit_results():
                 for partial in MOCK_PARTIAL_RESULTS:
-                    ws_route.send_to_page(_sio_event("partial_result", partial))
-                ws_route.send_to_page(_sio_event("result", MOCK_RESULT))
+                    ws_route.send(_sio_event("partial_result", partial))
+                ws_route.send(_sio_event("result", MOCK_RESULT))
             threading.Thread(target=emit_results, daemon=True).start()
         elif message == "2":
-            ws_route.send_to_page("3")  # pong
+            ws_route.send("3")  # pong
 
-    ws_route.on_message_from_page(on_message)
+    ws_route.on_message(on_message)
 
 
 class TestLesson(unittest.TestCase):
@@ -91,6 +113,9 @@ class TestLesson(unittest.TestCase):
             browser = p.chromium.launch(headless=os.getenv("CI") == "true")
             context = browser.new_context(permissions=["microphone"])
             page = context.new_page()
+
+            # Mock the lesson API so the rendered phonemes match the mocked socket events.
+            page.route("**/api/lessons*", _mock_lessons)
 
             # Intercept socket.io WebSocket connections
             page.route_web_socket("**/socket.io/**", _mock_socketio)
