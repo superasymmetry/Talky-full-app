@@ -136,10 +136,6 @@ export default function Lesson() {
   const chunkIntervalRef = useRef(null);
   const pendingSessionRef = useRef(null); // holds { sentence, words_ipa } until connect fires
 
-  const handleFinalResult = () => {
-    setIsRecording(false);
-  };
-
   const toEmbed = (u) => {
     try {
       if (!u) return null;
@@ -153,7 +149,7 @@ export default function Lesson() {
 
   // Initialize socket once — listeners are stable across renders
   useEffect(() => {
-    const socket = io(API_BASE, { autoConnect: false, transports: ['websocket', 'polling'] });
+    const socket = io(API_BASE, { autoConnect: false, transports: ['websocvoket', 'polling'] });
     socketRef.current = socket;
 
     // After the transport connects, emit 'start' with session metadata
@@ -173,9 +169,7 @@ export default function Lesson() {
     });
 
     socket.on('result', (data) => {
-      if (typeof handleFinalResult === 'function') {
-        handleFinalResult(data);
-      }
+      handleFinalResult(data);
     });
 
     return () => {
@@ -307,25 +301,6 @@ export default function Lesson() {
 
     source.connect(processor);
     processor.connect(ctx.destination);
-  };
-
-  const startRecording = async () => {
-    const currentSentence = cardData?.[String(currentSentenceIndex)] || cardData?.[currentSentenceIndex] || '';
-    pendingSessionRef.current = {
-      sentence: currentSentence,
-      words_ipa: currentWordsToIPA,
-    };
-
-    if (socketRef.current && !socketRef.current.connected) {
-      socketRef.current.connect();
-    }
-
-    setIsRecording(true);
-  };
-
-  const stopRecording = () => {
-    setIsRecording(false);
-    socketRef.current?.emit('stop');
   };
 
   const toggleRecording = () => {
