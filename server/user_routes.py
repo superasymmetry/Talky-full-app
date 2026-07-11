@@ -268,16 +268,16 @@ def generatenextlesson():
         Inputs: user_id (string)
         Returns: JSON of new lesson data
     '''
-    user_id = request.json.get("user_id")
-    currentLessonId = request.json.get("currentLessonId")
+    data = request.get_json(silent=True) or {}
+    user_id = data.get("user_id")
+    currentLessonId = data.get("currentLessonId")
     if not user_id:
         return jsonify({"error": USER_ID_REQUIRED}), 400
-    
+
     user = users_collection.find_one({"userId": user_id})
-    print(user)
-    maxLessonId = user.get("maxLessonId", 0)
     if not user:
         return jsonify({"error": "User not found"}), 404
+    maxLessonId = user.get("maxLessonId", 0)
     
     print("currentLessonId, maxLessonId", currentLessonId, maxLessonId)
     if not (currentLessonId == maxLessonId - 1):

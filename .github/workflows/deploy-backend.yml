@@ -38,11 +38,24 @@ jobs:
               pip install -r server/requirements.txt -q
             fi
 
-            # Restart service
+            # Restart service (reload units first in case talky.service changed)
+            sudo systemctl daemon-reload
             sudo systemctl restart talky
 
-            # Wait for Gunicorn to fully start, then health-check
-            sleep 10
-            curl -sf http://localhost:8080/health \
-              || { echo "Health check failed"; sudo systemctl status talky --no-pager; exit 1; }
-            echo "Deploy succeeded — service is healthy"
+            # Poll until the app is up — torch/transformers imports can take
+            # well over a minute on a small instance before the port is bound
+            for i in $(seq 1 30); do
+              if curl -sf http://localhost:8080/health > /dev/null; then
+                echo "Deploy succeeded — service is healthy"
+                exit 0
+              fi
+              if ! systemctl is-active --quiet talky; then
+                echo "Service crashed during startup"
+                break
+              fi
+              sleep 5
+            done
+            echo "Health check failed"
+            sudo systemctl status talky --no-pager
+            sudo journalctl -u talky --no-pager -n 50
+            exit 1

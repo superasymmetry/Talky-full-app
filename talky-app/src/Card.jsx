@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-
+import PropTypes from 'prop-types';
 import VanillaTilt from 'vanilla-tilt';
 import talkyRocket from './assets/logo.png';
 import { useNavigate } from 'react-router-dom';
@@ -116,5 +116,21 @@ function Card(props) {
         </div>
     )
 }
+
+Card.propTypes = {
+    disabled: PropTypes.bool,
+    options: PropTypes.object,
+    to: PropTypes.string,
+    id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+    className: PropTypes.string,
+    titleClass: PropTypes.string,
+    noNavigate: PropTypes.bool,
+    showRocket: PropTypes.bool,
+    isLoading: PropTypes.bool,
+    name: PropTypes.string,
+    description: PropTypes.node,
+    content: PropTypes.string,
+    'data-testid': PropTypes.string,
+};
 
 export default Card;

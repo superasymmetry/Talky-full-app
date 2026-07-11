@@ -11,7 +11,7 @@ const stamped = (history) => history.filter((h) => h?.timestamp);
 
 export function uniqueActiveDays(history) {
   const set = new Set(stamped(history).map((h) => dayKey(h.timestamp)));
-  return [...set].sort().reverse();
+  return [...set].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).reverse();
 }
 
 export function computeStreak(history, today = new Date()) {
