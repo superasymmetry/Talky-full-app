@@ -134,6 +134,21 @@ arpabet_to_ipa = {
     "ZH": "ʒ"
 }
 
+# Strips newlines/control characters from user-supplied values (query
+# params, etc.) before they're written into a log line. Without this, an
+# attacker can pass e.g. user_id=demo%0d%0a<fake log line> to inject a
+# forged entry that looks like a genuine log record — this is the classic
+# CRLF/log-injection issue (CWE-117). Only needed for values that originate
+# from outside our system (request.args); values we generate ourselves
+# (e.g. target_phoneme, which only ever comes from phoneme_word_bank keys
+# or our own Mongo cache) don't need it.
+_LOG_CONTROL_CHARS_RE = re.compile(r'[\r\n\x00-\x1f\x7f]')
+
+
+def _sanitize_for_log(value):
+    return _LOG_CONTROL_CHARS_RE.sub('', str(value))
+
+
 # IPA digraphs that must be treated as a single phoneme token
 _IPA_DIGRAPHS = {"aʊ", "aɪ", "eɪ", "oʊ", "ɔɪ", "tʃ"}
 _IPA_SKIP = set(" ˈˌːˑ'")
@@ -252,7 +267,7 @@ def lessons():
     target_phoneme = _resolve_target_phoneme(lesson, word_list)
     logger.info(
         "Lesson %s for user %s | words=%s target_phoneme=%r",
-        lesson_id, user_id, word_list, target_phoneme,
+        _sanitize_for_log(lesson_id), _sanitize_for_log(user_id), word_list, target_phoneme,
     )
 
     intro_video_id = None
@@ -265,7 +280,7 @@ def lessons():
         logger.warning(
             "No target_phoneme resolved for lesson %s (user %s) — "
             "intro_video_id will be null, frontend will use its default.",
-            lesson_id, user_id,
+            _sanitize_for_log(lesson_id), _sanitize_for_log(user_id),
         )
 
     logger.info("Resolved intro_video_id=%r for phoneme=%r", intro_video_id, target_phoneme)
