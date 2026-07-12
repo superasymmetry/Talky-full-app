@@ -110,8 +110,8 @@ def get_video_for_phoneme(phoneme, cache_collection, force_refresh=False):
     query = _build_query(phoneme)
     try:
         video_id = get_first_video_id(query)
-    except requests.RequestException as e:
-        logger.error("[find_video] YouTube lookup failed for phoneme %r: %s", phoneme, e)
+    except requests.RequestException:
+        logger.exception("[find_video] YouTube lookup failed for phoneme %r", phoneme)
         return None
 
     if video_id:
