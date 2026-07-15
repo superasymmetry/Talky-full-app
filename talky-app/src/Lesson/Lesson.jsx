@@ -102,7 +102,16 @@ export default function Lesson() {
   const streamRef = useRef(null);
   const accumChunksRef = useRef([]);
   const chunkIntervalRef = useRef(null);
-  const pendingSessionRef = useRef(null); // holds { sentence, words_ipa } until connect fires
+  const pendingSessionRef = useRef(null); // holds { sentence, words_ipa, mode } until connect fires
+
+  // On-device wav2vec2 (transformers.js / WebGPU) — when ready, we stream
+  // logits to the backend instead of raw audio and the model never runs server-side.
+  const workerRef = useRef(null);
+  const workerReadyRef = useRef(false);
+  const sessionModeRef = useRef('audio');   // 'logits' | 'audio', fixed per recording session
+  const pendingChunksRef = useRef(0);       // chunks handed to the worker, logits not yet emitted
+  const stopPendingRef = useRef(false);     // user stopped; waiting for worker to drain
+  const stopTimeoutRef = useRef(null);
 
   const toEmbed = (u) => {
     try {
@@ -145,6 +154,45 @@ export default function Lesson() {
       socket.off('partial_result');
       socket.off('result');
       socket.disconnect();
+    };
+  }, []);
+
+  // Spin up the on-device wav2vec2 worker once. Model download + WebGPU init
+  // happen in the background; until 'ready' fires, sessions fall back to
+  // streaming raw audio (the server-side inference path).
+  useEffect(() => {
+    let worker;
+    try {
+      worker = new Worker(new URL('./wav2vec2Worker.js', import.meta.url), { type: 'module' });
+    } catch (err) {
+      console.warn('On-device wav2vec2 worker unavailable, streaming raw audio instead:', err);
+      return undefined;
+    }
+    workerRef.current = worker;
+
+    worker.onmessage = (e) => {
+      const msg = e.data;
+      if (msg.type === 'ready') {
+        workerReadyRef.current = true;
+      } else if (msg.type === 'error') {
+        workerReadyRef.current = false;
+        console.warn('On-device wav2vec2 unavailable, streaming raw audio instead:', msg.error);
+      } else if (msg.type === 'logits') {
+        if (sessionModeRef.current === 'logits' && socketRef.current?.connected) {
+          socketRef.current.emit('logits_chunk', { frames: msg.frames, data: msg.data.buffer });
+        }
+        pendingChunksRef.current -= 1;
+        if (stopPendingRef.current && pendingChunksRef.current <= 0) emitStop();
+      } else if (msg.type === 'chunk_error') {
+        pendingChunksRef.current -= 1;
+        if (stopPendingRef.current && pendingChunksRef.current <= 0) emitStop();
+      }
+    };
+
+    return () => {
+      worker.terminate();
+      workerRef.current = null;
+      workerReadyRef.current = false;
     };
   }, []);
 
@@ -266,7 +314,34 @@ export default function Lesson() {
     let offset = 0;
     for (const c of chunks) { flat.set(c, offset); offset += c.length; }
     const resampled = await resampleTo16k(flat, sampleRate);
-    socketRef.current.emit('chunk', resampled.buffer);
+    if (sessionModeRef.current === 'logits' && workerRef.current) {
+      pendingChunksRef.current += 1;
+      workerRef.current.postMessage({ type: 'chunk', audio: resampled });
+    } else {
+      socketRef.current.emit('chunk', resampled.buffer);
+    }
+  };
+
+  const emitStop = () => {
+    if (stopTimeoutRef.current) {
+      clearTimeout(stopTimeoutRef.current);
+      stopTimeoutRef.current = null;
+    }
+    if (stopPendingRef.current) {
+      stopPendingRef.current = false;
+      socketRef.current?.emit('stop');
+    }
+  };
+
+  // In logits mode chunks may still be inside the worker when the user stops;
+  // wait for them to drain so the tail of the utterance is scored too.
+  const requestStop = () => {
+    if (sessionModeRef.current === 'logits' && pendingChunksRef.current > 0) {
+      stopPendingRef.current = true;
+      stopTimeoutRef.current = setTimeout(emitStop, 5000); // don't hang if the worker dies
+    } else {
+      socketRef.current?.emit('stop');
+    }
   };
 
   const startRecording = async () => {
@@ -284,10 +359,20 @@ export default function Lesson() {
     setIsRecording(true);
     setWordResults([]);
 
+    // Lock the pipeline for this session: on-device inference if the worker
+    // finished loading, otherwise stream raw audio for server-side inference.
+    sessionModeRef.current = workerReadyRef.current ? 'logits' : 'audio';
+    pendingChunksRef.current = 0;
+    stopPendingRef.current = false;
+    if (stopTimeoutRef.current) {
+      clearTimeout(stopTimeoutRef.current);
+      stopTimeoutRef.current = null;
+    }
+
     // Store session metadata so the 'connect' listener can emit 'start'
     const socket = socketRef.current;
     if (socket.connected) socket.disconnect();
-    pendingSessionRef.current = { sentence, words_ipa };
+    pendingSessionRef.current = { sentence, words_ipa, mode: sessionModeRef.current };
     socket.connect();
 
     let stream;
@@ -329,7 +414,7 @@ export default function Lesson() {
 
   const toggleRecording = () => {
     if (isRecording) {
-      socketRef.current?.emit('stop'); // ask server to finalize; disconnect happens in handleFinalResult
+      requestStop(); // ask server to finalize (after worker drains, in logits mode); disconnect happens in handleFinalResult
       stopRecording();
     } else {
       startRecording();

@@ -1,18 +1,19 @@
-import torch
+import numpy as np
 
 
-def stream_decode_util(audio_chunks, reference_phonemes, processor, model, device="cpu", sample_rate=16000):
-    """Same evaluation logic as stream_decode in phoneme_alg.py, but takes a stream of
-    audio chunks instead of recording audio, and yields match events instead of printing.
+def stream_decode_logits(logits_chunks, reference_phonemes, tokenizer):
+    """
+    Core streaming alignment algorithm, operating on precomputed CTC logits.
+    Use this when wav2vec2 inference already happened elsewhere (e.g. in the
+    browser via transformers.js/onnxruntime-web) and only the logits are
+    streamed to the server.
 
     Args:
-        audio_chunks: iterable of float32 numpy arrays at sample_rate Hz.
-                      The caller signals end-of-stream by exhausting the iterable.
+        logits_chunks: iterable of float32 numpy arrays of shape (frames, vocab),
+                       one per audio chunk, in the model's vocab order.
+                       The caller signals end-of-stream by exhausting the iterable.
         reference_phonemes: flat list of IPA phoneme strings to match against, in order.
-        processor: Wav2Vec2Processor
-        model: Wav2Vec2ForCTC
-        device: torch device string (default "cpu")
-        sample_rate: audio sample rate in Hz (default 16000)
+        tokenizer: Wav2Vec2CTCTokenizer (defines vocab, blank/pad id, special ids).
 
     Yields:
         dict with keys:
@@ -26,7 +27,7 @@ def stream_decode_util(audio_chunks, reference_phonemes, processor, model, devic
     """
     reference_phonemes = [p for p in reference_phonemes if p != "ˈ"]
     pointer = 0
-    phoneme2id = processor.tokenizer.get_vocab()
+    phoneme2id = tokenizer.get_vocab()
     logit_threshold = 5.0
     lookahead = 3
 
@@ -37,18 +38,13 @@ def stream_decode_util(audio_chunks, reference_phonemes, processor, model, devic
             p = p.replace(src, dst)
         return p
 
-    for i, chunk in enumerate(audio_chunks):
+    for i, logits_np in enumerate(logits_chunks):
         if pointer >= len(reference_phonemes):
             return
 
-        inputs = processor(chunk, sampling_rate=sample_rate,
-                           return_tensors="pt", padding=True).to(device)
-        with torch.no_grad():
-            logits = model(**inputs).logits
-
-        predicted_ids = torch.argmax(logits, dim=-1)[0].tolist()
-        logits_np = logits[0].cpu().numpy()
-        blank_id = processor.tokenizer.pad_token_id
+        logits_np = np.asarray(logits_np)
+        predicted_ids = logits_np.argmax(axis=-1).tolist()
+        blank_id = tokenizer.pad_token_id
         collapsed = []
         collapsed_frames = []
         prev = None
@@ -59,13 +55,13 @@ def stream_decode_util(audio_chunks, reference_phonemes, processor, model, devic
                     collapsed_frames.append(fi)
                 prev = idx
 
-        special = set(processor.tokenizer.all_special_ids)
-        tokens = processor.tokenizer.convert_ids_to_tokens(collapsed)
+        special = set(tokenizer.all_special_ids)
+        tokens = tokenizer.convert_ids_to_tokens(collapsed)
         chunk_phonemes = []
         phoneme_logits = []
         chunk_frames = []
         for fi, idx, t in zip(collapsed_frames, collapsed, tokens):
-            if processor.tokenizer.convert_tokens_to_ids(t) not in special and t not in ("|", " "):
+            if tokenizer.convert_tokens_to_ids(t) not in special and t not in ("|", " "):
                 chunk_phonemes.append(normalize(t))
                 phoneme_logits.append(logits_np[fi, idx])
                 chunk_frames.append(fi)
@@ -169,6 +165,37 @@ def stream_decode_util(audio_chunks, reference_phonemes, processor, model, devic
                     "decoded_logit": lv,
                     "score": score,
                 }
+
+
+def stream_decode_util(audio_chunks, reference_phonemes, processor, model, device="cpu", sample_rate=16000):
+    """
+    Server-side inference path: runs wav2vec2 on raw audio chunks, then feeds
+    the logits through stream_decode_logits. Kept for clients that stream raw
+    PCM instead of precomputed logits.
+
+    Args:
+        audio_chunks: iterable of float32 numpy arrays at sample_rate Hz.
+                      The caller signals end-of-stream by exhausting the iterable.
+        reference_phonemes: flat list of IPA phoneme strings to match against, in order.
+        processor: Wav2Vec2Processor
+        model: Wav2Vec2ForCTC
+        device: torch device string (default "cpu")
+        sample_rate: audio sample rate in Hz (default 16000)
+
+    Yields:
+        same dicts as stream_decode_logits.
+    """
+    import torch
+
+    def logits_generator():
+        for chunk in audio_chunks:
+            inputs = processor(chunk, sampling_rate=sample_rate,
+                               return_tensors="pt", padding=True).to(device)
+            with torch.no_grad():
+                logits = model(**inputs).logits
+            yield logits[0].cpu().numpy()
+
+    yield from stream_decode_logits(logits_generator(), reference_phonemes, processor.tokenizer)
 
 
 def test_stream_decode_util():

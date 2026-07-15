@@ -16,7 +16,7 @@ from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 import re
 import json
 import threading, queue
-from stream_decode_util import stream_decode_util
+from stream_decode_util import stream_decode_util, stream_decode_logits
 
 load_dotenv()
 
@@ -147,6 +147,17 @@ def _word_to_phonemes(word):
         else:
             i += 1
     return result
+
+def _load_processor_once():
+    """Load only the processor (tokenizer + feature-extractor config).
+    Used for sessions where the client streams precomputed wav2vec2 logits,
+    so the torch model never needs to be loaded server-side."""
+    global _processor
+    if _processor is None:
+        with _load_lock:
+            if _processor is None:
+                _processor = Wav2Vec2Processor.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme")
+    return _processor
 
 def _load_model_once():
     global _processor, _model, _feedback_model
@@ -291,18 +302,28 @@ def handle_start(data):
         for _ in w['phonemes']
     ]
     chunk_queue = queue.Queue()
-    session = {'words_ipa': words_ipa, 'queue': chunk_queue, 'results': []}
+    # mode 'audio': client streams raw 16 kHz PCM, wav2vec2 runs server-side.
+    # mode 'logits': client already ran wav2vec2 (e.g. transformers.js on WebGPU)
+    #                and streams per-chunk logits; only alignment runs here.
+    mode = data.get('mode', 'audio')
+    session = {'words_ipa': words_ipa, 'queue': chunk_queue, 'results': [], 'mode': mode}
     sessions[sid] = session
 
     def run():
-        processor, model, _ = _load_model_once()
         word_phoneme_scores = [[] for _ in words_ipa]
 
         def drain():
             while (item := chunk_queue.get()) is not None:
                 yield item
 
-        for match in stream_decode_util(drain(), flat_phonemes, processor, model, device):
+        if mode == 'logits':
+            processor = _load_processor_once()
+            matches = stream_decode_logits(drain(), flat_phonemes, processor.tokenizer)
+        else:
+            processor, model, _ = _load_model_once()
+            matches = stream_decode_util(drain(), flat_phonemes, processor, model, device)
+
+        for match in matches:
             word_idx = position_to_word_idx[match['position']]
             word_phoneme_scores[word_idx].append({'phoneme': match['phoneme'], 'score': match['score']})
             word_entry = words_ipa[word_idx]
@@ -327,6 +348,23 @@ def handle_chunk(data):
     session = sessions.get(request.sid)
     if session:
         session['queue'].put(np.frombuffer(data, dtype=np.float32))
+
+
+@socketio.on('logits_chunk')
+def handle_logits_chunk(data):
+    """Receive precomputed wav2vec2 logits for one audio chunk.
+    Payload: {'frames': int, 'data': float32 bytes of shape (frames, vocab)}."""
+    session = sessions.get(request.sid)
+    if not session or session.get('mode') != 'logits':
+        return
+    try:
+        frames = int(data.get('frames', 0))
+        arr = np.frombuffer(data['data'], dtype=np.float32)
+    except (TypeError, KeyError, ValueError):
+        return
+    if frames <= 0 or arr.size == 0 or arr.size % frames != 0:
+        return
+    session['queue'].put(arr.reshape(frames, -1))
 
 
 @socketio.on('stop')
