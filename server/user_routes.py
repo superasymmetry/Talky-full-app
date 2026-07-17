@@ -10,6 +10,8 @@ user_bp = Blueprint("user_bp", __name__)
 
 USER_ID_REQUIRED = "user_id is required"
 
+VALID_ROLES = {"Student", "Teacher"}
+
 
 def _utc_now_iso():
     return datetime.now(timezone.utc).isoformat()
@@ -80,6 +82,9 @@ def adduser():
     user_doc = {
         "userId": user_id,
         "name": name,
+        "nickname": "",
+        "age": None,
+        "role": "Student",
         "progress": {
             "phonemeScores": phoneme_scores,
             "wordScores": []
@@ -215,16 +220,72 @@ def generatenextlesson():
         return jsonify(new_lesson), 200
 
 @user_bp.route("/api/getUserProfile", methods=["GET"])
+@requires_auth
 def get_user_profile():
-    token_payload = getattr(g, "current_user", {}) or {}
-    user_id = token_payload.get("sub") or request.args.get("userId")
+    # requires_auth guarantees g.current_user is set (it 401s before this
+    # runs otherwise), so the token's sub is always the source of truth —
+    # the userId query param is no longer trusted.
+    user_id = g.current_user.get("sub")
     if not user_id:
-        return jsonify({"message": "Missing userId"}), 400
+        return jsonify({"message": "Token missing sub claim"}), 401
 
     user = users_collection.find_one({"userId": user_id}, {"_id": 0})
     if not user:
         return jsonify({"message": "User not found"}), 404
     return jsonify(user)
+
+
+@user_bp.route("/api/updateUserProfile", methods=["POST"])
+@requires_auth
+def update_user_profile():
+    '''For saving editable profile fields: upserts nickname/age/role onto the user document
+        Inputs: JSON body with any of nickname/age/role; userId comes from the auth token
+        Returns: JSON of the fields that were updated
+    '''
+    data = request.get_json() or {}
+
+    # userId comes from the verified token, never from the request body —
+    # otherwise any logged-in user could overwrite any other user's
+    # profile just by changing the userId field in the payload.
+    user_id = g.current_user.get("sub")
+    if not user_id:
+        return jsonify({"message": "Token missing sub claim"}), 401
+
+    update_fields = {}
+
+    if "nickname" in data:
+        nickname = data.get("nickname")
+        if nickname is not None and not isinstance(nickname, str):
+            return jsonify({"message": "nickname must be a string"}), 400
+        update_fields["nickname"] = (nickname or "").strip()
+
+    if "age" in data:
+        try:
+            age = int(data.get("age"))
+        except (TypeError, ValueError):
+            return jsonify({"message": "age must be a number"}), 400
+        if age < 1 or age > 120:
+            return jsonify({"message": "age must be between 1 and 120"}), 400
+        update_fields["age"] = age
+
+    if "role" in data:
+        role = data.get("role")
+        if role not in VALID_ROLES:
+            return jsonify({"message": f"role must be one of {sorted(VALID_ROLES)}"}), 400
+        update_fields["role"] = role
+
+    if not update_fields:
+        return jsonify({"message": "No valid fields provided"}), 400
+
+    result = users_collection.update_one(
+        {"userId": user_id},
+        {"$set": update_fields}
+    )
+    if result.matched_count == 0:
+        return jsonify({"message": "User not found"}), 404
+
+    return jsonify({"message": "Profile updated successfully", "updated": update_fields}), 200
+
 
 @user_bp.route("/api/getUserProgress", methods=["GET"])
 def get_user_progress():

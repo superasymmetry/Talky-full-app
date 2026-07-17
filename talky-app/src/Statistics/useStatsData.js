@@ -22,7 +22,17 @@ export function useStatsData(userId) {
   });
 
   useEffect(() => {
+    // userId is null while the caller (Statistics.jsx) is still waiting on
+    // Auth0 to resolve who's logged in. Skip the fetch rather than firing
+    // a request for "null" and briefly flashing the wrong user's data.
+    if (!userId) {
+      setState((prev) => (prev.status === 'loading' ? prev : { status: 'loading', user: null, level: null, error: null }));
+      return;
+    }
+
     let cancelled = false;
+
+    setState((prev) => (prev.status === 'loading' ? prev : { ...prev, status: 'loading' }));
 
     Promise.all([
       fetchJSON(`${API_BASE}/api/getUserProgress?userId=${encodeURIComponent(userId)}`),
