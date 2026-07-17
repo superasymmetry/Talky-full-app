@@ -1,5 +1,4 @@
 import json
-import threading
 import unittest
 from playwright.sync_api import sync_playwright
 import sys
@@ -54,26 +53,37 @@ MOCK_RESULT = {
     "res": MOCK_PARTIAL_RESULTS,
 }
 
+# Mock /api/lessons response so the test doesn't depend on a seeded Mongo user
+# or a real Groq key. The words/phonemes must line up with MOCK_PARTIAL_RESULTS —
+# the frontend only shows a score when the returned phoneme matches the expected
+# one at the same index.
+MOCK_LESSON_RESPONSE = {
+    "sentences": {"1": "the quick brown fox"},
+    "expected_ipas": [
+        {
+            "the": ["ð", "ə"],
+            "quick": ["k", "w", "ɪ", "k"],
+            "brown": ["b", "ɹ", "aʊ", "n"],
+            "fox": ["f", "ɑ", "k", "s"],
+        }
+    ],
+    "words_to_ipas": [
+        [
+            {"word": "the", "phonemes": ["ð", "ə"]},
+            {"word": "quick", "phonemes": ["k", "w", "ɪ", "k"]},
+            {"word": "brown", "phonemes": ["b", "ɹ", "aʊ", "n"]},
+            {"word": "fox", "phonemes": ["f", "ɑ", "k", "s"]},
+        ]
+    ],
+}
+
 
 def _mock_lessons(route):
     route.fulfill(
         status=200,
         content_type="application/json",
-        body=json.dumps(
-            {
-                "sentences": {
-                    "1": "The quick brown fox",
-                },
-                "words_to_ipas": [
-                    [
-                        {"word": "the", "phonemes": ["ð", "ə"]},
-                        {"word": "quick", "phonemes": ["k", "w", "ɪ", "k"]},
-                        {"word": "brown", "phonemes": ["b", "ɹ", "aʊ", "n"]},
-                        {"word": "fox", "phonemes": ["f", "ɑ", "k", "s"]},
-                    ]
-                ],
-            }
-        ),
+        headers={"Access-Control-Allow-Origin": "*"},
+        body=json.dumps(MOCK_LESSON_RESPONSE),
     )
 
 # Socket.IO over EIO4 WebSocket framing helpers
@@ -95,12 +105,12 @@ def _mock_socketio(ws_route):
             # Namespace connect — ack and queue up mock events
             ws_route.send('40{"sid":"testmock"}')
         elif message.startswith('42["start"'):
-            # Emit partial results then final result
-            def emit_results():
-                for partial in MOCK_PARTIAL_RESULTS:
-                    ws_route.send(_sio_event("partial_result", partial))
-                ws_route.send(_sio_event("result", MOCK_RESULT))
-            threading.Thread(target=emit_results, daemon=True).start()
+            # Emit partial results then final result. Must happen on this
+            # callback (sync Playwright is greenlet-based and not thread-safe;
+            # sending from another thread raises and is silently swallowed).
+            for partial in MOCK_PARTIAL_RESULTS:
+                ws_route.send(_sio_event("partial_result", partial))
+            ws_route.send(_sio_event("result", MOCK_RESULT))
         elif message == "2":
             ws_route.send("3")  # pong
 
@@ -114,7 +124,7 @@ class TestLesson(unittest.TestCase):
             context = browser.new_context(permissions=["microphone"])
             page = context.new_page()
 
-            # Mock the lesson API so the rendered phonemes match the mocked socket events.
+            # Mock the lesson API (CI has no seeded Mongo user and no real Groq key)
             page.route("**/api/lessons*", _mock_lessons)
 
             # Intercept socket.io WebSocket connections
@@ -132,7 +142,8 @@ class TestLesson(unittest.TestCase):
             page.goto("http://localhost:5173/lessons/1")
             page.click("text=Start Lesson")
             page.wait_for_selector("text=Say this sentence:")
-            page.wait_for_timeout(1500)
+            # Phoneme grid rendering proves the lesson data has loaded
+            page.wait_for_selector("span[title='No score']")
 
             page.click("text=Record")
             page.wait_for_selector("span[title*='Score:']", timeout=10000)

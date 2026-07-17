@@ -11,6 +11,34 @@ import { speakText, stopSpeech } from '../tts.js';
 
 useGLTF.preload('/robot-draco.glb')
 
+// Fallback used if the lesson's target phoneme has no mapped video yet
+// (e.g. new phoneme added before the backend map is regenerated).
+const DEFAULT_INTRO_VIDEO_ID = 'IwWw6Xe09O0';
+
+function extractWordScores(res) {
+  if (!Array.isArray(res)) return [];
+  const now = new Date().toISOString();
+  return res.map(({ word, phonemes }) => {
+    const valid = (phonemes || []).map(p => p.score).filter(s => s != null);
+    const avg = valid.length ? valid.reduce((a, b) => a + b, 0) / valid.length : 0;
+    return { word, score: avg, timestamp: now };
+  });
+}
+
+async function resampleTo16k(float32Array, fromSampleRate) {
+  if (fromSampleRate === 16000) return float32Array;
+  const targetLength = Math.ceil(float32Array.length * 16000 / fromSampleRate);
+  const offlineCtx = new OfflineAudioContext(1, targetLength, 16000);
+  const buffer = offlineCtx.createBuffer(1, float32Array.length, fromSampleRate);
+  buffer.copyToChannel(float32Array, 0);
+  const source = offlineCtx.createBufferSource();
+  source.buffer = buffer;
+  source.connect(offlineCtx.destination);
+  source.start();
+  const rendered = await offlineCtx.startRendering();
+  return rendered.getChannelData(0);
+}
+
 const Model = forwardRef(function Model(props, ref) {
   const { scene, animations } = useGLTF('/robot-draco.glb');
   const { actions } = useAnimations(animations, scene);
@@ -50,6 +78,18 @@ const getValidUserId = (key) => {
   return VALID_USER_ID.test(id) ? id : 'demo';
 };
 
+// Builds a YouTube embed URL from a bare video ID (+ optional start offset in seconds).
+// Kept separate from the lesson-fetch logic so the mapping itself can live entirely
+// on the backend (see /scripts/build_phoneme_video_map.py) and just get shipped down
+// as { intro_video_id, intro_video_start } on the lesson payload.
+const buildEmbedUrl = (videoId, startSeconds) => {
+  if (!videoId) return null;
+  const s = Number.isFinite(startSeconds) ? Math.max(0, Math.floor(startSeconds)) : 0;
+  const params = new URLSearchParams({ autoplay: '0' });
+  if (s) params.set('start', String(s));
+  return `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?${params.toString()}`;
+};
+
 export default function Lesson() {
   const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
   const [nextHover, setNextHover] = useState(false)
@@ -65,8 +105,9 @@ export default function Lesson() {
   const match = useMatch("/lessons/:id");
   const lessonId = match?.params?.id;
   const [showIntro, setShowIntro] = useState(true);
-  const videoUrl = "https://youtu.be/IwWw6Xe09O0?t=31";
-  const [score] = useState(0);
+  // Resolved server-side from the lesson's target phoneme. Null while loading.
+  const [introVideo, setIntroVideo] = useState(null); // { videoId, start, usedFallback }
+  const [score, setScore] = useState(0);
   const [wordsToIPA, setWordsToIPA] = useState(null);
   const [currentWordsToIPA, setCurrentWordsToIPA] = useState(null);
   const [wordResults, setWordResults] = useState([]);
@@ -84,17 +125,6 @@ export default function Lesson() {
   const socketRef = useRef(null);
   const pendingSessionRef = useRef(null);
   const sentencePassedRef = useRef(false);
-
-  const toEmbed = (u) => {
-    try {
-      if (!u) return null;
-      const url = new URL(u);
-      const v = url.searchParams.get('v');
-      if (v) return `https://www.youtube.com/embed/${v}`;
-      if (url.hostname === 'youtu.be') return `https://www.youtube.com/embed/${url.pathname.slice(1)}`;
-      return u;
-    } catch (e) { console.error("Error parsing URL:", e); return null; }
-  }
 
   const handleFinalResult = () => {
     setIsRecording(false);
@@ -156,7 +186,9 @@ export default function Lesson() {
   // Fetch lesson data
   useEffect(() => {
     const userId = getValidUserId('user_id');
-    fetch(`${API_BASE}/api/lessons?user_id=${encodeURIComponent(userId)}&lesson_id=${encodeURIComponent(lessonId)}`)
+    fetch(`${API_BASE}/api/lessons?user_id=${encodeURIComponent(userId)}&lesson_id=${encodeURIComponent(lessonId)}`, {
+      cache: 'no-store',
+    })
       .then((response) => response.json())
       .then((data) => {
         setCardData(data.sentences ?? data);
@@ -165,11 +197,27 @@ export default function Lesson() {
           toast.error('Phoneme data failed to load. Please reload the page.');
         }
         setWordsToIPA(ipas);
+
+        // The backend resolves the lesson's target phoneme to a curated
+        // Glossika Phonics video (see build_phoneme_video_map.py). If that
+        // lookup ever misses, fall back to a generic phonemes-overview video
+        // rather than showing nothing.
+        if (data.intro_video_id) {
+          setIntroVideo({
+            videoId: data.intro_video_id,
+            start: data.intro_video_start || 0,
+            usedFallback: false,
+          });
+        } else {
+          setIntroVideo({ videoId: DEFAULT_INTRO_VIDEO_ID, start: 0, usedFallback: true });
+          console.warn(`No intro video mapped for phoneme "${data.target_phoneme}", using fallback.`);
+        }
       })
 
       .catch((error) => {
         console.error("Error fetching data:", error);
         toast.error('Failed to load lesson. Please check your connection and reload.');
+        setIntroVideo({ videoId: DEFAULT_INTRO_VIDEO_ID, start: 0, usedFallback: true });
       })
   }, [API_BASE, lessonId]);
 
@@ -247,6 +295,7 @@ export default function Lesson() {
   }
 
   if (showIntro) {
+    const embedUrl = introVideo ? buildEmbedUrl(introVideo.videoId, introVideo.start) : null;
     return (
       <div style={{
         position: 'fixed',
@@ -262,10 +311,10 @@ export default function Lesson() {
       }}>
         <Back />
         <h2 style={{ fontSize: '2rem', marginBottom: '1rem' }}>Watch this example first</h2>
-        {videoUrl ? (
+        {embedUrl ? (
           <iframe
             title="intro-video"
-            src={toEmbed(videoUrl)}
+            src={embedUrl}
             width="640"
             height="360"
             style={{ borderRadius: 12, marginBottom: '2rem' }}
