@@ -1,4 +1,5 @@
 import collections
+import logging
 import eng_to_ipa as ipa
 import numpy as np
 from flask import Flask, request, jsonify
@@ -7,7 +8,8 @@ from flask_cors import CORS
 from groq import Groq
 import os
 from dotenv import load_dotenv
-from database import client, db, users_collection
+from database import client, db, users_collection, phoneme_video_cache
+from find_video import get_video_for_phoneme
 from user_routes import user_bp
 from score_routes import score_bp
 import threading
@@ -19,6 +21,16 @@ import threading, queue
 from stream_decode_util import stream_decode_util, stream_decode_logits
 
 load_dotenv()
+
+# Without this, logger.info/.warning calls in this file and in find_video.py
+# go nowhere — Flask doesn't configure the root logger for you. Set
+# LOG_LEVEL=DEBUG in the environment if you need to see search_videos'
+# per-request detail too.
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger("main")
 
 ALLOWED_ORIGINS = os.environ.get(
     "ALLOWED_ORIGINS",
@@ -122,6 +134,21 @@ arpabet_to_ipa = {
     "ZH": "ʒ"
 }
 
+# Strips newlines/control characters from user-supplied values (query
+# params, etc.) before they're written into a log line. Without this, an
+# attacker can pass e.g. user_id=demo%0d%0a<fake log line> to inject a
+# forged entry that looks like a genuine log record — this is the classic
+# CRLF/log-injection issue (CWE-117). Only needed for values that originate
+# from outside our system (request.args); values we generate ourselves
+# (e.g. target_phoneme, which only ever comes from phoneme_word_bank keys
+# or our own Mongo cache) don't need it.
+_LOG_CONTROL_CHARS_RE = re.compile(r'[\r\n\x00-\x1f\x7f]')
+
+
+def _sanitize_for_log(value):
+    return _LOG_CONTROL_CHARS_RE.sub('', str(value))
+
+
 # IPA digraphs that must be treated as a single phoneme token
 _IPA_DIGRAPHS = {"aʊ", "aɪ", "eɪ", "oʊ", "ɔɪ", "tʃ"}
 _IPA_SKIP = set(" ˈˌːˑ'")
@@ -158,6 +185,27 @@ def _load_processor_once():
             if _processor is None:
                 _processor = Wav2Vec2Processor.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme")
     return _processor
+
+def _resolve_target_phoneme(lesson, word_list):
+    """
+    Figures out which phoneme this lesson is drilling, so we can attach an
+    intro video for it. Every lesson document (see adduser/generatenextlesson
+    in user_routes.py) is written with a "phoneme" field, so this is the
+    normal path. The word-bank reverse-match below is only a safety net for
+    stray/legacy lesson documents that predate that field.
+    """
+    explicit = lesson.get('phoneme')
+    if explicit:
+        return explicit
+
+    word_set = {w.lower() for w in word_list}
+    best_phoneme, best_overlap = None, 0
+    for phoneme, bank_words in phoneme_word_bank.items():
+        overlap = len(word_set.intersection(w.lower() for w in bank_words))
+        if overlap > best_overlap:
+            best_phoneme, best_overlap = phoneme, overlap
+    return best_phoneme
+
 
 def _load_model_once():
     global _processor, _model, _feedback_model
@@ -223,7 +271,38 @@ def lessons():
         print(f"IPA computation error: {e}")
         expected_ipas = []
         words_to_ipa_list = []
-    return jsonify({"sentences": sentences, "expected_ipas": expected_ipas, "words_to_ipas": words_to_ipa_list})
+
+    # Resolve + attach the phoneme-specific intro video (Mongo-cached, see
+    # find_video.py — only ever hits YouTube once per phoneme).
+    target_phoneme = _resolve_target_phoneme(lesson, word_list)
+    logger.info(
+        "Lesson %s for user %s | words=%s target_phoneme=%r",
+        _sanitize_for_log(lesson_id), _sanitize_for_log(user_id), word_list, target_phoneme,
+    )
+
+    intro_video_id = None
+    if target_phoneme:
+        try:
+            intro_video_id = get_video_for_phoneme(target_phoneme, phoneme_video_cache)
+        except Exception as e:
+            logger.exception("Video lookup failed for phoneme %r", target_phoneme)
+    else:
+        logger.warning(
+            "No target_phoneme resolved for lesson %s (user %s) — "
+            "intro_video_id will be null, frontend will use its default.",
+            _sanitize_for_log(lesson_id), _sanitize_for_log(user_id),
+        )
+
+    logger.info("Resolved intro_video_id=%r for phoneme=%r", intro_video_id, target_phoneme)
+
+    return jsonify({
+        "sentences": sentences,
+        "expected_ipas": expected_ipas,
+        "words_to_ipas": words_to_ipa_list,
+        "target_phoneme": target_phoneme,
+        "intro_video_id": intro_video_id,
+        "intro_video_start": 0,
+    })
 
 
 @app.route('/api/wordbank', methods=['GET', 'POST'])
