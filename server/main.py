@@ -36,6 +36,7 @@ ALLOWED_ORIGINS = os.environ.get(
     "ALLOWED_ORIGINS",
     "https://talkwithtalky.org,https://d26pahabsgpl8k.cloudfront.net,http://localhost:3000,http://localhost:5173"
 ).split(",")
+MODEL="vitouphy/wav2vec2-xls-r-300m-timit-phoneme"
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGINS, async_mode='threading')
@@ -183,7 +184,7 @@ def _load_processor_once():
     if _processor is None:
         with _load_lock:
             if _processor is None:
-                _processor = Wav2Vec2Processor.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme")
+                _processor = Wav2Vec2Processor.from_pretrained(MODEL)
     return _processor
 
 def _resolve_target_phoneme(lesson, word_list):
@@ -212,8 +213,8 @@ def _load_model_once():
     if _processor is None or _model is None:
         with _load_lock:
             if _processor is None or _model is None:
-                _processor = Wav2Vec2Processor.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme")
-                _model = Wav2Vec2ForCTC.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme").eval()
+                _processor = Wav2Vec2Processor.from_pretrained(MODEL)
+                _model = Wav2Vec2ForCTC.from_pretrained(MODEL).eval()
                 _model.to(device)
                 _feedback_model = Groq(api_key=os.environ.get("GROQ_API_KEY"))
     return _processor, _model, _feedback_model
