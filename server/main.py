@@ -58,6 +58,20 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 
 sessions = {}
 
+# --- Lesson performance / "hearts" config -----------------------------------
+# A word scoring below this counts as a "strike" toward the lesson's early
+# cutoff. The actual lives counter is tracked lesson-wide on the frontend
+# (each sentence gets a brand-new session dict here, so a lives count kept
+# server-side would reset every sentence instead of persisting across the
+# whole lesson) — this constant just tells the frontend which words count
+# against the player.
+WORD_FAIL_SCORE_THRESHOLD = 0.5
+
+# How big a gap between a phoneme's score-this-attempt and the user's
+# historical average for that phoneme counts as a meaningful improvement or
+# regression, vs. just noise.
+PHONEME_DELTA_MARGIN = 0.05
+
 phoneme_word_bank = {
     "p": ["pat", "pop", "paper", "puppy", "apple", "stop", "pepper", "paint"],
     "b": ["bat", "baby", "bubble", "rabbit", "club", "cab", "bag", "bagel"],
@@ -347,8 +361,12 @@ def finalize_session(sid):
     if not session:
         return
     results = session['results']
-    total_words = len(session.get('words_ipa', []))
-    avg = len(results) / total_words if total_words > 0 else 0.0
+    # NOTE: this used to be `len(results) / total_words` — i.e. "fraction of
+    # words attempted", not an accuracy score, so a lesson where every word
+    # scored 0.1 would still report "100%" once all words were attempted.
+    # This is the number the whole lesson-performance feature depends on, so
+    # it needs to actually be the average word score.
+    avg = sum(r['score'] for r in results) / len(results) if results else 0.0
     socketio.emit('result', {
         'score': avg,
         'passed': avg >= 0.8,
@@ -364,6 +382,21 @@ def handle_connect(auth=None):
 def handle_start(data):
     sid = request.sid
     words_ipa = data['words_ipa']
+    user_id = data.get('userId')
+
+    # Pull this user's historical per-phoneme averages once per sentence
+    # attempt, so we can tell them "better/worse than usual" on each
+    # phoneme live, not just a bare per-word pass/fail. Best-effort: if no
+    # userId is sent, or the user has no scored phonemes yet, deltas just
+    # come back None/"new" for everything below.
+    baseline = {}
+    if user_id:
+        user = users_collection.find_one({"userId": user_id}, {"progress.phonemeScores": 1})
+        if user:
+            for entry in user.get("progress", {}).get("phonemeScores", []):
+                if entry.get("avgScore") is not None:
+                    baseline[entry["phoneme"]] = entry["avgScore"]
+
     flat_phonemes = [p for w in words_ipa for p in w['phonemes']]
     position_to_word_idx = [
         word_idx
@@ -388,14 +421,48 @@ def handle_start(data):
             word_entry = words_ipa[word_idx]
             if len(word_phoneme_scores[word_idx]) == len(word_entry['phonemes']):
                 scores = word_phoneme_scores[word_idx]
+                word_score = sum(p['score'] for p in scores) / len(scores)
                 result = {
                     'word_index': word_idx,
                     'word': word_entry['word'],
                     'phonemes': scores,
-                    'score': sum(p['score'] for p in scores) / len(scores),
+                    'score': word_score,
                 }
                 session['results'].append(result)
                 socketio.emit('partial_result', result, to=sid)
+
+                # Per-phoneme delta vs. this user's historical baseline, plus
+                # whether this word counts as a "strike". The lesson-wide
+                # lives count and running accuracy are accumulated on the
+                # frontend across all sentences in the lesson — see Lesson.jsx.
+                phoneme_deltas = []
+                for entry in scores:
+                    ph = entry['phoneme']
+                    base = baseline.get(ph)
+                    delta = None if base is None else entry['score'] - base
+                    if delta is None:
+                        status = 'new'
+                    elif delta > PHONEME_DELTA_MARGIN:
+                        status = 'improved'
+                    elif delta < -PHONEME_DELTA_MARGIN:
+                        status = 'worse'
+                    else:
+                        status = 'steady'
+                    phoneme_deltas.append({
+                        'phoneme': ph,
+                        'score': entry['score'],
+                        'baseline': base,
+                        'delta': delta,
+                        'status': status,
+                    })
+
+                socketio.emit('stats_update', {
+                    'word_index': word_idx,
+                    'word': word_entry['word'],
+                    'score': word_score,
+                    'is_strike': word_score < WORD_FAIL_SCORE_THRESHOLD,
+                    'phoneme_deltas': phoneme_deltas,
+                }, to=sid)
         finalize_session(sid)
 
     threading.Thread(target=run, daemon=True).start()

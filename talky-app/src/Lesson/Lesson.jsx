@@ -14,6 +14,16 @@ useGLTF.preload('/robot-draco.glb')
 // (e.g. new phoneme added before the backend map is regenerated).
 const DEFAULT_INTRO_VIDEO_ID = 'IwWw6Xe09O0';
 
+// --- Lesson-wide performance / "hearts" config -------------------------------
+// Duolingo-style early cutoff: this many strikes and the lesson ends early.
+// Tracked lesson-wide (across all sentences), not per-sentence, since each
+// sentence recording opens its own socket session on the backend.
+const LESSON_START_LIVES = 3;
+// How big an average delta (vs. historical baseline) counts as a real
+// improvement/regression for a phoneme, vs. noise. Mirrors PHONEME_DELTA_MARGIN
+// on the backend, used here only for summarizing the deltas the backend sends.
+const PHONEME_TREND_MARGIN = 0.05;
+
 function extractWordScores(res) {
   if (!Array.isArray(res)) return [];
   const now = new Date().toISOString();
@@ -22,6 +32,25 @@ function extractWordScores(res) {
     const avg = valid.length ? valid.reduce((a, b) => a + b, 0) / valid.length : 0;
     return { word, score: avg, timestamp: now };
   });
+}
+
+// Turns the lesson-wide phoneme stats (phoneme -> { scores: [], deltas: [] })
+// into "most improved" / "needs practice" lists for the end-of-lesson summary
+// and the early-failure screen.
+function summarizePhonemeDeltas(phonemeStats) {
+  const entries = Object.entries(phonemeStats)
+    .filter(([, v]) => v.deltas && v.deltas.length > 0)
+    .map(([phoneme, v]) => ({
+      phoneme,
+      avgDelta: v.deltas.reduce((a, b) => a + b, 0) / v.deltas.length,
+    }));
+  const improved = entries
+    .filter(e => e.avgDelta > PHONEME_TREND_MARGIN)
+    .sort((a, b) => b.avgDelta - a.avgDelta);
+  const needsWork = entries
+    .filter(e => e.avgDelta < -PHONEME_TREND_MARGIN)
+    .sort((a, b) => a.avgDelta - b.avgDelta);
+  return { improved, needsWork };
 }
 
 async function resampleTo16k(float32Array, fromSampleRate) {
@@ -70,6 +99,128 @@ const getPhonemeStyle = (score) => {
   return { background: '#fecaca', color: '#991b1b' };
 };
 
+const scoreColor = (score) => (score >= 0.8 ? '#4ade80' : score >= 0.5 ? '#facc15' : '#f87171');
+
+// Always-visible-throughout-the-lesson performance HUD: running accuracy,
+// attempts remaining (the non-hearts "hearts" system), a live phoneme
+// breakdown (score + trend vs. this user's history), and a scroll of
+// recently-scored words. Collapsible so it doesn't have to stay in the way.
+function PerformanceTracker({ lives, maxLives, runningScore, phonemeStats, wordHistory }) {
+  const [open, setOpen] = useState(true);
+
+  const phonemeRows = Object.entries(phonemeStats)
+    .filter(([, v]) => v.scores.length > 0)
+    .map(([phoneme, v]) => ({
+      phoneme,
+      avgScore: v.scores.reduce((a, b) => a + b, 0) / v.scores.length,
+      avgDelta: v.deltas.length ? v.deltas.reduce((a, b) => a + b, 0) / v.deltas.length : null,
+      attempts: v.scores.length,
+    }))
+    .sort((a, b) => a.avgScore - b.avgScore); // weakest first, so problem sounds surface first
+
+  return (
+    <div style={{
+      position: 'absolute', top: 24, right: 24, zIndex: 30,
+      display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8,
+    }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          background: 'rgba(0,0,0,0.7)', color: 'white', border: 'none',
+          padding: '8px 16px', borderRadius: 20, cursor: 'pointer',
+          backdropFilter: 'blur(6px)', fontWeight: 700, fontSize: 14,
+        }}
+      >
+        <span style={{ display: 'flex', gap: 4 }} aria-label={`${lives} of ${maxLives} attempts remaining`}>
+          {Array.from({ length: maxLives }).map((_, i) => (
+            <svg key={i} width="16" height="16" viewBox="0 0 24 24">
+              <path
+                d="M13 2 L4 14 h6 l-1 8 9-12h-6z"
+                fill={i < lives ? '#ffd93d' : 'none'}
+                stroke={i < lives ? '#ffd93d' : '#777'}
+                strokeWidth="1.5"
+                strokeLinejoin="round"
+              />
+            </svg>
+          ))}
+        </span>
+        <span>{Math.round((runningScore || 0) * 100)}%</span>
+        <span style={{ fontSize: 11, opacity: 0.75 }}>{open ? '▲ hide' : '▼ stats'}</span>
+      </button>
+
+      {open && (
+        <div style={{
+          width: 260, maxHeight: '60vh', overflowY: 'auto',
+          background: 'rgba(0,0,0,0.8)', color: 'white', borderRadius: 12,
+          padding: 16, backdropFilter: 'blur(6px)', textAlign: 'left',
+        }}>
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, opacity: 0.75, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Lesson accuracy
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ flex: 1, height: 8, background: 'rgba(255,255,255,0.2)', borderRadius: 4, overflow: 'hidden' }}>
+                <div style={{
+                  width: `${Math.round((runningScore || 0) * 100)}%`,
+                  height: '100%',
+                  background: scoreColor(runningScore || 0),
+                  transition: 'width 200ms ease',
+                }} />
+              </div>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>{Math.round((runningScore || 0) * 100)}%</div>
+            </div>
+          </div>
+
+          {phonemeRows.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, opacity: 0.75, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Phonemes this lesson
+              </div>
+              {phonemeRows.map(r => (
+                <div key={r.phoneme} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  fontSize: 13, padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,0.1)',
+                }}>
+                  <span>
+                    {r.phoneme} <span style={{ opacity: 0.55, fontSize: 11 }}>×{r.attempts}</span>
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ color: scoreColor(r.avgScore) }}>{Math.round(r.avgScore * 100)}%</span>
+                    {r.avgDelta != null && (
+                      <span style={{
+                        color: r.avgDelta > PHONEME_TREND_MARGIN ? '#4ade80'
+                          : r.avgDelta < -PHONEME_TREND_MARGIN ? '#f87171' : '#ccc',
+                        fontSize: 11,
+                      }}>
+                        {r.avgDelta > PHONEME_TREND_MARGIN ? '▲' : r.avgDelta < -PHONEME_TREND_MARGIN ? '▼' : '—'}
+                      </span>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {wordHistory.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, opacity: 0.75, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Recent words
+              </div>
+              {wordHistory.slice(-8).reverse().map((w, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '3px 0' }}>
+                  <span>{w.word}</span>
+                  <span style={{ color: scoreColor(w.score), fontWeight: 600 }}>{Math.round(w.score * 100)}%</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Builds a YouTube embed URL from a bare video ID (+ optional start offset in seconds).
 // Kept separate from the lesson-fetch logic so the mapping itself can live entirely
 // on the backend (see /scripts/build_phoneme_video_map.py) and just get shipped down
@@ -114,6 +265,17 @@ export default function Lesson() {
   const wordScoresRef = useRef([]);
   const sentencePassedRef = useRef(false);
 
+  // --- Lesson-wide performance tracking (persists across all sentences) ---
+  const [lives, setLives] = useState(LESSON_START_LIVES);
+  const [runningScore, setRunningScore] = useState(0);
+  // phoneme -> { scores: [raw scores this lesson], deltas: [vs. historical baseline] }
+  const [phonemeStats, setPhonemeStats] = useState({});
+  // Every word scored this lesson (not just ones in a passed sentence), in order.
+  const [wordHistory, setWordHistory] = useState([]);
+  const [lessonFailed, setLessonFailed] = useState(false);
+  const allWordScoresRef = useRef([]); // every word score across the whole lesson
+  const lessonFailedRef = useRef(false);
+
   // Audio + socket refs
   const socketRef = useRef(null);
   const audioContextRef = useRef(null);
@@ -121,7 +283,7 @@ export default function Lesson() {
   const streamRef = useRef(null);
   const accumChunksRef = useRef([]);
   const chunkIntervalRef = useRef(null);
-  const pendingSessionRef = useRef(null); // holds { sentence, words_ipa } until connect fires
+  const pendingSessionRef = useRef(null); // holds { sentence, words_ipa, userId } until connect fires
 
   // Initialize socket once — listeners are stable across renders
   useEffect(() => {
@@ -144,13 +306,59 @@ export default function Lesson() {
       });
     });
 
+    // Lesson-wide performance tracking: lives + running accuracy + phoneme
+    // breakdown + word history, fed by the raw per-word score/deltas the
+    // backend streams on every scored word.
+    socket.on('stats_update', (data) => {
+      allWordScoresRef.current.push(data.score);
+      const scores = allWordScoresRef.current;
+      setRunningScore(scores.reduce((a, b) => a + b, 0) / scores.length);
+
+      setWordHistory(prev => [...prev, { word: data.word, score: data.score }]);
+
+      if (data.phoneme_deltas && data.phoneme_deltas.length) {
+        setPhonemeStats(prev => {
+          const next = { ...prev };
+          data.phoneme_deltas.forEach(pd => {
+            const existing = next[pd.phoneme] || { scores: [], deltas: [] };
+            const scores2 = [...existing.scores, pd.score];
+            const deltas2 = (pd.delta === null || pd.delta === undefined)
+              ? existing.deltas
+              : [...existing.deltas, pd.delta];
+            next[pd.phoneme] = { scores: scores2, deltas: deltas2 };
+          });
+          return next;
+        });
+      }
+
+      if (data.is_strike) {
+        setLives(prev => {
+          const next = Math.max(0, prev - 1);
+          if (next === 0 && !lessonFailedRef.current) {
+            lessonFailedRef.current = true;
+            // Duolingo-hearts-style early cutoff: stop the lesson right here
+            // instead of limping through the rest of the sentences.
+            socketRef.current?.emit('stop');
+            stopRecording();
+            setLessonFailed(true);
+            setTimeout(() => socketRef.current?.disconnect(), 150);
+          }
+          return next;
+        });
+      }
+    });
+
     socket.on('result', (data) => {
+      // Once the lesson has been failed out, ignore any trailing 'result'
+      // event from the sentence that was in flight when lives hit zero.
+      if (lessonFailedRef.current) return;
       handleFinalResult(data);
     });
 
     return () => {
       socket.off('connect');
       socket.off('partial_result');
+      socket.off('stats_update');
       socket.off('result');
       socket.disconnect();
     };
@@ -312,10 +520,12 @@ export default function Lesson() {
     setIsRecording(true);
     setWordResults([]);
 
-    // Store session metadata so the 'connect' listener can emit 'start'
+    // Store session metadata so the 'connect' listener can emit 'start'.
+    // userId is sent so the backend can look up this user's historical
+    // phoneme averages for the live improved/worse deltas.
     const socket = socketRef.current;
     if (socket.connected) socket.disconnect();
-    pendingSessionRef.current = { sentence, words_ipa };
+    pendingSessionRef.current = { sentence, words_ipa, userId };
     socket.connect();
 
     let stream;
@@ -387,7 +597,9 @@ export default function Lesson() {
         body: JSON.stringify({
           userId: userId,
           lessonId: currentLessonId,
-          addScore: (score / 700) || 0.1,
+          // Real lesson-wide accuracy, tracked from the per-word scores the
+          // backend streams — replaces the old (score / 700) || 0.1 guess.
+          addScore: runningScore || 0.1,
           wordScores: wordScoresRef.current
         })
       }).catch(err => console.error('Failed to update user progress:', err));
@@ -455,7 +667,69 @@ export default function Lesson() {
     );
   }
 
+  if (lessonFailed) {
+    const { needsWork } = summarizePhonemeDeltas(phonemeStats);
+    return (
+      <div style={{
+        position: 'fixed',
+        inset: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'linear-gradient(135deg, #4b1c1c 0%, #7a2626 100%)',
+        color: 'white',
+        textAlign: 'center'
+      }}>
+        <div>
+          <h1 style={{ fontSize: '3rem', marginBottom: '1rem' }}>Out of Attempts</h1>
+          <p style={{ fontSize: '1.2rem', marginBottom: '0.5rem' }}>
+            You ran out of tries for this lesson — accuracy was {Math.round((runningScore || 0) * 100)}%.
+          </p>
+          {needsWork.length > 0 && (
+            <p style={{ fontSize: '1rem', marginBottom: '2rem', opacity: 0.9 }}>
+              Sounds to practice: {needsWork.map(n => n.phoneme).join(', ')}
+            </p>
+          )}
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+            <button
+              onClick={() => window.location.reload()}
+              style={{
+                padding: '12px 24px',
+                borderRadius: 25,
+                border: 'none',
+                background: 'linear-gradient(90deg, #6dd3ff 0%, #6b73ff 100%)',
+                color: 'white',
+                fontSize: '1.1rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+                boxShadow: '0 8px 20px rgba(0,0,0,0.2)'
+              }}
+            >
+              Try Lesson Again
+            </button>
+            <button
+              onClick={() => window.location.href = '/app'}
+              style={{
+                padding: '12px 24px',
+                borderRadius: 25,
+                border: '2px solid rgba(255,255,255,0.6)',
+                background: 'transparent',
+                color: 'white',
+                fontSize: '1.1rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              Back to Home
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (isFinished) {
+    const { improved, needsWork } = summarizePhonemeDeltas(phonemeStats);
     return (
       <div style={{
         position: 'fixed',
@@ -469,7 +743,19 @@ export default function Lesson() {
       }}>
         <div>
           <h1 style={{ fontSize: '3rem', marginBottom: '1rem' }}>🎉 Lesson Complete!</h1>
-          <p style={{ fontSize: '1.2rem', marginBottom: '2rem' }}>Great job practicing your pronunciation!</p>
+          <p style={{ fontSize: '1.2rem', marginBottom: '0.5rem' }}>
+            Overall accuracy: {Math.round((runningScore || 0) * 100)}%
+          </p>
+          {improved.length > 0 && (
+            <p style={{ fontSize: '1rem', marginBottom: '0.25rem', opacity: 0.9 }}>
+              Most improved: {improved.map(i => i.phoneme).join(', ')}
+            </p>
+          )}
+          {needsWork.length > 0 && (
+            <p style={{ fontSize: '1rem', marginBottom: '1.5rem', opacity: 0.9 }}>
+              Keep practicing: {needsWork.map(i => i.phoneme).join(', ')}
+            </p>
+          )}
           <button
             onClick={() => window.location.href = '/app'}
             style={{
@@ -543,6 +829,13 @@ export default function Lesson() {
       </Canvas>
 
       <Back />
+      <PerformanceTracker
+        lives={lives}
+        maxLives={LESSON_START_LIVES}
+        runningScore={runningScore}
+        phonemeStats={phonemeStats}
+        wordHistory={wordHistory}
+      />
       <div
         style={{
           position: 'absolute',
@@ -702,6 +995,17 @@ export default function Lesson() {
                         if (returnedWord && returnedWord.phonemes[i] && returnedWord.phonemes[i].phoneme === ph) {
                           score = returnedWord.phonemes[i].score;
                         }
+                        // Lesson-wide trend for this phoneme, from stats_update deltas.
+                        const stats = phonemeStats[ph];
+                        const trendAvg = stats && stats.deltas.length
+                          ? stats.deltas.reduce((a, b) => a + b, 0) / stats.deltas.length
+                          : null;
+                        const trendArrow = trendAvg == null
+                          ? null
+                          : trendAvg > PHONEME_TREND_MARGIN ? '▲'
+                          : trendAvg < -PHONEME_TREND_MARGIN ? '▼'
+                          : null;
+                        const trendColor = trendAvg > 0 ? '#16a34a' : '#dc2626';
                         return (
                           <span
                             key={i}
@@ -720,6 +1024,9 @@ export default function Lesson() {
                             title={score !== null ? `Score: ${(score * 100).toFixed(1)}%` : 'No score'}
                           >
                             {ph}
+                            {trendArrow && (
+                              <sup style={{ color: trendColor, marginLeft: 2, fontSize: 9 }}>{trendArrow}</sup>
+                            )}
                           </span>
                         );
                       })}
