@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import Header from '../Header/Header';
 import { speakText, stopSpeech } from '../tts.js';
 
 const defaultVoiceOptions = [
@@ -202,7 +203,7 @@ export default function VoiceSettings({ embed = false }) {
                   </div>
                 </div>
                 <div style={{ fontSize: '0.92rem', color: '#334155' }}>
-                  Sample: “{voice.sample}”
+                  Sample: "{voice.sample}"
                 </div>
               </div>
             </button>
@@ -242,18 +243,21 @@ export default function VoiceSettings({ embed = false }) {
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6">
-      <div className="flex items-center justify-between mb-6">
-        <button onClick={() => navigate(-1)} className="text-xl">← Back</button>
-        <h2 className="text-2xl font-bold">Voice Settings</h2>
-        <div />
-      </div>
+    <>
+      <Header />
+      <div className="max-w-5xl mx-auto px-4 py-6">
+        <div className="flex items-center justify-between mb-6">
+          <button onClick={() => navigate(-1)} className="text-xl">← Back</button>
+          <h2 className="text-2xl font-bold">Voice Settings</h2>
+          <div />
+        </div>
 
-      <p className="mb-4">Preview and select your preferred voice option.</p>
+        <p className="mb-4">Preview and select your preferred voice option.</p>
 
-      <div style={{ display: 'flex', justifyContent: 'center' }}>
-        {content}
+        <div style={{ display: 'flex', justifyContent: 'center' }}>
+          {content}
+        </div>
       </div>
-    </div>
+    </>
   );
 }

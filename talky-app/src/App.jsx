@@ -10,17 +10,14 @@ import { useAuth0 } from '@auth0/auth0-react'
 function App() {
   const { user, isAuthenticated, isLoading } = useAuth0();
   const scroller = useRef(null);
-  const [lessons, setLessons] = useState([
-    { id: '1', name: 'Lesson 1', description: 'Warm up with simple sounds', img: 'rocketship.png' },
-    { id: '2', name: 'Lesson 2', description: 'Practice longer phrases', img: 'rocketship.png' }
-  ]);
-  
+  const [lessons, setLessons] = useState([]);
+
   useEffect(() => {
     if (isLoading) return;
-    
+
     const userId = isAuthenticated && user ? (user.sub || user.email) : 'demo';
     const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080';
-    
+
     fetch(`${API_BASE}/api/user/lessons?user_id=${userId}`)
       .then(res => res.ok ? res.json() : Promise.reject(new Error('Failed to fetch lessons')))
       .then(data => {
@@ -30,7 +27,7 @@ function App() {
           description: lesson.words?.join(', ') || lesson.phoneme || '',
           img: 'rocketship.png'
         }));
-        
+
         setLessons(lessonsArray);
       })
       .catch(err => console.error('Failed to fetch lessons:', err));
@@ -40,9 +37,9 @@ function App() {
   const scrollBy = (delta) => scroller.current?.scrollBy({ left: delta, behavior: 'smooth' })
 
   return (
-    <>
+    <div className="flex flex-col min-h-screen">
       <Header />
-      <div className="max-w-6xl mx-auto px-4">
+      <div className="max-w-6xl mx-auto px-4 flex-grow w-full">
         <section aria-labelledby="lessons-heading" className="mb-5 mt-10">
           <h2 id="lessons-heading" className="text-xl text-white font-semibold mb-4">Lessons</h2>
 
@@ -80,7 +77,7 @@ function App() {
           </div>
         </section>
 
-        <section aria-labelledby="soundbank-heading" className="mt-8">
+        <section aria-labelledby="soundbank-heading" className="mt-8 mb-12">
           <h2 id="soundbank-heading" className="text-xl text-white font-semibold mb-4">Explore</h2>
           <div className="flex justify-center">
             <div className="w-full max-w-sm">
@@ -89,9 +86,8 @@ function App() {
           </div>
         </section>
       </div>
-      <br /><br />
       <Footer />
-    </>
+    </div>
   );
 }
 
