@@ -27,53 +27,36 @@ const Profile = () => {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    // When user logs in, ensure they exist in the app DB then fetch server profile
-    async function ensureUserInDbAndSync() {
+    // getUserProfile derives the userId from the auth token server-side and
+    // auto-provisions a default doc on first call, so there's no separate
+    // "create user" request needed here.
+    async function syncProfile() {
       if (!isAuthenticated || !user) return;
 
-      const userId = user.sub || user.email;
-      // const payload = {
-      //   userId,
-      //   name: user.name || user.nickname || user.email || 'Unnamed',
-      //   // Do not rely on local state defaults here; server will be authoritative.
-      //   age: parseInt(age, 10) || undefined,
-      //   nickname: nickname ?? user.nickname ?? "",
-      //   role: role ?? "Student"
-      // };
-
       try {
-        // create/upsert
-        // await authFetch(`${API_BASE}/api/create_user`, {
-        //   method: 'POST',
-        //   body: JSON.stringify({ userId, name: user.name || user.nickname || user.email || 'Unnamed' })
-        // });
-
-        const profileRes = await authFetch(`${API_BASE}/api/getUserProfile?userId=${encodeURIComponent(userId)}`);
+        const profileRes = await authFetch(`${API_BASE}/api/getUserProfile`);
         if (profileRes.ok) {
           const profile = await profileRes.json();
           setNickname(profile.nickname ?? profile.name ?? '');
           setAge(String(profile.age ?? 16));
           setRole(profile.role ?? 'Student');
-          setProfileLoaded(true);
         } else {
           console.warn('Failed to fetch profile from server', profileRes.status);
-          // still mark loaded so UI won't hang indefinitely
           setNickname(user.nickname ?? '');
           setAge(String(16));
           setRole('Student');
-          setProfileLoaded(true);
         }
       } catch (err) {
-        console.error('Failed to create/confirm user or fetch profile', err);
-        // fallback to some sensible defaults
+        console.error('Failed to fetch profile', err);
         setNickname(user.nickname ?? '');
         setAge(String(16));
         setRole('Student');
+      } finally {
         setProfileLoaded(true);
       }
     }
 
-    ensureUserInDbAndSync();
+    syncProfile();
   }, [isAuthenticated, isLoading, user]);
 
   if (isLoading) return <p>Loading profile...</p>;
@@ -82,7 +65,6 @@ const Profile = () => {
 
   const handleSave = async () => {
     const payload = {
-      userId: user.sub || user.email,
       nickname,
       age: Number.parseInt(age, 10) || 16,
       role
@@ -97,8 +79,7 @@ const Profile = () => {
       const json = await res.json();
       console.log('updateUserProfile', res.status, json);
       // re-fetch authoritative profile so UI always matches DB
-      const userId = user.sub || user.email;
-      const profileRes = await authFetch(`${API_BASE}/api/getUserProfile?userId=${encodeURIComponent(userId)}`);
+      const profileRes = await authFetch(`${API_BASE}/api/getUserProfile`);
       if (profileRes.ok) {
         const profile = await profileRes.json();
         setNickname(profile.nickname ?? profile.name ?? '');

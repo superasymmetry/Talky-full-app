@@ -57,29 +57,20 @@ phoneme_word_bank = {
     "u": ["cup", "duck", "sun", "bus", "up", "bug", "music"],
 }
 
-@user_bp.route("/api/user/adduser", methods=["GET", "POST"])
-def adduser():
-    '''For initializing a user in mongodb database: inserts initial user document
-        Inputs: None
-        Returns: JSON object of user document
-    '''
-    data = request.get_json()
-    user_id = data.get("userId")
-    name = data.get("name", "")
-    
-    existing_user = users_collection.find_one({"userId": user_id})
-    if existing_user:
-        print(f"User {user_id} already exists")
-        return jsonify({"message": "User already exists", "userId": user_id}), 200
-    
-    phonemes = ["l", "r", "p", "b", "t", "d", "k", "g", "f", "v", "s", "z", 
+
+def _default_user_doc(user_id, name=""):
+    '''Full default schema for a brand-new user. Shared by adduser (legacy
+    explicit-create path) and the auto-provisioning in getUserProfile /
+    updateUserProfile, so a user is never left with a partial document
+    missing fields other routes (lessons, progress, history) depend on.'''
+    phonemes = ["l", "r", "p", "b", "t", "d", "k", "g", "f", "v", "s", "z",
                 "ʃ", "sh", "ʒ", "tʃ", "ch", "dʒ", "j", "m", "n", "ŋ", "w", "y",
                 "a", "e", "i", "o", "u"]
     phoneme_scores = [{"phoneme": ph, "avgScore": None, "attempts": None} for ph in phonemes]
     initial_history = dict.fromkeys(phonemes, 0)
     initial_history["timestamp"] = _utc_now_iso()
 
-    user_doc = {
+    return {
         "userId": user_id,
         "name": name,
         "nickname": "",
@@ -99,8 +90,30 @@ def adduser():
         "level": {"current": 1, "subpoints": 20, "maxval": 100},
         "maxLessonId": 4
     }
-    users_collection.insert_one(user_doc)
-    print("added user,", user_doc)
+
+
+@user_bp.route("/api/user/adduser", methods=["POST"])
+@requires_auth
+def adduser():
+    '''For initializing a user in mongodb database: inserts initial user document.
+        userId comes from the verified token (not the request body) so a
+        caller can't create/overwrite an arbitrary userId — same rule as
+        getUserProfile/updateUserProfile below.
+        Inputs: JSON body with optional "name"
+        Returns: JSON object of user document
+    '''
+    data = request.get_json(silent=True) or {}
+    user_id = g.current_user.get("sub")
+    if not user_id:
+        return jsonify({"message": "Token missing sub claim"}), 401
+    name = data.get("name", "")
+
+    existing_user = users_collection.find_one({"userId": user_id})
+    if existing_user:
+        return jsonify({"message": "User already exists", "userId": user_id}), 200
+
+    user_doc = _default_user_doc(user_id, name=name)
+    users_collection.insert_one(user_doc.copy())
     return jsonify(user_doc)
 
 @user_bp.route("/api/user/get_level", methods=["GET", "POST"])
@@ -231,7 +244,13 @@ def get_user_profile():
 
     user = users_collection.find_one({"userId": user_id}, {"_id": 0})
     if not user:
-        return jsonify({"message": "User not found"}), 404
+        # First time this user has ever hit the API — provision their doc
+        # now instead of 404ing. The frontend used to call a separate
+        # "create user" step before this fetch, but that call was never
+        # wired up, so no document ever existed and every subsequent save
+        # failed with "User not found".
+        user = _default_user_doc(user_id)
+        users_collection.insert_one(user.copy())
     return jsonify(user)
 
 
@@ -277,12 +296,19 @@ def update_user_profile():
     if not update_fields:
         return jsonify({"message": "No valid fields provided"}), 400
 
-    result = users_collection.update_one(
+    # upsert=True: this must succeed even for a user whose document hasn't
+    # been provisioned yet. $setOnInsert seeds the rest of the schema on
+    # first creation so the doc is never left missing fields other routes
+    # (lessons, progress, history) depend on. Previously this was a plain
+    # update_one with no upsert, so if no doc existed yet, matched_count
+    # was 0 and every save permanently 404'd as "User not found".
+    defaults = _default_user_doc(user_id)
+    set_on_insert = {k: v for k, v in defaults.items() if k not in update_fields}
+    users_collection.update_one(
         {"userId": user_id},
-        {"$set": update_fields}
+        {"$set": update_fields, "$setOnInsert": set_on_insert},
+        upsert=True
     )
-    if result.matched_count == 0:
-        return jsonify({"message": "User not found"}), 404
 
     return jsonify({"message": "Profile updated successfully", "updated": update_fields}), 200
 
