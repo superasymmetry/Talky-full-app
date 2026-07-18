@@ -16,7 +16,8 @@ import threading
 import re
 import json
 import threading, queue
-from stream_decode_util import stream_decode_util
+from stream_decode_util import stream_decode_util, stream_decode_logits, prosody_event, normalize
+from prosody_eval import warmup_async
 
 load_dotenv()
 
@@ -41,6 +42,8 @@ ALLOWED_ORIGINS = [
 # Prevent accidentally allowing every website
 if "*" in ALLOWED_ORIGINS:
     raise ValueError("Wildcard '*' is not allowed for CORS origins.")
+
+MODEL = "vitouphy/wav2vec2-xls-r-300m-timit-phoneme"
 
 app = Flask(__name__)
 
@@ -79,6 +82,10 @@ _model = None
 _feedback_model = None
 _device = None
 _load_lock = threading.Lock()
+
+# pyin's first call pays a ~10 s numba JIT compile that doesn't persist across
+# restarts; trigger it at boot so no lesson ever waits on it.
+warmup_async()
 
 sessions = {}
 
@@ -187,32 +194,39 @@ def _sanitize_for_log(value):
     return _LOG_CONTROL_CHARS_RE.sub('', str(value))
 
 
-# IPA digraphs that must be treated as a single phoneme token
-_IPA_DIGRAPHS = {"aʊ", "aɪ", "eɪ", "oʊ", "ɔɪ", "tʃ"}
-_IPA_SKIP = set(" ˈˌːˑ'")
-
 def _word_to_phonemes(word):
-    """Convert an English word to a list of IPA phoneme strings using eng_to_ipa."""
+    """Convert an English word to a list of IPA phoneme strings.
+
+    Tokenizes the eng_to_ipa output with the wav2vec2 tokenizer (instead of
+    hand-splitting digraphs) and drops any phoneme whose normalized form isn't
+    in the model vocab — a reference phoneme the model can never emit would
+    otherwise always be scored as mispronounced/omitted.
+    """
     clean = re.sub(r"[^a-zA-Z'-]", "", word)
     if not clean:
         return []
     ipa_str = ipa.convert(clean)
     if not ipa_str or "*" in ipa_str:
         return []
-    result = []
-    i = 0
-    while i < len(ipa_str):
-        two = ipa_str[i:i+2]
-        if two in _IPA_DIGRAPHS:
-            result.append(two)
-            i += 2
-        elif ipa_str[i] not in _IPA_SKIP:
-            result.append(ipa_str[i])
-            i += 1
-        else:
-            i += 1
-    return result
+    tokenizer = _load_processor_once().tokenizer
+    special = set(tokenizer.all_special_tokens)
+    norm_vocab = {normalize(t) for t in tokenizer.get_vocab()
+                  if t not in special and t not in ("|", " ")}
+    return [p for p in tokenizer.tokenize(ipa_str)
+            if p not in special and p not in ("|", " ", "ˈ", "ˌ", "ː", "ˑ", "'")
+            and normalize(p) in norm_vocab]
 
+def _load_processor_once():
+    """Load only the processor (tokenizer + feature-extractor config).
+    Used for sessions where the client streams precomputed wav2vec2 logits,
+    so the torch model never needs to be loaded server-side."""
+    global _processor
+    if _processor is None:
+        with _load_lock:
+            if _processor is None:
+                from transformers import Wav2Vec2Processor
+                _processor = Wav2Vec2Processor.from_pretrained(MODEL)
+    return _processor
 
 def _resolve_target_phoneme(lesson, word_list):
     """
@@ -244,8 +258,8 @@ def _load_model_once():
                 from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 
                 device = "cuda" if torch.cuda.is_available() else "cpu"
-                _processor = Wav2Vec2Processor.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme")
-                _model = Wav2Vec2ForCTC.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme").eval()
+                _processor = Wav2Vec2Processor.from_pretrained(MODEL)
+                _model = Wav2Vec2ForCTC.from_pretrained(MODEL).eval()
                 _model.to(device)
                 _feedback_model = Groq(api_key=os.environ.get("GROQ_API_KEY"))
                 _device = device
@@ -433,66 +447,108 @@ def handle_start(data):
         for _ in w['phonemes']
     ]
     chunk_queue = queue.Queue()
-    session = {'words_ipa': words_ipa, 'queue': chunk_queue, 'results': []}
+    # mode 'audio': client streams raw 16 kHz PCM, wav2vec2 runs server-side.
+    # mode 'logits': client already ran wav2vec2 (e.g. transformers.js on WebGPU)
+    #                and streams per-chunk logits; only alignment runs here.
+    #                The client also streams the raw audio so prosody can still
+    #                be scored server-side (see handle_chunk).
+    mode = data.get('mode', 'audio')
+    sentence = data.get('sentence', '')
+    session = {'words_ipa': words_ipa, 'queue': chunk_queue, 'results': [],
+               'mode': mode, 'audio': []}
     sessions[sid] = session
 
     def run():
-        processor, model, _, device = _load_model_once()
         word_phoneme_scores = [[] for _ in words_ipa]
+        stream_ended = False
 
         def drain():
+            nonlocal stream_ended
             while (item := chunk_queue.get()) is not None:
                 yield item
+            stream_ended = True
 
-        for match in stream_decode_util(drain(), flat_phonemes, processor, model, device):
-            word_idx = position_to_word_idx[match['position']]
-            word_phoneme_scores[word_idx].append({'phoneme': match['phoneme'], 'score': match['score']})
-            word_entry = words_ipa[word_idx]
-            if len(word_phoneme_scores[word_idx]) == len(word_entry['phonemes']):
-                scores = word_phoneme_scores[word_idx]
-                word_score = sum(p['score'] for p in scores) / len(scores)
-                result = {
-                    'word_index': word_idx,
-                    'word': word_entry['word'],
-                    'phonemes': scores,
-                    'score': word_score,
-                }
-                session['results'].append(result)
-                socketio.emit('partial_result', result, to=sid)
+        try:
+            if mode == 'logits':
+                processor = _load_processor_once()
+                matches = stream_decode_logits(drain(), flat_phonemes, processor.tokenizer)
+            else:
+                processor, model, _, device = _load_model_once()
+                matches = stream_decode_util(drain(), flat_phonemes, processor, model, device)
 
-                # Per-phoneme delta vs. this user's historical baseline, plus
-                # whether this word counts as a "strike". The lesson-wide
-                # lives count and running accuracy are accumulated on the
-                # frontend across all sentences in the lesson — see Lesson.jsx.
-                phoneme_deltas = []
-                for entry in scores:
-                    ph = entry['phoneme']
-                    base = baseline.get(ph)
-                    delta = None if base is None else entry['score'] - base
-                    if delta is None:
-                        status = 'new'
-                    elif delta > PHONEME_DELTA_MARGIN:
-                        status = 'improved'
-                    elif delta < -PHONEME_DELTA_MARGIN:
-                        status = 'worse'
-                    else:
-                        status = 'steady'
-                    phoneme_deltas.append({
-                        'phoneme': ph,
-                        'score': entry['score'],
-                        'baseline': base,
-                        'delta': delta,
-                        'status': status,
-                    })
+            for match in matches:
+                if match['label'] == 'insertion' or match['position'] is None:
+                    continue
+                word_idx = position_to_word_idx[match['position']]
+                word_phoneme_scores[word_idx].append({'phoneme': match['phoneme'], 'score': match['score']})
+                word_entry = words_ipa[word_idx]
+                if len(word_phoneme_scores[word_idx]) == len(word_entry['phonemes']):
+                    scores = word_phoneme_scores[word_idx]
+                    word_score = sum(p['score'] for p in scores) / len(scores)
+                    result = {
+                        'word_index': word_idx,
+                        'word': word_entry['word'],
+                        'phonemes': scores,
+                        'score': word_score,
+                    }
+                    session['results'].append(result)
+                    socketio.emit('partial_result', result, to=sid)
 
-                socketio.emit('stats_update', {
-                    'word_index': word_idx,
-                    'word': word_entry['word'],
-                    'score': word_score,
-                    'is_strike': word_score < WORD_FAIL_SCORE_THRESHOLD,
-                    'phoneme_deltas': phoneme_deltas,
-                }, to=sid)
-        finalize_session(sid)
+                    # Per-phoneme delta vs. this user's historical baseline, plus
+                    # whether this word counts as a "strike". The lesson-wide
+                    # lives count and running accuracy are accumulated on the
+                    # frontend across all sentences in the lesson — see Lesson.jsx.
+                    phoneme_deltas = []
+                    for entry in scores:
+                        ph = entry['phoneme']
+                        base = baseline.get(ph)
+                        delta = None if base is None else entry['score'] - base
+                        if delta is None:
+                            status = 'new'
+                        elif delta > PHONEME_DELTA_MARGIN:
+                            status = 'improved'
+                        elif delta < -PHONEME_DELTA_MARGIN:
+                            status = 'worse'
+                        else:
+                            status = 'steady'
+                        phoneme_deltas.append({
+                            'phoneme': ph,
+                            'score': entry['score'],
+                            'baseline': base,
+                            'delta': delta,
+                            'status': status,
+                        })
+
+                    socketio.emit('stats_update', {
+                        'word_index': word_idx,
+                        'word': word_entry['word'],
+                        'score': word_score,
+                        'is_strike': word_score < WORD_FAIL_SCORE_THRESHOLD,
+                        'phoneme_deltas': phoneme_deltas,
+                    }, to=sid)
+
+            # Alignment can finish before the speaker does — wait for the
+            # stream to end ('stop' or disconnect) so the result isn't sent
+            # mid-recording and prosody sees the full utterance.
+            if not stream_ended:
+                for _ in drain():
+                    pass
+        except Exception:
+            logger.exception("Stream decode failed")
+        finally:
+            # The word-score result must go out even if decode blew up, and
+            # before prosody: pyin can take seconds, and the main score
+            # shouldn't wait on it.
+            finalize_session(sid)
+
+        if session['audio']:
+            try:
+                event = prosody_event(np.concatenate(session['audio']), sentence)
+                socketio.emit('prosody', {k: event[k] for k in
+                                          ('monotony_score', 'rhythm_score',
+                                           'boundary_score', 'speaking_rate')}, to=sid)
+            except Exception:
+                logger.exception("Prosody evaluation failed")
 
     threading.Thread(target=run, daemon=True).start()
     print(f"Session started for {sid}: {data['sentence']}")
@@ -501,8 +557,32 @@ def handle_start(data):
 @socketio.on('chunk')
 def handle_chunk(data):
     session = sessions.get(request.sid)
-    if session:
-        session['queue'].put(np.frombuffer(data, dtype=np.float32))
+    if not session:
+        return
+    arr = np.frombuffer(data, dtype=np.float32)
+    # Raw audio is buffered in both modes so prosody can be evaluated over the
+    # full utterance after the word-score result goes out; in audio mode it
+    # additionally drives alignment via the queue.
+    session['audio'].append(arr)
+    if session.get('mode') != 'logits':
+        session['queue'].put(arr)
+
+
+@socketio.on('logits_chunk')
+def handle_logits_chunk(data):
+    """Receive precomputed wav2vec2 logits for one audio chunk.
+    Payload: {'frames': int, 'data': float32 bytes of shape (frames, vocab)}."""
+    session = sessions.get(request.sid)
+    if not session or session.get('mode') != 'logits':
+        return
+    try:
+        frames = int(data.get('frames', 0))
+        arr = np.frombuffer(data['data'], dtype=np.float32)
+    except (TypeError, KeyError, ValueError):
+        return
+    if frames <= 0 or arr.size == 0 or arr.size % frames != 0:
+        return
+    session['queue'].put(arr.reshape(frames, -1))
 
 
 @socketio.on('stop')

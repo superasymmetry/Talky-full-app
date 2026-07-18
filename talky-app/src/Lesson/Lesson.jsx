@@ -5,11 +5,11 @@ import * as THREE from 'three'
 import toast, { Toaster } from 'react-hot-toast';
 
 import Back from './Back.jsx';
-import { useMatch } from 'react-router-dom';
 import { io } from 'socket.io-client';
 
 import { speakText, stopSpeech } from '../tts.js';
 import { useAuth0 } from '@auth0/auth0-react';
+import { useMatch } from 'react-router-dom';
 
 useGLTF.preload('/robot-draco.glb')
 useGLTF.preload('/seagull-2.glb')
@@ -408,6 +408,8 @@ export default function Lesson() {
   const [wordsToIPA, setWordsToIPA] = useState(null);
   const [currentWordsToIPA, setCurrentWordsToIPA] = useState(null);
   const [wordResults, setWordResults] = useState([]);
+  // Utterance-level prosody scores from the server (null until a result arrives)
+  const [prosody, setProsody] = useState(null);
   const wordScoresRef = useRef([]);
   const skipNextSentenceSpeechRef = useRef(false);
 
@@ -439,8 +441,18 @@ export default function Lesson() {
   const streamRef = useRef(null);
   const accumChunksRef = useRef([]);
   const chunkIntervalRef = useRef(null);
-  const pendingSessionRef = useRef(null); // holds { sentence, words_ipa, userId } until connect fires
+  const pendingSessionRef = useRef(null); // holds { sentence, words_ipa, userId, mode } until connect fires
   const sentencePassedRef = useRef(false);
+
+  // On-device wav2vec2 (transformers.js / WebGPU) — when ready, we stream
+  // logits to the backend instead of raw audio and the model never runs server-side.
+  const workerRef = useRef(null);
+  const workerReadyRef = useRef(false);
+  const sessionModeRef = useRef('audio');   // 'logits' | 'audio', fixed per recording session
+  const pendingChunksRef = useRef(0);       // chunks handed to the worker, logits not yet emitted
+  const stopPendingRef = useRef(false);     // user stopped; waiting for worker to drain
+  const stopTimeoutRef = useRef(null);
+  const prosodyTimeoutRef = useRef(null);   // fallback disconnect if 'prosody' never arrives
 
   // Initialize socket once — listeners are stable across renders
   useEffect(() => {
@@ -516,14 +528,65 @@ export default function Lesson() {
       handleFinalResult(data);
     });
 
+    // Prosody arrives after 'result' (pyin is slow); it's the last event of a
+    // session, so the connection can be dropped once it lands.
+    socket.on('prosody', (data) => {
+      setProsody(data);
+      if (prosodyTimeoutRef.current) {
+        clearTimeout(prosodyTimeoutRef.current);
+        prosodyTimeoutRef.current = null;
+      }
+      socket.disconnect();
+    });
+
     return () => {
       socket.off('connect');
       socket.off('partial_result');
       socket.off('stats_update');
       socket.off('result');
+      socket.off('prosody');
       socket.disconnect();
     };
   }, [API_BASE]);
+
+  // Spin up the on-device wav2vec2 worker once. Model download + WebGPU init
+  // happen in the background; until 'ready' fires, sessions fall back to
+  // streaming raw audio (the server-side inference path).
+  useEffect(() => {
+    let worker;
+    try {
+      worker = new Worker(new URL('./wav2vec2Worker.js', import.meta.url), { type: 'module' });
+    } catch (err) {
+      console.warn('On-device wav2vec2 worker unavailable, streaming raw audio instead:', err);
+      return undefined;
+    }
+    workerRef.current = worker;
+
+    worker.onmessage = (e) => {
+      const msg = e.data;
+      if (msg.type === 'ready') {
+        workerReadyRef.current = true;
+      } else if (msg.type === 'error') {
+        workerReadyRef.current = false;
+        console.warn('On-device wav2vec2 unavailable, streaming raw audio instead:', msg.error);
+      } else if (msg.type === 'logits') {
+        if (sessionModeRef.current === 'logits' && socketRef.current?.connected) {
+          socketRef.current.emit('logits_chunk', { frames: msg.frames, data: msg.data.buffer });
+        }
+        pendingChunksRef.current -= 1;
+        if (stopPendingRef.current && pendingChunksRef.current <= 0) emitStop();
+      } else if (msg.type === 'chunk_error') {
+        pendingChunksRef.current -= 1;
+        if (stopPendingRef.current && pendingChunksRef.current <= 0) emitStop();
+      }
+    };
+
+    return () => {
+      worker.terminate();
+      workerRef.current = null;
+      workerReadyRef.current = false;
+    };
+  }, []);
 
   // Fetch lesson data — waits for Auth0 to resolve so we fetch with the
   // real userId instead of firing once against 'demo' and never refetching.
@@ -606,8 +669,17 @@ export default function Lesson() {
 
   const handleFinalResult = (data) => {
     setWordResults(data.res || []);
+    // Older servers bundle prosody into the result instead of sending a
+    // separate 'prosody' event afterwards.
+    if (data.prosody) setProsody(data.prosody);
     stopRecording();
-    socketRef.current?.disconnect();
+    // Stay connected for the trailing 'prosody' event; give up after 20 s so a
+    // dead server can't hold the socket open forever.
+    if (prosodyTimeoutRef.current) clearTimeout(prosodyTimeoutRef.current);
+    prosodyTimeoutRef.current = setTimeout(() => {
+      prosodyTimeoutRef.current = null;
+      socketRef.current?.disconnect();
+    }, 20000);
 
     if (data.passed) {
       if (sentencePassedRef.current) return;
@@ -639,7 +711,35 @@ export default function Lesson() {
     let offset = 0;
     for (const c of chunks) { flat.set(c, offset); offset += c.length; }
     const resampled = await resampleTo16k(flat, sampleRate);
+    // Raw audio always goes to the server: in audio mode it drives alignment,
+    // in logits mode the server only buffers it to score prosody at the end.
     socketRef.current.emit('chunk', resampled.buffer);
+    if (sessionModeRef.current === 'logits' && workerRef.current) {
+      pendingChunksRef.current += 1;
+      workerRef.current.postMessage({ type: 'chunk', audio: resampled });
+    }
+  };
+
+  const emitStop = () => {
+    if (stopTimeoutRef.current) {
+      clearTimeout(stopTimeoutRef.current);
+      stopTimeoutRef.current = null;
+    }
+    if (stopPendingRef.current) {
+      stopPendingRef.current = false;
+      socketRef.current?.emit('stop');
+    }
+  };
+
+  // In logits mode chunks may still be inside the worker when the user stops;
+  // wait for them to drain so the tail of the utterance is scored too.
+  const requestStop = () => {
+    if (sessionModeRef.current === 'logits' && pendingChunksRef.current > 0) {
+      stopPendingRef.current = true;
+      stopTimeoutRef.current = setTimeout(emitStop, 5000); // don't hang if the worker dies
+    } else {
+      socketRef.current?.emit('stop');
+    }
   };
 
   const startRecording = async () => {
@@ -658,13 +758,28 @@ export default function Lesson() {
     setWordResults([]);
     // Fresh attempt: allow (at most) one more strike to count against lives.
     sentenceStrikeAppliedRef.current = false;
+    setProsody(null);
+
+    // Lock the pipeline for this session: on-device inference if the worker
+    // finished loading, otherwise stream raw audio for server-side inference.
+    sessionModeRef.current = workerReadyRef.current ? 'logits' : 'audio';
+    pendingChunksRef.current = 0;
+    stopPendingRef.current = false;
+    if (stopTimeoutRef.current) {
+      clearTimeout(stopTimeoutRef.current);
+      stopTimeoutRef.current = null;
+    }
+    if (prosodyTimeoutRef.current) {
+      clearTimeout(prosodyTimeoutRef.current);
+      prosodyTimeoutRef.current = null;
+    }
 
     // Store session metadata so the 'connect' listener can emit 'start'.
     // userId is sent so the backend can look up this user's historical
     // phoneme averages for the live improved/worse deltas.
     const socket = socketRef.current;
     if (socket.connected) socket.disconnect();
-    pendingSessionRef.current = { sentence, words_ipa, userId };
+    pendingSessionRef.current = { sentence, words_ipa, userId, mode: sessionModeRef.current };
     socket.connect();
 
     let stream;
@@ -706,7 +821,7 @@ export default function Lesson() {
 
   const toggleRecording = () => {
     if (isRecording) {
-      socketRef.current?.emit('stop'); // ask server to finalize; disconnect happens in handleFinalResult
+      requestStop(); // ask server to finalize (after worker drains, in logits mode); disconnect happens in handleFinalResult
       stopRecording();
     } else {
       startRecording();
@@ -1189,6 +1304,37 @@ export default function Lesson() {
                 );
               })}
             </div>
+          </div>
+        )}
+
+        {prosody && (
+          <div style={{
+            marginTop: 8,
+            paddingTop: 8,
+            borderTop: '1px solid rgba(255,255,255,0.2)',
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 14,
+            fontSize: 13
+          }}>
+            <span title="How much your pitch varied — higher is livelier, less monotone">
+              Expression score: {Math.round((prosody.monotony_score ?? 0) * 100)}%
+            </span>
+            {prosody.rhythm_score != null && (
+              <span title="How natural your rhythm of long and short syllables was">
+                Rhythm score: {Math.round(prosody.rhythm_score * 100)}%
+              </span>
+            )}
+            {prosody.boundary_score != null && (
+              <span title="Did your voice rise for questions and fall for statements?">
+                Sentence melody: {Math.round(prosody.boundary_score * 100)}%
+              </span>
+            )}
+            {prosody.speaking_rate != null && (
+              <span title="Approximate syllables per second">
+                Speaking rate: {prosody.speaking_rate} syll/s
+              </span>
+            )}
           </div>
         )}
       </div>
