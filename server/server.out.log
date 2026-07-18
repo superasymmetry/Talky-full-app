@@ -1,0 +1,33 @@
+Pinged your deployment. You successfully connected to MongoDB!
+Map([<Rule '/static/<filename>' (HEAD, OPTIONS, GET) -> static>,
+ <Rule '/api/user/adduser' (POST, HEAD, OPTIONS, GET) -> user_bp.adduser>,
+ <Rule '/api/user/get_level' (POST, HEAD, OPTIONS, GET) -> user_bp.get_user_level>,
+ <Rule '/api/user/progress' (POST, HEAD, OPTIONS, GET) -> user_bp.get_user_progress_weakness>,
+ <Rule '/api/user/history' (POST, HEAD, OPTIONS, GET) -> user_bp.get_user_history>,
+ <Rule '/api/user/lessons' (POST, HEAD, OPTIONS, GET) -> user_bp.get_user_lessons>,
+ <Rule '/api/user/generatenextlesson' (POST, HEAD, OPTIONS, GET) -> user_bp.generatenextlesson>,
+ <Rule '/api/getUserProfile' (HEAD, OPTIONS, GET) -> user_bp.get_user_profile>,
+ <Rule '/api/getUserProgress' (HEAD, OPTIONS, GET) -> user_bp.get_user_progress>,
+ <Rule '/api/user/updateUserProgress' (POST, OPTIONS) -> user_bp.update_user_progress>,
+ <Rule '/api/scoreAudio' (POST, OPTIONS) -> score_bp.score_audio>,
+ <Rule '/api/tts/voices' (HEAD, OPTIONS, GET) -> tts.tts_voices>,
+ <Rule '/api/tts' (POST, OPTIONS) -> tts.tts>])
+
+=== Registered Routes ===
+{'HEAD', 'OPTIONS', 'GET'} -> /static/<path:filename>
+{'POST', 'HEAD', 'OPTIONS', 'GET'} -> /api/user/adduser
+{'POST', 'HEAD', 'OPTIONS', 'GET'} -> /api/user/get_level
+{'POST', 'HEAD', 'OPTIONS', 'GET'} -> /api/user/progress
+{'POST', 'HEAD', 'OPTIONS', 'GET'} -> /api/user/history
+{'POST', 'HEAD', 'OPTIONS', 'GET'} -> /api/user/lessons
+{'POST', 'HEAD', 'OPTIONS', 'GET'} -> /api/user/generatenextlesson
+{'HEAD', 'OPTIONS', 'GET'} -> /api/getUserProfile
+{'HEAD', 'OPTIONS', 'GET'} -> /api/getUserProgress
+{'POST', 'OPTIONS'} -> /api/user/updateUserProgress
+{'POST', 'OPTIONS'} -> /api/scoreAudio
+{'HEAD', 'OPTIONS', 'GET'} -> /api/tts/voices
+{'POST', 'OPTIONS'} -> /api/tts
+========================
+
+ * Serving Flask app 'main'
+ * Debug mode: on
