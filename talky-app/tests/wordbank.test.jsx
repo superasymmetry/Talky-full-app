@@ -3,17 +3,13 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import SoundBankCategory from '../src/SoundBank/SoundBankCategory.jsx';
 import { vi } from 'vitest';
+import { speakText } from '../src/tts.js';
 
-global.SpeechSynthesisUtterance = function (text) {
-    this.text = text;
-    this.lang = '';
-    this.rate = 1;
-    this.pitch = 1;
-    this.voice = null;
-    this.onend = null;
-};
+vi.mock('../src/tts.js', () => ({
+  speakText: vi.fn().mockResolvedValue(),
+  stopSpeech: vi.fn()
+}));
 
-// Mock Card to just render props for test
 vi.mock('../src/Card.jsx', () => ({
     default: ({ name, content }) => (
         <div>
@@ -23,7 +19,6 @@ vi.mock('../src/Card.jsx', () => ({
     )
 }));
 
-// Mock fetch
 global.fetch = vi.fn(() =>
     Promise.resolve({
         ok: true,
@@ -73,8 +68,6 @@ describe('SoundBankCategory', () => {
     });
 
     it('synthesizes speech when clicked on card', async () => {
-        const speakMock = vi.fn();
-        window.speechSynthesis = { speak: speakMock, cancel: vi.fn(), getVoices: () => [] };
 
         render(
             <MemoryRouter>
@@ -83,10 +76,9 @@ describe('SoundBankCategory', () => {
         );
         await waitFor(() => expect(fetch).toHaveBeenCalled());
 
-        // Find all emojis and click the parent of the first one
         const emojis = await screen.findAllByTestId('emoji');
         fireEvent.click(emojis[0].parentElement);
 
-        expect(speakMock).toHaveBeenCalled();
+        expect(speakText).toHaveBeenCalled();
     });
 });

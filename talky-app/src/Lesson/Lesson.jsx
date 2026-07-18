@@ -1,11 +1,13 @@
+import { Canvas } from '@react-three/fiber'
 import { ContactShadows, Environment, OrbitControls, Sky, useAnimations, useGLTF } from '@react-three/drei'
 import { Suspense, forwardRef, useEffect, useRef, useState } from 'react'
 import toast, { Toaster } from 'react-hot-toast';
 
 import Back from './Back.jsx';
-import { Canvas } from '@react-three/fiber'
-import { io } from 'socket.io-client';
 import { useMatch } from 'react-router-dom';
+import { io } from 'socket.io-client';
+
+import { speakText, stopSpeech } from '../tts.js';
 import { useAuth0 } from '@auth0/auth0-react';
 
 useGLTF.preload('/robot-draco.glb')
@@ -251,7 +253,7 @@ export default function Lesson() {
   const [isFinished, setIsFinished] = useState(false);
   const [doneSentence, setDoneSentence] = useState(false);
   const [feedbackText, setFeedbackText] = useState('');
-  const [robotPos, setRobotPos] = useState([-10, -1, 0]);
+  const [robotPos] = useState([-10, -1, 0]);
   const robotRef = useRef(null);
   const match = useMatch("/lessons/:id");
   const lessonId = match?.params?.id;
@@ -263,7 +265,13 @@ export default function Lesson() {
   const [currentWordsToIPA, setCurrentWordsToIPA] = useState(null);
   const [wordResults, setWordResults] = useState([]);
   const wordScoresRef = useRef([]);
-  const sentencePassedRef = useRef(false);
+  const skipNextSentenceSpeechRef = useRef(false);
+
+  const speakSentence = (sentence) => {
+    return speakText(sentence).catch((err) => {
+      console.warn('TTS failed', err);
+    });
+  };
 
   // --- Lesson-wide performance tracking (persists across all sentences) ---
   const [lives, setLives] = useState(LESSON_START_LIVES);
@@ -284,6 +292,7 @@ export default function Lesson() {
   const accumChunksRef = useRef([]);
   const chunkIntervalRef = useRef(null);
   const pendingSessionRef = useRef(null); // holds { sentence, words_ipa, userId } until connect fires
+  const sentencePassedRef = useRef(false);
 
   // Initialize socket once — listeners are stable across renders
   useEffect(() => {
@@ -362,15 +371,7 @@ export default function Lesson() {
       socket.off('result');
       socket.disconnect();
     };
-  }, []);
-
-  // Show expected phonemes as soon as the sentence changes
-  useEffect(() => {
-    if (wordsToIPA && currentSentenceIndex > 0) {
-      setCurrentWordsToIPA(wordsToIPA[currentSentenceIndex - 1] || null);
-      setWordResults([]);
-    }
-  }, [wordsToIPA, currentSentenceIndex]);
+  }, [API_BASE]);
 
   // Fetch lesson data — waits for Auth0 to resolve so we fetch with the
   // real userId instead of firing once against 'demo' and never refetching.
@@ -409,40 +410,26 @@ export default function Lesson() {
         toast.error('Failed to load lesson. Please check your connection and reload.');
         setIntroVideo({ videoId: DEFAULT_INTRO_VIDEO_ID, start: 0, usedFallback: true });
       });
-  }, [authLoading, userId, lessonId]);
+  }, [authLoading, userId, lessonId, API_BASE]);
+
+  useEffect(() => {
+    if (wordsToIPA && currentSentenceIndex > 0) {
+      setCurrentWordsToIPA(wordsToIPA[currentSentenceIndex - 1] || null);
+      setWordResults([]);
+    }
+  }, [wordsToIPA, currentSentenceIndex]);
 
   // TTS for current sentence
   useEffect(() => {
     if (!cardData || showIntro) return;
     const currentSentence = cardData[String(currentSentenceIndex)] || cardData[currentSentenceIndex] || '';
     if (!currentSentence) return;
-    try {
-      window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(currentSentence);
-      u.lang = 'en-US';
-      const savedVoice = localStorage.getItem('ttsVoice');
-      if (savedVoice) {
-        const voices = window.speechSynthesis.getVoices();
-        const voice = voices.find(v => v.name === savedVoice);
-        if (voice) u.voice = voice;
-      }
-      window.speechSynthesis.speak(u);
-    } catch (err) {
-      console.warn('TTS failed', err);
+    if (skipNextSentenceSpeechRef.current) {
+      skipNextSentenceSpeechRef.current = false;
+      return;
     }
+    speakSentence(currentSentence);
   }, [cardData, currentSentenceIndex, showIntro]);
-
-  const speakText = (text) => {
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = 'en-US';
-    const savedVoice = localStorage.getItem('ttsVoice');
-    if (savedVoice) {
-      const voices = window.speechSynthesis.getVoices();
-      const voice = voices.find(v => v.name === savedVoice);
-      if (voice) utter.voice = voice;
-    }
-    window.speechSynthesis.speak(utter);
-  };
 
   const stopRecording = () => {
     if (chunkIntervalRef.current) {
@@ -475,15 +462,13 @@ export default function Lesson() {
       sentencePassedRef.current = true;
       wordScoresRef.current.push(...extractWordScores(data.res));
       actions?.ThumbsUp?.play?.();
-      speakText("Great job!");
+      speakSentence("Great job!");
       setScore(s => (s ?? 0) + data.score);
       setDoneSentence(true);
       actions?.Walking?.play?.();
       if (robotRef.current) {
         robotRef.current.translateZ(30 / 7);
         robotRef.current.updateMatrixWorld();
-        const p = robotRef.current.position;
-        setRobotPos([p.x, p.y, p.z]);
       }
       actions?.Idle?.play?.();
     } else {
@@ -491,7 +476,7 @@ export default function Lesson() {
       setScore(s => Math.max(0, (s ?? 0) - (100 - data.score)));
       const feedbackMsg = String(data.feedback || 'No, try again.');
       setFeedbackText(feedbackMsg);
-      speakText(feedbackMsg);
+      speakSentence(feedbackMsg);
     }
   };
 
@@ -578,6 +563,7 @@ export default function Lesson() {
     sentencePassedRef.current = false;
     setDoneSentence(false);
     if (cardData && cardData[(currentSentenceIndex + 1).toString()]) {
+      stopSpeech();
       setCurrentSentenceIndex(prev => prev + 1);
       if (actions) {
         Object.values(actions).forEach(action => action.stop());
@@ -648,7 +634,14 @@ export default function Lesson() {
           <div style={{ marginBottom: '2rem', fontSize: '1.2rem' }}>Loading video...</div>
         )}
         <button
-          onClick={() => setShowIntro(false)}
+          onClick={() => {
+            const currentSentence = cardData?.[String(currentSentenceIndex)] || cardData?.[currentSentenceIndex] || '';
+            skipNextSentenceSpeechRef.current = true;
+            setShowIntro(false);
+            if (currentSentence) {
+              speakSentence(currentSentence);
+            }
+          }}
           style={{
             padding: '12px 24px',
             borderRadius: 25,
@@ -868,7 +861,7 @@ export default function Lesson() {
               <button
                 onClick={() => {
                   setFeedbackText('')
-                  window.speechSynthesis.cancel()
+                  stopSpeech()
                 }}
                 style={{
                   position: 'absolute',
@@ -889,6 +882,7 @@ export default function Lesson() {
           </div>
         )}
 
+        {/* next button - only show when finished*/}
         {doneSentence && (
           <button
             aria-label="Next lesson"
@@ -896,7 +890,7 @@ export default function Lesson() {
             onMouseLeave={() => setNextHover(false)}
             onClick={() => {
               goToNextSentence();
-              window.speechSynthesis.cancel()
+              stopSpeech()
             }}
             style={{
               display: 'flex',
