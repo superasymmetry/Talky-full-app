@@ -307,7 +307,7 @@ if __name__ == "__main__":
                 yield audio_queue.get()
 
     for event in stream_decode_util(chunk_generator(), reference_phonemes, processor, model, device,
-                                    sample_rate, text=reference_sentence):
+                                    sample_rate):
         print(f"  -> {event}", flush=True)
 
     print("Done.")
