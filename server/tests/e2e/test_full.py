@@ -1,9 +1,15 @@
 import json
 import threading
 import unittest
-from playwright.sync_api import sync_playwright
 import sys
 import os
+import urllib.request
+
+try:
+    from playwright.sync_api import sync_playwright
+except ModuleNotFoundError:
+    sync_playwright = None
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'utils')))
 
 # Pre-defined mock phoneme results (12 phonemes across 3 words — enough to pass the >10 assertion)
@@ -86,9 +92,15 @@ def _mock_socketio(ws_route):
 
 
 class TestLesson(unittest.TestCase):
+    @unittest.skipIf(sync_playwright is None, "playwright is not installed")
     def test_phoneme_colors_and_tooltip(self):
+        try:
+            urllib.request.urlopen("http://localhost:5173/lessons/1", timeout=2)
+        except Exception:
+            self.skipTest("frontend is not running on http://localhost:5173")
+
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=False)
+            browser = p.chromium.launch(headless=True)
             context = browser.new_context(permissions=["microphone"])
             page = context.new_page()
 
