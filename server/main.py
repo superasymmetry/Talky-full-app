@@ -63,6 +63,22 @@ CORS(
     },
 )
 
+
+# Any request that sends a custom header (our Authorization: Bearer ...
+# header counts) triggers a CORS preflight OPTIONS request from the
+# browser first. Flask/Werkzeug is supposed to auto-handle OPTIONS on any
+# registered route, but that was 404ing here for routes like
+# /api/user/roster even though the GET on the exact same path worked fine
+# — the browser then blocks the real request entirely since the preflight
+# failed. This unconditionally answers every OPTIONS request before
+# routing/404 logic gets a chance to run, and flask-cors's after_request
+# hook still attaches the correct Access-Control-* headers on the way out.
+@app.before_request
+def _handle_cors_preflight():
+    if request.method == "OPTIONS":
+        return app.make_default_options_response()
+
+
 # Register routes
 app.register_blueprint(user_bp)
 app.register_blueprint(score_bp)
@@ -365,7 +381,6 @@ def wordbank():
 
     model = "llama-3.1-8b-instant"
 
-    # Updated prompt: include emojis for each word
     prompt = f"""
     Your task is to generate 16 words for speech therapy practice. 
     Return your output **only** as a JSON object in this format:
@@ -596,7 +611,7 @@ def handle_stop():
 def handle_disconnect():
     session = sessions.pop(request.sid, None)
     if session:
-        session['queue'].put(None)  # unblock the background thread
+        session['queue'].put(None)
 
 
 @app.route("/", methods=["GET"])
