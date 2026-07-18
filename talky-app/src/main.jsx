@@ -1,6 +1,6 @@
 ﻿import { StrictMode, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom'
 import './index.css'
 import App from './App.jsx'
 import Lesson from './Lesson/Lesson.jsx'
@@ -37,15 +37,42 @@ const UserCreator = ({ children }) => {
   return children
 }
 
-createRoot(document.getElementById('root')).render(
-  <StrictMode>
+// Wraps Auth0Provider so we can use react-router's navigate() inside
+// onRedirectCallback. Must render *inside* BrowserRouter for useNavigate to work.
+// eslint-disable-next-line react-refresh/only-export-components
+const Auth0ProviderWithNavigate = ({ children }) => {
+  const navigate = useNavigate()
+
+  const onRedirectCallback = (appState) => {
+    // Without this, Auth0's default callback just strips the query params
+    // and leaves you on whatever path the browser is currently on after
+    // the redirect back from Auth0 — which, combined with redirect_uri
+    // pointing at the bare origin, is why it was dumping everyone on "/".
+    navigate(appState?.returnTo || '/app')
+  }
+
+  return (
     <Auth0Provider
       domain={domain}
       clientId={clientId}
       authorizationParams={{ redirect_uri: window.location.origin, audience }}
+      onRedirectCallback={onRedirectCallback}
+      // Default is 'memory', which only lives for the current page load.
+      // Any full navigation/refresh wiped the session, so /app always
+      // looked logged-out even though the Auth0 session cookie was fine.
+      cacheLocation="localstorage"
+      useRefreshTokens={true}
     >
-      <UserCreator>
-        <BrowserRouter>
+      {children}
+    </Auth0Provider>
+  )
+}
+
+createRoot(document.getElementById('root')).render(
+  <StrictMode>
+    <BrowserRouter>
+      <Auth0ProviderWithNavigate>
+        <UserCreator>
           <Routes>
             <Route path="/app" element={<App/>}/>
             <Route path="/lessons/:id" element={<Lesson />}/>
@@ -56,9 +83,8 @@ createRoot(document.getElementById('root')).render(
             <Route path="/statistics" element={<Statistics/>}/>
             <Route path="/" element={<LandingPage/>}/>
           </Routes>
-        </BrowserRouter>
-      </UserCreator>
-    </Auth0Provider>
+        </UserCreator>
+      </Auth0ProviderWithNavigate>
+    </BrowserRouter>
   </StrictMode>,
 )
-

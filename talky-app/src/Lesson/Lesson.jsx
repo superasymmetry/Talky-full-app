@@ -8,6 +8,7 @@ import { useMatch } from 'react-router-dom';
 import { io } from 'socket.io-client';
 
 import { speakText, stopSpeech } from '../tts.js';
+import { useAuth0 } from '@auth0/auth0-react';
 
 useGLTF.preload('/robot-draco.glb')
 
@@ -71,13 +72,6 @@ const getPhonemeStyle = (score) => {
   return { background: '#fecaca', color: '#991b1b' };
 };
 
-// To ensure that tainted data is validated before being used to construct a client-side request URL
-const VALID_USER_ID = /^[a-zA-Z0-9_-]{1,128}$/;
-const getValidUserId = (key) => {
-  const id = localStorage.getItem(key) || 'demo';
-  return VALID_USER_ID.test(id) ? id : 'demo';
-};
-
 // Builds a YouTube embed URL from a bare video ID (+ optional start offset in seconds).
 // Kept separate from the lesson-fetch logic so the mapping itself can live entirely
 // on the backend (see /scripts/build_phoneme_video_map.py) and just get shipped down
@@ -92,6 +86,14 @@ const buildEmbedUrl = (videoId, startSeconds) => {
 
 export default function Lesson() {
   const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+  // Auth0 is the source of truth for who's logged in — every other page
+  // (App.jsx, Profile.jsx, Statistics.jsx) keys off user.sub || user.email.
+  // This page used to read localStorage.getItem('user_id'/'userId'), which
+  // nothing ever wrote, so every lesson fetch AND every progress save was
+  // silently going to the 'demo' account instead of the real signed-in user.
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth0();
+  const userId = isAuthenticated && user ? (user.sub || user.email) : 'demo';
+
   const [nextHover, setNextHover] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [cardData, setCardData] = useState(null);
@@ -183,9 +185,11 @@ export default function Lesson() {
     socketRef.current?.emit('stop');
   };
 
-  // Fetch lesson data
+  // Fetch lesson data — waits for Auth0 to resolve so we fetch with the
+  // real userId instead of firing once against 'demo' and never refetching.
   useEffect(() => {
-    const userId = getValidUserId('user_id');
+    if (authLoading || !lessonId) return;
+
     fetch(`${API_BASE}/api/lessons?user_id=${encodeURIComponent(userId)}&lesson_id=${encodeURIComponent(lessonId)}`, {
       cache: 'no-store',
     })
@@ -218,8 +222,8 @@ export default function Lesson() {
         console.error("Error fetching data:", error);
         toast.error('Failed to load lesson. Please check your connection and reload.');
         setIntroVideo({ videoId: DEFAULT_INTRO_VIDEO_ID, start: 0, usedFallback: true });
-      })
-  }, [API_BASE, lessonId]);
+      });
+  }, [authLoading, userId, lessonId, API_BASE]);
 
   useEffect(() => {
     if (wordsToIPA && currentSentenceIndex > 0) {
@@ -270,7 +274,6 @@ export default function Lesson() {
       setIsFinished(true);
       const currentLessonId = parseInt(window.location.pathname.split('/').pop());
 
-      const userId = getValidUserId('userId');
       fetch(`${API_BASE}/api/user/updateUserProgress`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
