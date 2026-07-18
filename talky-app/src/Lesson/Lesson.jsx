@@ -6,8 +6,13 @@ import Back from './Back.jsx';
 import { Canvas } from '@react-three/fiber'
 import { io } from 'socket.io-client';
 import { useMatch } from 'react-router-dom';
+import { useAuth0 } from '@auth0/auth0-react';
 
 useGLTF.preload('/robot-draco.glb')
+
+// Fallback used if the lesson's target phoneme has no mapped video yet
+// (e.g. new phoneme added before the backend map is regenerated).
+const DEFAULT_INTRO_VIDEO_ID = 'IwWw6Xe09O0';
 
 function extractWordScores(res) {
   if (!Array.isArray(res)) return [];
@@ -65,15 +70,28 @@ const getPhonemeStyle = (score) => {
   return { background: '#fecaca', color: '#991b1b' };
 };
 
-// To ensure that tainted data is validated before being used to construct a client-side request URL
-const VALID_USER_ID = /^[a-zA-Z0-9_-]{1,128}$/;
-const getValidUserId = (key) => {
-  const id = localStorage.getItem(key) || 'demo';
-  return VALID_USER_ID.test(id) ? id : 'demo';
+// Builds a YouTube embed URL from a bare video ID (+ optional start offset in seconds).
+// Kept separate from the lesson-fetch logic so the mapping itself can live entirely
+// on the backend (see /scripts/build_phoneme_video_map.py) and just get shipped down
+// as { intro_video_id, intro_video_start } on the lesson payload.
+const buildEmbedUrl = (videoId, startSeconds) => {
+  if (!videoId) return null;
+  const s = Number.isFinite(startSeconds) ? Math.max(0, Math.floor(startSeconds)) : 0;
+  const params = new URLSearchParams({ autoplay: '0' });
+  if (s) params.set('start', String(s));
+  return `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?${params.toString()}`;
 };
 
 export default function Lesson() {
   const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+  // Auth0 is the source of truth for who's logged in — every other page
+  // (App.jsx, Profile.jsx, Statistics.jsx) keys off user.sub || user.email.
+  // This page used to read localStorage.getItem('user_id'/'userId'), which
+  // nothing ever wrote, so every lesson fetch AND every progress save was
+  // silently going to the 'demo' account instead of the real signed-in user.
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth0();
+  const userId = isAuthenticated && user ? (user.sub || user.email) : 'demo';
+
   const [nextHover, setNextHover] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [cardData, setCardData] = useState(null);
@@ -87,7 +105,8 @@ export default function Lesson() {
   const match = useMatch("/lessons/:id");
   const lessonId = match?.params?.id;
   const [showIntro, setShowIntro] = useState(true);
-  const videoUrl = "https://youtu.be/IwWw6Xe09O0?t=31";
+  // Resolved server-side from the lesson's target phoneme. Null while loading.
+  const [introVideo, setIntroVideo] = useState(null); // { videoId, start, usedFallback }
   const [score, setScore] = useState(0);
   const [wordsToIPA, setWordsToIPA] = useState(null);
   const [currentWordsToIPA, setCurrentWordsToIPA] = useState(null);
@@ -112,17 +131,6 @@ export default function Lesson() {
   const pendingChunksRef = useRef(0);       // chunks handed to the worker, logits not yet emitted
   const stopPendingRef = useRef(false);     // user stopped; waiting for worker to drain
   const stopTimeoutRef = useRef(null);
-
-  const toEmbed = (u) => {
-    try {
-      if (!u) return null;
-      const url = new URL(u);
-      const v = url.searchParams.get('v');
-      if (v) return `https://www.youtube.com/embed/${v}`;
-      if (url.hostname === 'youtu.be') return `https://www.youtube.com/embed/${url.pathname.slice(1)}`;
-      return u;
-    } catch (e) { console.error("Error parsing URL:", e); return null; }
-  }
 
   // Initialize socket once — listeners are stable across renders
   useEffect(() => {
@@ -204,10 +212,14 @@ export default function Lesson() {
     }
   }, [wordsToIPA, currentSentenceIndex]);
 
-  // Fetch lesson data
+  // Fetch lesson data — waits for Auth0 to resolve so we fetch with the
+  // real userId instead of firing once against 'demo' and never refetching.
   useEffect(() => {
-    const userId = getValidUserId('user_id');
-    fetch(`${API_BASE}/api/lessons?user_id=${encodeURIComponent(userId)}&lesson_id=${encodeURIComponent(lessonId)}`)
+    if (authLoading || !lessonId) return;
+
+    fetch(`${API_BASE}/api/lessons?user_id=${encodeURIComponent(userId)}&lesson_id=${encodeURIComponent(lessonId)}`, {
+      cache: 'no-store',
+    })
       .then((response) => response.json())
       .then((data) => {
         setCardData(data.sentences ?? data);
@@ -216,12 +228,28 @@ export default function Lesson() {
           toast.error('Phoneme data failed to load. Please reload the page.');
         }
         setWordsToIPA(ipas);
+
+        // The backend resolves the lesson's target phoneme to a curated
+        // Glossika Phonics video (see build_phoneme_video_map.py). If that
+        // lookup ever misses, fall back to a generic phonemes-overview video
+        // rather than showing nothing.
+        if (data.intro_video_id) {
+          setIntroVideo({
+            videoId: data.intro_video_id,
+            start: data.intro_video_start || 0,
+            usedFallback: false,
+          });
+        } else {
+          setIntroVideo({ videoId: DEFAULT_INTRO_VIDEO_ID, start: 0, usedFallback: true });
+          console.warn(`No intro video mapped for phoneme "${data.target_phoneme}", using fallback.`);
+        }
       })
       .catch((error) => {
         console.error("Error fetching data:", error);
         toast.error('Failed to load lesson. Please check your connection and reload.');
+        setIntroVideo({ videoId: DEFAULT_INTRO_VIDEO_ID, start: 0, usedFallback: true });
       });
-  }, []);
+  }, [authLoading, userId, lessonId]);
 
   // TTS for current sentence
   useEffect(() => {
@@ -438,7 +466,6 @@ export default function Lesson() {
       setIsFinished(true);
       const currentLessonId = parseInt(window.location.pathname.split('/').pop());
 
-      const userId = getValidUserId('userId');
       fetch(`${API_BASE}/api/user/updateUserProgress`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -463,6 +490,7 @@ export default function Lesson() {
   }
 
   if (showIntro) {
+    const embedUrl = introVideo ? buildEmbedUrl(introVideo.videoId, introVideo.start) : null;
     return (
       <div style={{
         position: 'fixed',
@@ -478,10 +506,10 @@ export default function Lesson() {
       }}>
         <Back />
         <h2 style={{ fontSize: '2rem', marginBottom: '1rem' }}>Watch this example first</h2>
-        {videoUrl ? (
+        {embedUrl ? (
           <iframe
             title="intro-video"
-            src={toEmbed(videoUrl)}
+            src={embedUrl}
             width="640"
             height="360"
             style={{ borderRadius: 12, marginBottom: '2rem' }}
