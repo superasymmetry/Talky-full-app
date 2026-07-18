@@ -1,4 +1,0 @@
-# Snyk policy file
-cli:
-  command-arguments:
-    - --skip-unresolved=true
