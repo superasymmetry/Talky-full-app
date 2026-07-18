@@ -20,7 +20,7 @@
     "react-dom": "18.2.0",
     "react-hot-toast": "^2.6.0",
     "react-just-parallax": "^3.1.16",
-    "react-router-dom": "^6.30.1",
+    "react-router-dom": "^6.30.2",
     "react-use-audio-recorder": "^0.4.2",
     "reaviz": "^16.1.1",
     "scroll-lock": "^2.1.5",
