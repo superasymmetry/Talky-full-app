@@ -283,6 +283,10 @@ export default function Lesson() {
   const [lessonFailed, setLessonFailed] = useState(false);
   const allWordScoresRef = useRef([]); // every word score across the whole lesson
   const lessonFailedRef = useRef(false);
+  // Caps strikes to at most 1 per sentence attempt — without this, a sentence
+  // with several low-scoring words would burn through all lives at once
+  // instead of costing a single life per attempt. Reset in startRecording.
+  const sentenceStrikeAppliedRef = useRef(false);
 
   // Audio + socket refs
   const socketRef = useRef(null);
@@ -340,7 +344,11 @@ export default function Lesson() {
         });
       }
 
-      if (data.is_strike) {
+      // Only the first strike within a given sentence attempt actually costs
+      // a life — otherwise a sentence with several rough words would knock
+      // out multiple lives in one go instead of one per exercise attempt.
+      if (data.is_strike && !sentenceStrikeAppliedRef.current) {
+        sentenceStrikeAppliedRef.current = true;
         setLives(prev => {
           const next = Math.max(0, prev - 1);
           if (next === 0 && !lessonFailedRef.current) {
@@ -504,6 +512,8 @@ export default function Lesson() {
 
     setIsRecording(true);
     setWordResults([]);
+    // Fresh attempt: allow (at most) one more strike to count against lives.
+    sentenceStrikeAppliedRef.current = false;
 
     // Store session metadata so the 'connect' listener can emit 'start'.
     // userId is sent so the backend can look up this user's historical
