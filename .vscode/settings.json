@@ -9,5 +9,8 @@
         "*_test.py"
     ],
     "python.testing.pytestEnabled": false,
-    "python.testing.unittestEnabled": true
+    "python.testing.unittestEnabled": true,
+    "editor.wordWrap": "on",
+    "files.autoSave": "afterDelay",
+    "git.enabled": true
 }

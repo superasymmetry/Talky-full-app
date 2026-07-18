@@ -1,11 +1,13 @@
+import { Canvas } from '@react-three/fiber'
 import { ContactShadows, Environment, OrbitControls, Sky, useAnimations, useGLTF } from '@react-three/drei'
 import { Suspense, forwardRef, useEffect, useRef, useState } from 'react'
 import toast, { Toaster } from 'react-hot-toast';
 
 import Back from './Back.jsx';
-import { Canvas } from '@react-three/fiber'
-import { io } from 'socket.io-client';
 import { useMatch } from 'react-router-dom';
+import { io } from 'socket.io-client';
+
+import { speakText, stopSpeech } from '../tts.js';
 import { useAuth0 } from '@auth0/auth0-react';
 
 useGLTF.preload('/robot-draco.glb')
@@ -100,7 +102,7 @@ export default function Lesson() {
   const [isFinished, setIsFinished] = useState(false);
   const [doneSentence, setDoneSentence] = useState(false);
   const [feedbackText, setFeedbackText] = useState('');
-  const [robotPos, setRobotPos] = useState([-10, -1, 0]);
+  const [robotPos] = useState([-10, -1, 0]);
   const robotRef = useRef(null);
   const match = useMatch("/lessons/:id");
   const lessonId = match?.params?.id;
@@ -112,16 +114,24 @@ export default function Lesson() {
   const [currentWordsToIPA, setCurrentWordsToIPA] = useState(null);
   const [wordResults, setWordResults] = useState([]);
   const wordScoresRef = useRef([]);
-  const sentencePassedRef = useRef(false);
+  const skipNextSentenceSpeechRef = useRef(false);
+
+  const speakSentence = (sentence) => {
+    stopSpeech();
+    return speakText(sentence).catch((err) => {
+      console.warn('TTS failed', err);
+    });
+  };
 
   // Audio + socket refs
   const socketRef = useRef(null);
-  const audioContextRef = useRef(null);
-  const processorRef = useRef(null);
-  const streamRef = useRef(null);
-  const accumChunksRef = useRef([]);
-  const chunkIntervalRef = useRef(null);
-  const pendingSessionRef = useRef(null); // holds { sentence, words_ipa } until connect fires
+  const pendingSessionRef = useRef(null);
+  const sentencePassedRef = useRef(false);
+
+  const handleFinalResult = () => {
+    setIsRecording(false);
+    sentencePassedRef.current = true;
+  };
 
   // Initialize socket once — listeners are stable across renders
   useEffect(() => {
@@ -144,8 +154,8 @@ export default function Lesson() {
       });
     });
 
-    socket.on('result', (data) => {
-      handleFinalResult(data);
+    socket.on('result', () => {
+      handleFinalResult();
     });
 
     return () => {
@@ -154,15 +164,26 @@ export default function Lesson() {
       socket.off('result');
       socket.disconnect();
     };
-  }, []);
+  }, [API_BASE]);
 
-  // Show expected phonemes as soon as the sentence changes
-  useEffect(() => {
-    if (wordsToIPA && currentSentenceIndex > 0) {
-      setCurrentWordsToIPA(wordsToIPA[currentSentenceIndex - 1] || null);
-      setWordResults([]);
+  const startRecording = async () => {
+    const currentSentence = cardData?.[String(currentSentenceIndex)] || cardData?.[currentSentenceIndex] || '';
+    pendingSessionRef.current = {
+      sentence: currentSentence,
+      words_ipa: currentWordsToIPA,
+    };
+
+    if (socketRef.current && !socketRef.current.connected) {
+      socketRef.current.connect();
     }
-  }, [wordsToIPA, currentSentenceIndex]);
+
+    setIsRecording(true);
+  };
+
+  const stopRecording = () => {
+    setIsRecording(false);
+    socketRef.current?.emit('stop');
+  };
 
   // Fetch lesson data — waits for Auth0 to resolve so we fetch with the
   // real userId instead of firing once against 'demo' and never refetching.
@@ -196,164 +217,35 @@ export default function Lesson() {
           console.warn(`No intro video mapped for phoneme "${data.target_phoneme}", using fallback.`);
         }
       })
+
       .catch((error) => {
         console.error("Error fetching data:", error);
         toast.error('Failed to load lesson. Please check your connection and reload.');
         setIntroVideo({ videoId: DEFAULT_INTRO_VIDEO_ID, start: 0, usedFallback: true });
       });
-  }, [authLoading, userId, lessonId]);
+  }, [authLoading, userId, lessonId, API_BASE]);
+
+  useEffect(() => {
+    if (wordsToIPA && currentSentenceIndex > 0) {
+      setCurrentWordsToIPA(wordsToIPA[currentSentenceIndex - 1] || null);
+      setWordResults([]);
+    }
+  }, [wordsToIPA, currentSentenceIndex]);
 
   // TTS for current sentence
   useEffect(() => {
     if (!cardData || showIntro) return;
     const currentSentence = cardData[String(currentSentenceIndex)] || cardData[currentSentenceIndex] || '';
     if (!currentSentence) return;
-    try {
-      window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(currentSentence);
-      u.lang = 'en-US';
-      const savedVoice = localStorage.getItem('ttsVoice');
-      if (savedVoice) {
-        const voices = window.speechSynthesis.getVoices();
-        const voice = voices.find(v => v.name === savedVoice);
-        if (voice) u.voice = voice;
-      }
-      window.speechSynthesis.speak(u);
-    } catch (err) {
-      console.warn('TTS failed', err);
+    if (skipNextSentenceSpeechRef.current) {
+      skipNextSentenceSpeechRef.current = false;
+      return;
     }
+    speakSentence(currentSentence);
   }, [cardData, currentSentenceIndex, showIntro]);
 
-  const speakText = (text) => {
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = 'en-US';
-    const savedVoice = localStorage.getItem('ttsVoice');
-    if (savedVoice) {
-      const voices = window.speechSynthesis.getVoices();
-      const voice = voices.find(v => v.name === savedVoice);
-      if (voice) utter.voice = voice;
-    }
-    window.speechSynthesis.speak(utter);
-  };
-
-  const stopRecording = () => {
-    if (chunkIntervalRef.current) {
-      clearInterval(chunkIntervalRef.current);
-      chunkIntervalRef.current = null;
-    }
-    if (processorRef.current) {
-      processorRef.current.disconnect();
-      processorRef.current = null;
-    }
-    if (audioContextRef.current) {
-      audioContextRef.current.close();
-      audioContextRef.current = null;
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop());
-      streamRef.current = null;
-    }
-    accumChunksRef.current = [];
-    setIsRecording(false);
-  };
-
-  const handleFinalResult = (data) => {
-    setWordResults(data.res || []);
-    stopRecording();
-    socketRef.current?.disconnect();
-
-    if (data.passed) {
-      if (sentencePassedRef.current) return;
-      sentencePassedRef.current = true;
-      wordScoresRef.current.push(...extractWordScores(data.res));
-      actions?.ThumbsUp?.play?.();
-      speakText("Great job!");
-      setScore(s => (s ?? 0) + data.score);
-      setDoneSentence(true);
-      actions?.Walking?.play?.();
-      if (robotRef.current) {
-        robotRef.current.translateZ(30 / 7);
-        robotRef.current.updateMatrixWorld();
-        const p = robotRef.current.position;
-        setRobotPos([p.x, p.y, p.z]);
-      }
-      actions?.Idle?.play?.();
-    } else {
-      actions?.No?.play?.();
-      setScore(s => Math.max(0, (s ?? 0) - (100 - data.score)));
-      const feedbackMsg = String(data.feedback || 'No, try again.');
-      setFeedbackText(feedbackMsg);
-      speakText(feedbackMsg);
-    }
-  };
-
-  const sendChunk = async (chunks, sampleRate) => {
-    if (!chunks.length || !socketRef.current?.connected) return;
-    const totalLength = chunks.reduce((sum, c) => sum + c.length, 0);
-    const flat = new Float32Array(totalLength);
-    let offset = 0;
-    for (const c of chunks) { flat.set(c, offset); offset += c.length; }
-    const resampled = await resampleTo16k(flat, sampleRate);
-    socketRef.current.emit('chunk', resampled.buffer);
-  };
-
-  const startRecording = async () => {
-    if (sentencePassedRef.current) {
-      toast("You've already passed this exercise! Click Next to continue.", { icon: '✅' });
-      return;
-    }
-    const sentence = cardData?.[currentSentenceIndex.toString()];
-    const words_ipa = wordsToIPA?.[currentSentenceIndex - 1];
-    if (!sentence || !words_ipa) {
-      toast.error('Lesson data not ready yet — please wait a moment and try again.');
-      return;
-    }
-
-    setIsRecording(true);
-    setWordResults([]);
-
-    // Store session metadata so the 'connect' listener can emit 'start'
-    const socket = socketRef.current;
-    if (socket.connected) socket.disconnect();
-    pendingSessionRef.current = { sentence, words_ipa };
-    socket.connect();
-
-    let stream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    } catch (err) {
-      console.error('Microphone access denied:', err);
-      setIsRecording(false);
-      alert('Microphone access is required to record.');
-      socket.disconnect();
-      return;
-    }
-    streamRef.current = stream;
-
-    const ctx = new AudioContext();
-    audioContextRef.current = ctx;
-    const source = ctx.createMediaStreamSource(stream);
-
-    const BUFFER_SIZE = 2048;
-    const CHUNK_INTERVAL_MS = 500;
-
-    // ScriptProcessorNode is deprecated but avoids needing a separate worklet file
-    const processor = ctx.createScriptProcessor(BUFFER_SIZE, 1, 1);
-    processorRef.current = processor;
-    accumChunksRef.current = [];
-
-    processor.onaudioprocess = (e) => {
-      accumChunksRef.current.push(new Float32Array(e.inputBuffer.getChannelData(0)));
-    };
-
-    chunkIntervalRef.current = setInterval(() => {
-      const chunks = accumChunksRef.current.splice(0);
-      if (chunks.length > 0) sendChunk(chunks, ctx.sampleRate);
-    }, CHUNK_INTERVAL_MS);
-
-    source.connect(processor);
-    processor.connect(ctx.destination);
-  };
+  // display percent progress for each phoneme
+  
 
   const toggleRecording = () => {
     if (isRecording) {
@@ -368,6 +260,7 @@ export default function Lesson() {
     sentencePassedRef.current = false;
     setDoneSentence(false);
     if (cardData && cardData[(currentSentenceIndex + 1).toString()]) {
+      stopSpeech();
       setCurrentSentenceIndex(prev => prev + 1);
       if (actions) {
         Object.values(actions).forEach(action => action.stop());
@@ -436,7 +329,14 @@ export default function Lesson() {
           <div style={{ marginBottom: '2rem', fontSize: '1.2rem' }}>Loading video...</div>
         )}
         <button
-          onClick={() => setShowIntro(false)}
+          onClick={() => {
+            const currentSentence = cardData?.[String(currentSentenceIndex)] || cardData?.[currentSentenceIndex] || '';
+            skipNextSentenceSpeechRef.current = true;
+            setShowIntro(false);
+            if (currentSentence) {
+              speakSentence(currentSentence);
+            }
+          }}
           style={{
             padding: '12px 24px',
             borderRadius: 25,
@@ -575,7 +475,7 @@ export default function Lesson() {
               <button
                 onClick={() => {
                   setFeedbackText('')
-                  window.speechSynthesis.cancel()
+                  stopSpeech()
                 }}
                 style={{
                   position: 'absolute',
@@ -596,6 +496,7 @@ export default function Lesson() {
           </div>
         )}
 
+        {/* next button - only show when finished*/}
         {doneSentence && (
           <button
             aria-label="Next lesson"
@@ -603,7 +504,7 @@ export default function Lesson() {
             onMouseLeave={() => setNextHover(false)}
             onClick={() => {
               goToNextSentence();
-              window.speechSynthesis.cancel()
+              stopSpeech()
             }}
             style={{
               display: 'flex',

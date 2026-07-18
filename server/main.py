@@ -13,8 +13,6 @@ from find_video import get_video_for_phoneme
 from user_routes import user_bp
 from score_routes import score_bp
 import threading
-import torch
-from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 import re
 import json
 import threading, queue
@@ -32,18 +30,44 @@ logging.basicConfig(
 )
 logger = logging.getLogger("main")
 
-ALLOWED_ORIGINS = os.environ.get(
-    "ALLOWED_ORIGINS",
-    "https://talkwithtalky.org,https://d26pahabsgpl8k.cloudfront.net,http://localhost:3000,http://localhost:5173"
-).split(",")
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get(
+        "ALLOWED_ORIGINS",
+        "https://talkwithtalky.org,https://d26pahabsgpl8k.cloudfront.net,http://localhost:3000,http://localhost:5173"
+    ).split(",")
+]
+
+# Prevent accidentally allowing every website
+if "*" in ALLOWED_ORIGINS:
+    raise ValueError("Wildcard '*' is not allowed for CORS origins.")
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins=ALLOWED_ORIGINS, async_mode='threading')
-cors = CORS(app, resources={r"/api/*": {"origins": ALLOWED_ORIGINS}})
+
+socketio = SocketIO(
+    app,
+    cors_allowed_origins=ALLOWED_ORIGINS,
+    async_mode="threading"
+)
+
+CORS(
+    app,
+    resources={
+        r"/api/*": {
+            "origins": ALLOWED_ORIGINS,
+            "supports_credentials": False,
+        }
+    },
+)
 
 # Register routes
 app.register_blueprint(user_bp)
 app.register_blueprint(score_bp)
+
+from tts.tts import tts_bp
+app.register_blueprint(tts_bp)
+
+print(app.url_map)
 
 print("\n=== Registered Routes ===")
 for rule in app.url_map.iter_rules():
@@ -53,8 +77,8 @@ print("========================\n")
 _processor = None
 _model = None
 _feedback_model = None
+_device = None
 _load_lock = threading.Lock()
-device = "cuda" if torch.cuda.is_available() else "cpu"
 
 sessions = {}
 
@@ -198,15 +222,20 @@ def _resolve_target_phoneme(lesson, word_list):
 
 
 def _load_model_once():
-    global _processor, _model, _feedback_model
+    global _processor, _model, _feedback_model, _device
     if _processor is None or _model is None:
         with _load_lock:
             if _processor is None or _model is None:
+                import torch
+                from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
+
+                device = "cuda" if torch.cuda.is_available() else "cpu"
                 _processor = Wav2Vec2Processor.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme")
                 _model = Wav2Vec2ForCTC.from_pretrained("vitouphy/wav2vec2-xls-r-300m-timit-phoneme").eval()
                 _model.to(device)
                 _feedback_model = Groq(api_key=os.environ.get("GROQ_API_KEY"))
-    return _processor, _model, _feedback_model
+                _device = device
+    return _processor, _model, _feedback_model, _device
 
 @app.route('/api/lessons', methods=['GET', 'POST'])
 def lessons():
@@ -375,7 +404,7 @@ def handle_start(data):
     sessions[sid] = session
 
     def run():
-        processor, model, _ = _load_model_once()
+        processor, model, _, device = _load_model_once()
         word_phoneme_scores = [[] for _ in words_ipa]
 
         def drain():

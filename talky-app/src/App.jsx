@@ -50,7 +50,13 @@ function App() {
             >
               {lessons.map((card, index) => (
                 <div key={card.id} className="min-w-[240px] snap-center" style={{ position: 'relative' }}>
-                  <Card {...card} showRocket={true} disabled={index === lessons.length - 1} id={`${card.id}`} />
+                  <Card
+                    {...card}
+                    showRocket={true}
+                    disabled={index === lessons.length - 1}
+                    id={`${card.id}`}
+                    data-testid="lesson-card"
+                  />
                   {index === lessons.length - 1 && (
                     <img src="/padlock.jpg"
                         style={{
@@ -74,7 +80,7 @@ function App() {
           <h2 id="soundbank-heading" className="text-xl text-white font-semibold mb-4">Explore</h2>
           <div className="flex justify-center">
             <div className="w-full max-w-sm">
-              <Card {...soundBankCard} />
+              <Card {...soundBankCard} data-testid="soundbank-card" />
             </div>
           </div>
         </section>
