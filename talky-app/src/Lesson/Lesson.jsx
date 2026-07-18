@@ -5,8 +5,8 @@ import toast, { Toaster } from 'react-hot-toast';
 import Back from './Back.jsx';
 import { Canvas } from '@react-three/fiber'
 import { io } from 'socket.io-client';
-import { useMatch } from 'react-router-dom';
 import { useAuth0 } from '@auth0/auth0-react';
+import { useMatch } from 'react-router-dom';
 
 useGLTF.preload('/robot-draco.glb')
 
@@ -111,6 +111,8 @@ export default function Lesson() {
   const [wordsToIPA, setWordsToIPA] = useState(null);
   const [currentWordsToIPA, setCurrentWordsToIPA] = useState(null);
   const [wordResults, setWordResults] = useState([]);
+  // Utterance-level prosody scores from the server (null until a result arrives)
+  const [prosody, setProsody] = useState(null);
   const wordScoresRef = useRef([]);
   const sentencePassedRef = useRef(false);
 
@@ -131,6 +133,7 @@ export default function Lesson() {
   const pendingChunksRef = useRef(0);       // chunks handed to the worker, logits not yet emitted
   const stopPendingRef = useRef(false);     // user stopped; waiting for worker to drain
   const stopTimeoutRef = useRef(null);
+  const prosodyTimeoutRef = useRef(null);   // fallback disconnect if 'prosody' never arrives
 
   // Initialize socket once — listeners are stable across renders
   useEffect(() => {
@@ -157,10 +160,22 @@ export default function Lesson() {
       handleFinalResult(data);
     });
 
+    // Prosody arrives after 'result' (pyin is slow); it's the last event of a
+    // session, so the connection can be dropped once it lands.
+    socket.on('prosody', (data) => {
+      setProsody(data);
+      if (prosodyTimeoutRef.current) {
+        clearTimeout(prosodyTimeoutRef.current);
+        prosodyTimeoutRef.current = null;
+      }
+      socket.disconnect();
+    });
+
     return () => {
       socket.off('connect');
       socket.off('partial_result');
       socket.off('result');
+      socket.off('prosody');
       socket.disconnect();
     };
   }, []);
@@ -307,8 +322,17 @@ export default function Lesson() {
 
   const handleFinalResult = (data) => {
     setWordResults(data.res || []);
+    // Older servers bundle prosody into the result instead of sending a
+    // separate 'prosody' event afterwards.
+    if (data.prosody) setProsody(data.prosody);
     stopRecording();
-    socketRef.current?.disconnect();
+    // Stay connected for the trailing 'prosody' event; give up after 20 s so a
+    // dead server can't hold the socket open forever.
+    if (prosodyTimeoutRef.current) clearTimeout(prosodyTimeoutRef.current);
+    prosodyTimeoutRef.current = setTimeout(() => {
+      prosodyTimeoutRef.current = null;
+      socketRef.current?.disconnect();
+    }, 20000);
 
     if (data.passed) {
       if (sentencePassedRef.current) return;
@@ -342,11 +366,12 @@ export default function Lesson() {
     let offset = 0;
     for (const c of chunks) { flat.set(c, offset); offset += c.length; }
     const resampled = await resampleTo16k(flat, sampleRate);
+    // Raw audio always goes to the server: in audio mode it drives alignment,
+    // in logits mode the server only buffers it to score prosody at the end.
+    socketRef.current.emit('chunk', resampled.buffer);
     if (sessionModeRef.current === 'logits' && workerRef.current) {
       pendingChunksRef.current += 1;
       workerRef.current.postMessage({ type: 'chunk', audio: resampled });
-    } else {
-      socketRef.current.emit('chunk', resampled.buffer);
     }
   };
 
@@ -386,6 +411,7 @@ export default function Lesson() {
 
     setIsRecording(true);
     setWordResults([]);
+    setProsody(null);
 
     // Lock the pipeline for this session: on-device inference if the worker
     // finished loading, otherwise stream raw audio for server-side inference.
@@ -395,6 +421,10 @@ export default function Lesson() {
     if (stopTimeoutRef.current) {
       clearTimeout(stopTimeoutRef.current);
       stopTimeoutRef.current = null;
+    }
+    if (prosodyTimeoutRef.current) {
+      clearTimeout(prosodyTimeoutRef.current);
+      prosodyTimeoutRef.current = null;
     }
 
     // Store session metadata so the 'connect' listener can emit 'start'
@@ -813,6 +843,37 @@ export default function Lesson() {
                 );
               })}
             </div>
+          </div>
+        )}
+
+        {prosody && (
+          <div style={{
+            marginTop: 8,
+            paddingTop: 8,
+            borderTop: '1px solid rgba(255,255,255,0.2)',
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 14,
+            fontSize: 13
+          }}>
+            <span title="How much your pitch varied — higher is livelier, less monotone">
+              Expression score: {Math.round((prosody.monotony_score ?? 0) * 100)}%
+            </span>
+            {prosody.rhythm_score != null && (
+              <span title="How natural your rhythm of long and short syllables was">
+                Rhythm score: {Math.round(prosody.rhythm_score * 100)}%
+              </span>
+            )}
+            {prosody.boundary_score != null && (
+              <span title="Did your voice rise for questions and fall for statements?">
+                Sentence melody: {Math.round(prosody.boundary_score * 100)}%
+              </span>
+            )}
+            {prosody.speaking_rate != null && (
+              <span title="Approximate syllables per second">
+                Speaking rate: {prosody.speaking_rate} syll/s
+              </span>
+            )}
           </div>
         )}
       </div>

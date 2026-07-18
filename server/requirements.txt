@@ -23,6 +23,7 @@ pydub==0.25.1
 
 eng_to_ipa==0.0.2
 RapidFuzz==3.14.3
+librosa==0.11.0
 
 pymongo==4.16.0
 certifi==2026.1.4
