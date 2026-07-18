@@ -1,6 +1,7 @@
-import { Canvas } from '@react-three/fiber'
-import { ContactShadows, Environment, OrbitControls, Sky, useAnimations, useGLTF } from '@react-three/drei'
-import { Suspense, forwardRef, useEffect, useRef, useState } from 'react'
+import { Canvas, useFrame } from '@react-three/fiber'
+import { Cloud, Clouds, ContactShadows, Environment, OrbitControls, Sky, useAnimations, useGLTF } from '@react-three/drei'
+import { Suspense, forwardRef, useEffect, useMemo, useRef, useState } from 'react'
+import * as THREE from 'three'
 import toast, { Toaster } from 'react-hot-toast';
 
 import Back from './Back.jsx';
@@ -11,6 +12,7 @@ import { speakText, stopSpeech } from '../tts.js';
 import { useAuth0 } from '@auth0/auth0-react';
 
 useGLTF.preload('/robot-draco.glb')
+useGLTF.preload('/seagull-2.glb')
 
 // Fallback used if the lesson's target phoneme has no mapped video yet
 // (e.g. new phoneme added before the backend map is regenerated).
@@ -67,6 +69,148 @@ async function resampleTo16k(float32Array, fromSampleRate) {
   source.start();
   const rendered = await offlineCtx.startRendering();
   return rendered.getChannelData(0);
+}
+
+// --- Background scenery -----------------------------------------------------
+// Purely decorative — none of this touches lesson state. Positions are
+// randomized once per mount (useMemo) so they don't reshuffle on re-render,
+// and everything sits far enough from the road/robot area to avoid
+// overlapping the parts of the scene that matter for the lesson.
+
+// A single low-poly pine: a trunk cylinder + 2-3 stacked cone tiers.
+// Scale/tint vary slightly per-tree so a whole cluster doesn't look stamped out.
+function Pine({ position, scale = 1, hue = 0 }) {
+  const green = `hsl(${100 + hue}, 35%, ${28 + hue}%)`
+  return (
+    <group position={position} scale={scale}>
+      <mesh position={[0, 0.4, 0]} castShadow receiveShadow>
+        <cylinderGeometry args={[0.08, 0.12, 0.8, 6]} />
+        <meshStandardMaterial color="#5c4326" roughness={1} />
+      </mesh>
+      <mesh position={[0, 1.05, 0]} castShadow receiveShadow>
+        <coneGeometry args={[0.7, 1.1, 8]} />
+        <meshStandardMaterial color={green} roughness={0.9} />
+      </mesh>
+      <mesh position={[0, 1.6, 0]} castShadow receiveShadow>
+        <coneGeometry args={[0.52, 0.9, 8]} />
+        <meshStandardMaterial color={green} roughness={0.9} />
+      </mesh>
+      <mesh position={[0, 2.05, 0]} castShadow receiveShadow>
+        <coneGeometry args={[0.34, 0.7, 8]} />
+        <meshStandardMaterial color={green} roughness={0.9} />
+      </mesh>
+    </group>
+  )
+}
+
+// A rounder, leafier tree for variety among the pines.
+function LeafyTree({ position, scale = 1, hue = 0 }) {
+  const green = `hsl(${95 + hue}, 45%, ${32 + hue}%)`
+  return (
+    <group position={position} scale={scale}>
+      <mesh position={[0, 0.5, 0]} castShadow receiveShadow>
+        <cylinderGeometry args={[0.1, 0.15, 1, 6]} />
+        <meshStandardMaterial color="#6b4a2c" roughness={1} />
+      </mesh>
+      <mesh position={[0, 1.35, 0]} castShadow receiveShadow>
+        <icosahedronGeometry args={[0.65, 0]} />
+        <meshStandardMaterial color={green} roughness={0.95} flatShading />
+      </mesh>
+    </group>
+  )
+}
+
+// Scatters pines + leafy trees around the field, keeping clear of the road
+// strip (x > ~3 near z ~ 0) and the robot's walking lane.
+function Trees() {
+  const trees = useMemo(() => {
+    const items = []
+    let seed = 1337
+    const rand = () => {
+      // simple deterministic PRNG so the layout is stable across re-renders
+      seed = (seed * 9301 + 49297) % 233280
+      return seed / 233280
+    }
+    for (let i = 0; i < 150; i++) {
+      const angle = rand() * Math.PI * 2
+      const radius = 16 + rand() * 22
+      const x = Math.cos(angle) * radius - 8
+      const z = Math.sin(angle) * radius
+      // keep clear of the paved road area and the open lesson stage
+      if (Math.abs(z) < 5 && x > -6) continue
+      const scale = 0.8 + rand() * 0.9
+      const hue = rand() * 20 - 10
+      const Comp = rand() > 0.5 ? Pine : LeafyTree
+      items.push({ id: i, x, z, scale, hue, Comp })
+    }
+    return items
+  }, [])
+
+  return (
+    <group>
+      {trees.map(({ id, x, z, scale, hue, Comp }) => (
+        <Comp key={id} position={[x, -1, z]} scale={scale} hue={hue} />
+      ))}
+    </group>
+  )
+}
+
+// Layered low-poly mountains ringing the horizon, tinted progressively bluer
+// and lighter with distance for a simple atmospheric-perspective effect.
+function Mountains() {
+  const ranges = useMemo(() => {
+    const items = []
+    let seed = 42
+    const rand = () => {
+      seed = (seed * 9301 + 49297) % 233280
+      return seed / 233280
+    }
+    const layers = [
+      { radius: 70, count: 10, height: 18, color: '#7c8fa8', y: -1 },
+      { radius: 95, count: 12, height: 25, color: '#9aa9c0', y: -1 },
+      { radius: 125, count: 14, height: 32, color: '#bcc7da', y: -1 },
+    ]
+    layers.forEach((layer, li) => {
+      for (let i = 0; i < layer.count; i++) {
+        const angle = (i / layer.count) * Math.PI * 2 + rand() * 0.3
+        const x = Math.cos(angle) * layer.radius
+        const z = Math.sin(angle) * layer.radius
+        const height = layer.height * (0.6 + rand() * 0.7)
+        const width = height * (0.8 + rand() * 0.6)
+        items.push({ id: `${li}-${i}`, x, z, height, width, color: layer.color })
+      }
+    })
+    return items
+  }, [])
+
+  return (
+    <group>
+      {ranges.map(({ id, x, z, height, width, color }) => (
+        <mesh key={id} position={[x, height / 2 - 1, z]} rotation={[0, (x + z) * 0.01, 0]}>
+          <coneGeometry args={[width / 2, height, 4]} />
+          <meshStandardMaterial color={color} flatShading roughness={1} />
+        </mesh>
+      ))}
+    </group>
+  )
+}
+
+// Drifting cloud puffs at a few heights/depths using drei's volumetric Cloud.
+function SkyClouds() {
+  const groupRef = useRef(null)
+  useFrame((_, delta) => {
+    if (groupRef.current) groupRef.current.position.x += delta * 0.15
+  })
+  return (
+    <group ref={groupRef}>
+      <Clouds>
+        <Cloud position={[-20, 10, -30]} speed={0.15} opacity={0.6} segments={20} bounds={[10, 3, 3]} />
+        <Cloud position={[15, 12, -45]} speed={0.1} opacity={0.5} segments={16} bounds={[8, 2.5, 3]} />
+        <Cloud position={[40, 8, -20]} speed={0.2} opacity={0.55} segments={18} bounds={[9, 3, 3]} />
+        <Cloud position={[-45, 14, 10]} speed={0.12} opacity={0.5} segments={14} bounds={[7, 2, 3]} />
+      </Clouds>
+    </group>
+  )
 }
 
 const Model = forwardRef(function Model(props, ref) {
@@ -792,12 +936,14 @@ export default function Lesson() {
         <Suspense fallback={null}>
           <Sky distance={450000} sunPosition={[2, 1, 0]} inclination={0.45} azimuth={0.25} />
           <Environment preset="sunset" background={false} />
+          <fog attach="fog" args={['#bcd4e6', 40, 190]} />
 
           <ambientLight intensity={0.6} />
+          <hemisphereLight args={['#bcd4f0', '#5c7a3f', 0.5]} />
           <directionalLight position={[5, 10, 5]} intensity={1.2} castShadow shadow-mapSize-width={2048} shadow-mapSize-height={2048} />
 
           <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -1.01, 0]} receiveShadow>
-            <planeGeometry args={[100, 100]} />
+            <planeGeometry args={[260, 260]} />
             <meshStandardMaterial color="#6aa84f" roughness={1} metalness={0} />
           </mesh>
 
@@ -805,6 +951,10 @@ export default function Lesson() {
             <planeGeometry args={[30, 4]} />
             <meshStandardMaterial color="#333" roughness={0.9} metalness={0.1} />
           </mesh>
+
+          <Mountains />
+          <Trees />
+          <SkyClouds />
 
           <group position={[20, -1, 0]}>
             <mesh position={[0, 1, 0]} castShadow>
