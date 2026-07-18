@@ -27,7 +27,7 @@ def warmup_async():
     def _warm():
         # Even resolving the librosa.pyin attribute triggers the slow lazy
         # imports, so everything must happen inside the thread.
-        noise = np.random.randn(2048).astype(np.float32)
+        noise = np.random.default_rng().standard_normal(2048, dtype=np.float32)
         librosa.pyin(noise, fmin=75, fmax=300, sr=16000, hop_length=_HOP)
 
     threading.Thread(target=_warm, daemon=True).start()
