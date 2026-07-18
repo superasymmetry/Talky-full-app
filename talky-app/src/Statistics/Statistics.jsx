@@ -2,8 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
 
 import Header from '../Header/Header.jsx';
-import Footer from '../Footer.jsx';
-
 import { useStatsData } from './useStatsData.js';
 import {
   activityCells,
@@ -32,7 +30,6 @@ const Layout = ({ children }) => (
     <main className="pt-32 pb-24 px-5 lg:px-10">
       <div className="max-w-[87.5rem] mx-auto">{children}</div>
     </main>
-    <Footer />
   </div>
 );
 

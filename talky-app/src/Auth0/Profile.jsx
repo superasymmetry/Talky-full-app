@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react'
 
 import Header from '../Header/Header';
-import VoiceSettings from '../SoundBank/VoiceSettings';
 import talkyRocket from '../assets/logo.png';
 import { useAuth0 } from '@auth0/auth0-react';
 
@@ -219,9 +218,6 @@ const Profile = () => {
               Save Changes
             </button>
           </div>
-
-          {/* Voice settings panel (embedded) */}
-          <VoiceSettings embed={true} />
         </div>
       </main>
     </>
