@@ -86,6 +86,17 @@ def _mock_lessons(route):
         body=json.dumps(MOCK_LESSON_RESPONSE),
     )
 
+
+def _mock_glb(route):
+    # The 3D scene (robot-draco.glb, seagull-2.glb) is decorative and
+    # unrelated to what this test verifies. CI may not have network access
+    # for the Draco WASM decoder or the model files themselves, and letting
+    # a real fetch happen just adds flakiness. Fulfilling with a 404 keeps
+    # the test hermetic; the frontend's SceneErrorBoundary (see Lesson.jsx)
+    # ensures a failed/missing model can't take down the lesson UI.
+    route.fulfill(status=404, body="")
+
+
 # Socket.IO over EIO4 WebSocket framing helpers
 def _sio_event(name, data):
     return f'42{json.dumps([name, data])}'
@@ -124,8 +135,24 @@ class TestLesson(unittest.TestCase):
             context = browser.new_context(permissions=["microphone"])
             page = context.new_page()
 
+            # Surface any client-side JS errors/console errors in the pytest
+            # output instead of letting them fail silently — this is what
+            # actually pointed at the root cause of the original timeout
+            # (an unhandled GLTF/Draco load rejection with no error boundary
+            # around it, which was tearing down the whole component tree).
+            page.on("pageerror", lambda exc: print(f"PAGE ERROR: {exc}"))
+            page.on(
+                "console",
+                lambda msg: print(f"CONSOLE ERROR: {msg.text}") if msg.type == "error" else None,
+            )
+
             # Mock the lesson API (CI has no seeded Mongo user and no real Groq key)
             page.route("**/api/lessons*", _mock_lessons)
+
+            # Mock the 3D model assets so the test doesn't depend on network
+            # access or the Draco decoder being available in CI, and so a
+            # missing/broken model can never be the reason this test hangs.
+            page.route("**/*.glb", _mock_glb)
 
             # Intercept socket.io WebSocket connections
             page.route_web_socket("**/socket.io/**", _mock_socketio)
@@ -146,7 +173,15 @@ class TestLesson(unittest.TestCase):
             page.wait_for_selector("span[title='No score']")
 
             page.click("text=Record")
-            page.wait_for_selector("span[title*='Score:']", timeout=10000)
+
+            # Poll on the count directly rather than waiting for visibility of
+            # an arbitrary matched element — more robust once several scored
+            # spans exist, and gives a clearer timeout failure than
+            # wait_for_selector against a >10-count assertion.
+            page.wait_for_function(
+                "document.querySelectorAll(\"span[title*='Score:']\").length > 10",
+                timeout=15000,
+            )
 
             scored_phonemes = page.locator("span[title*='Score:']")
             self.assertGreater(scored_phonemes.count(), 10)
