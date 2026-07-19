@@ -7,7 +7,11 @@ const LoginButton = () => {
 
     return (
         !isAuthenticated && (
-            <button type="button" className={styles.navLink} onClick={() => loginWithRedirect()}>
+            <button
+                type="button"
+                className={styles.navLink}
+                onClick={() => loginWithRedirect({ appState: { returnTo: '/app' } })}
+            >
                 Sign In
             </button>
         )

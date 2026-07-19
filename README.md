@@ -103,6 +103,24 @@ VITE_AUTH0_CLIENT_ID=YOUR_AUTH0_CLIENT_ID
 VITE_AUTH0_AUDIENCE=YOUR_AUTH0_AUDIENCE
 ```
 
+### On-device speech model (optional, recommended)
+
+By default the browser streams raw microphone audio to the backend, which runs
+wav2vec2 server-side. If you export the model to ONNX, the lesson page instead
+runs wav2vec2 **in the browser** (WebGPU via transformers.js, with a WASM
+fallback) and only streams the per-chunk logits to the backend for alignment —
+the torch model never loads server-side. One-time export:
+
+```
+pip install "optimum[exporters]" onnx onnxruntime
+python server/scripts/export_wav2vec2_onnx.py
+```
+
+This writes the model to `talky-app/public/models/` (git-ignored, ~1.2 GB —
+serve it from a CDN in production, or upload it to a Hugging Face repo and set
+`VITE_W2V2_MODEL` to that repo id instead). When the model is missing or the
+browser can't load it, the app automatically falls back to streaming raw audio.
+
 <a id="contributing"></a>
 ## Contributing
 

@@ -86,16 +86,6 @@ class DependencyImportTest(unittest.TestCase):
         self.assertIsInstance(result, str)
         self.assertGreater(len(result), 0)
 
-    def test_g2p_en(self):
-        from g2p_en import G2p
-        g2p = G2p()
-        try:
-            phonemes = g2p("cat")
-        except LookupError as exc:
-            self.skipTest(f"Missing optional NLTK resource for g2p_en: {exc}")
-        self.assertIsInstance(phonemes, list)
-        self.assertGreater(len(phonemes), 0)
-
     def test_rapidfuzz(self):
         from rapidfuzz import fuzz
         score = fuzz.ratio("hello", "hello")

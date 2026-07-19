@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useAuth0 } from '@auth0/auth0-react';
 
 import Header from '../Header/Header.jsx';
-import Footer from '../Footer.jsx';
-
 import { useStatsData } from './useStatsData.js';
 import {
   activityCells,
@@ -25,15 +24,12 @@ import {
   WordTabs,
 } from './components.jsx';
 
-const getUserId = () => localStorage.getItem('userId') || 'demo';
-
 const Layout = ({ children }) => (
   <div className="min-h-screen bg-n-8 text-n-1">
     <Header />
     <main className="pt-32 pb-24 px-5 lg:px-10">
       <div className="max-w-[87.5rem] mx-auto">{children}</div>
     </main>
-    <Footer />
   </div>
 );
 
@@ -54,12 +50,19 @@ const streakSub = (streak) => {
 };
 
 export default function Statistics() {
-  const { status, user, level, error } = useStatsData(getUserId());
+  // Auth0 (not localStorage) is the source of truth for who's logged in —
+  // every other page (App.jsx, Profile.jsx, main.jsx's UserCreator) keys
+  // off user.sub || user.email, so Statistics needs to match or it just
+  // silently shows a different account's data.
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth0();
+  const userId = isAuthenticated && user ? (user.sub || user.email) : 'demo';
+
+  const { status, user: userDoc, level, error } = useStatsData(authLoading ? null : userId);
   const [selected, setSelected] = useState('');
 
-  const phonemes = user?.progress?.phonemeScores ?? [];
-  const wordScores = user?.progress?.wordScores ?? [];
-  const history = user?.history ?? [];
+  const phonemes = userDoc?.progress?.phonemeScores ?? [];
+  const wordScores = userDoc?.progress?.wordScores ?? [];
+  const history = userDoc?.history ?? [];
   const playablePhonemes = phonemes.filter((p) => p.attempts > 0);
 
   useEffect(() => {
@@ -79,7 +82,7 @@ export default function Statistics() {
   const total = useMemo(() => totalAttempts(phonemes), [phonemes]);
   const accuracy = useMemo(() => overallAccuracy(phonemes), [phonemes]);
 
-  if (status === 'loading') {
+  if (authLoading || status === 'loading') {
     return <Layout><Card>Loading statistics…</Card></Layout>;
   }
   if (status === 'error') {
