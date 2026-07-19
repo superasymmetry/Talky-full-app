@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@auth0/auth0-react": "^2.6.0",
-    "@huggingface/transformers": "^3.5.2",
+    "@huggingface/transformers": "^3.8.1",
     "@react-three/drei": "^9.122.0",
     "@react-three/fiber": "^8.0.0",
     "@tailwindcss/vite": "^4.1.13",

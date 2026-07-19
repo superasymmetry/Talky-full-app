@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../Header/Header';
+import talkyRocket from '../assets/logo.png';
 import { speakText, stopSpeech } from '../tts.js';
 
 const defaultVoiceOptions = [
@@ -44,21 +45,81 @@ const defaultVoiceOptions = [
 
 const savedKey = 'ttsVoiceKey';
 
+const styleId = 'talky-voice-settings-styles';
+if (typeof document !== 'undefined' && !document.getElementById(styleId)) {
+  const style = document.createElement('style');
+  style.id = styleId;
+  style.textContent = `
+    @keyframes talky-orbit-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .talky-voice-card {
+      transition: border-color 0.15s ease, background-color 0.15s ease, transform 0.1s ease;
+    }
+    .talky-voice-card:hover {
+      border-color: rgba(245, 169, 98, 0.35) !important;
+    }
+    .talky-voice-card:active {
+      transform: translateY(1px);
+    }
+    .talky-preview-btn, .talky-reset-btn {
+      transition: background-color 0.15s ease, transform 0.1s ease;
+    }
+    .talky-preview-btn:hover:not(:disabled) {
+      background-color: #f7b87d !important;
+    }
+    .talky-preview-btn:active:not(:disabled),
+    .talky-reset-btn:active {
+      transform: translateY(1px);
+    }
+    .talky-preview-btn:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+    .talky-stop-btn, .talky-reset-btn {
+      transition: color 0.15s ease, border-color 0.15s ease;
+    }
+    .talky-stop-btn:hover {
+      color: #f87171 !important;
+      border-color: rgba(248, 113, 113, 0.4) !important;
+    }
+    .talky-reset-btn:hover {
+      color: #f1f5f9 !important;
+      border-color: rgba(255,255,255,0.2) !important;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .talky-orbit-ring { animation: none !important; }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
 const panelStyle = {
-  borderRadius: '1.5rem',
-  padding: '3rem 2rem',
+  borderRadius: '1.25rem',
+  padding: '2.25rem 2rem',
   width: '100%',
-  maxWidth: '1100px',
-  backgroundColor: 'rgba(255, 255, 255, 0.75)',
+  maxWidth: '900px',
+  backgroundColor: 'rgba(19, 23, 46, 0.75)',
   backdropFilter: 'blur(12px)',
-  boxShadow: '0 12px 30px rgba(0,120,255,0.4)',
-  textAlign: 'left',
+  border: '1px solid rgba(255,255,255,0.08)',
+  boxShadow: '0 12px 30px rgba(0,0,0,0.45)',
+  boxSizing: 'border-box',
   position: 'relative',
-  margin: 0
 };
 
-const headingStyle = { marginBottom: '0.75rem', fontSize: '1.25rem', fontWeight: 700, color: '#0f172a' };
-const smallText = { color: '#475569', fontSize: '0.9rem' };
+const labelStyle = {
+  display: 'block',
+  fontWeight: 600,
+  color: '#c3c9e0',
+  marginBottom: '0.4rem',
+  fontSize: '0.85rem',
+  letterSpacing: '0.02em',
+  textTransform: 'uppercase',
+};
+
+const headingStyle = { marginBottom: '0.35rem', fontSize: '1.15rem', fontWeight: 700, color: '#f1f5f9' };
+const smallText = { color: '#6b7194', fontSize: '0.8rem' };
 
 export default function VoiceSettings({ embed = false }) {
   const navigate = useNavigate();
@@ -156,24 +217,44 @@ export default function VoiceSettings({ embed = false }) {
 
   const content = (
     <div style={{ ...panelStyle, margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+      <img
+        src={talkyRocket}
+        alt="Talky Rocket"
+        style={{
+          width: '34px',
+          position: 'absolute',
+          top: '1.1rem',
+          right: '1.5rem',
+          transform: 'rotate(-25deg)',
+          transformOrigin: '50% 50%',
+          opacity: 0.9,
+        }}
+      />
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', paddingRight: '2.5rem' }}>
         <h3 style={headingStyle}>{embed ? 'Voice Preview' : 'Voice Settings'}</h3>
         <div style={smallText}>Backend TTS</div>
       </div>
 
-      <p style={{ marginBottom: '1rem', color: '#475569' }}>
+      <p style={{ marginBottom: '1.5rem', color: '#8b91ad', fontSize: '0.9rem' }}>
         Choose a labeled voice option, then preview the written sample sentence.
       </p>
 
       {loadError ? (
-        <p style={{ marginBottom: '1rem', color: '#b45309', fontSize: '0.92rem' }}>{loadError}</p>
+        <p style={{ marginBottom: '1rem', color: '#f5a962', fontSize: '0.85rem' }}>{loadError}</p>
       ) : null}
 
       {isLoadingVoices ? (
-        <p style={{ marginBottom: '1rem', color: '#64748b' }}>Loading voice options...</p>
+        <p style={{ marginBottom: '1rem', color: '#6b7194', fontSize: '0.9rem' }}>Loading voice options...</p>
       ) : null}
 
-      <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1rem'}}>
+      <label style={labelStyle}>Voice options</label>
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+        gap: '0.9rem',
+        marginBottom: '1.75rem',
+      }}>
         {voiceOptions.map((voice) => {
           const active = selectedVoiceKey === voice.key;
 
@@ -182,27 +263,33 @@ export default function VoiceSettings({ embed = false }) {
               key={voice.key}
               type="button"
               onClick={() => setSelectedVoiceKey(voice.key)}
+              className="talky-voice-card"
               style={{
-                padding: '1rem',
-                background: active ? '#dbeafe' : '#f8fafc',
-                borderRadius: '0.75rem',
-                border: active ? '1px solid #60a5fa' : '1px solid #e2e8f0',
+                padding: '0.9rem 1rem',
+                backgroundColor: active ? 'rgba(245, 169, 98, 0.1)' : '#171c3a',
+                borderRadius: '0.6rem',
+                border: active ? '1px solid rgba(245, 169, 98, 0.55)' : '1px solid rgba(255,255,255,0.06)',
                 cursor: 'pointer',
                 textAlign: 'left',
-                boxShadow: active ? '0 6px 18px rgba(59,130,246,0.10)' : 'none'
+                boxShadow: active ? '0 0 0 3px rgba(245, 169, 98, 0.12)' : 'none',
               }}
             >
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
                   <div>
-                    <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '1rem' }}>{voice.name}</div>
-                    <div style={{ fontSize: '0.85rem', color: '#64748b' }}>{voice.description}</div>
+                    <div style={{ fontWeight: 600, color: '#f1f5f9', fontSize: '0.95rem' }}>{voice.name}</div>
+                    <div style={{ fontSize: '0.8rem', color: '#8b91ad', marginTop: '0.1rem' }}>{voice.description}</div>
                   </div>
-                  <div style={{ fontSize: '0.85rem', color: '#2563eb', fontWeight: 700 }}>
+                  <div style={{
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    color: active ? '#4ade80' : '#6b7194',
+                    whiteSpace: 'nowrap',
+                  }}>
                     {active ? 'Selected' : 'Use'}
                   </div>
                 </div>
-                <div style={{ fontSize: '0.92rem', color: '#334155' }}>
+                <div style={{ fontSize: '0.85rem', color: '#c3c9e0' }}>
                   Sample: "{voice.sample}"
                 </div>
               </div>
@@ -211,26 +298,56 @@ export default function VoiceSettings({ embed = false }) {
         })}
       </div>
 
-      <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
         <button
           onClick={saveSelection}
           disabled={isSpeaking}
-          style={{ padding: '0.5rem 0.75rem', backgroundColor: '#3b82f6', color: '#fff', borderRadius: '0.5rem', boxShadow: '0 6px 18px rgba(59,130,246,0.15)', border: 'none', cursor: 'pointer', opacity: isSpeaking ? 0.7 : 1 }}
+          className="talky-preview-btn"
+          style={{
+            padding: '0.6rem 1.1rem',
+            backgroundColor: '#f5a962',
+            color: '#0a0d1f',
+            border: 'none',
+            borderRadius: '0.6rem',
+            fontWeight: 700,
+            fontSize: '0.85rem',
+            cursor: isSpeaking ? 'default' : 'pointer',
+          }}
         >
-          Preview {isSpeaking ? '...' : ''}
+          {isSpeaking ? 'Previewing...' : 'Preview'}
         </button>
         <button
           onClick={() => {
             stopSpeech();
             setIsSpeaking(false);
           }}
-          style={{ padding: '0.5rem 0.75rem', background: '#d36060', borderRadius: '0.5rem', border: '1px solid #e2e8f0', cursor: 'pointer' }}
+          className="talky-stop-btn"
+          style={{
+            padding: '0.6rem 1.1rem',
+            background: 'none',
+            color: '#6b7194',
+            border: '1px solid rgba(255,255,255,0.12)',
+            borderRadius: '0.6rem',
+            fontWeight: 600,
+            fontSize: '0.85rem',
+            cursor: 'pointer',
+          }}
         >
           Stop
         </button>
         <button
           onClick={resetSelection}
-          style={{ padding: '0.5rem 0.75rem', background: '#b12424', borderRadius: '0.5rem', border: '1px solid #e2e8f0', cursor: 'pointer' }}
+          className="talky-reset-btn"
+          style={{
+            padding: '0.6rem 1.1rem',
+            background: 'none',
+            color: '#6b7194',
+            border: '1px solid rgba(255,255,255,0.12)',
+            borderRadius: '0.6rem',
+            fontWeight: 600,
+            fontSize: '0.85rem',
+            cursor: 'pointer',
+          }}
         >
           Reset
         </button>
@@ -245,19 +362,35 @@ export default function VoiceSettings({ embed = false }) {
   return (
     <>
       <Header />
-      <div className="max-w-5xl mx-auto px-4 py-6">
-        <div className="flex items-center justify-between mb-6">
-          <button onClick={() => navigate(-1)} className="text-xl">← Back</button>
-          <h2 className="text-2xl font-bold">Voice Settings</h2>
-          <div />
-        </div>
+      <main style={{
+        display: 'flex',
+        justifyContent: 'center',
+        paddingTop: '7rem',
+        paddingBottom: '3rem',
+        minHeight: '100vh',
+        boxSizing: 'border-box',
+      }}>
+        <div style={{ width: '100%', maxWidth: '900px', padding: '0 1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+            <button
+              onClick={() => navigate(-1)}
+              style={{ background: 'none', border: 'none', color: '#c3c9e0', fontSize: '1.1rem', cursor: 'pointer' }}
+            >
+              ← Back
+            </button>
+            <h2 style={{ color: '#f1f5f9', fontSize: '1.4rem', fontWeight: 700, margin: 0 }}>Voice Settings</h2>
+            <div style={{ width: '3.5rem' }} />
+          </div>
 
-        <p className="mb-4">Preview and select your preferred voice option.</p>
+          <p style={{ color: '#8b91ad', marginBottom: '1.5rem', textAlign: 'center' }}>
+            Preview and select your preferred voice option.
+          </p>
 
-        <div style={{ display: 'flex', justifyContent: 'center' }}>
-          {content}
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
+            {content}
+          </div>
         </div>
-      </div>
+      </main>
     </>
   );
 }
