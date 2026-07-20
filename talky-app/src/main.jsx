@@ -20,21 +20,39 @@ const audience = import.meta.env.VITE_AUTH0_AUDIENCE;
 
 // eslint-disable-next-line react-refresh/only-export-components
 const UserCreator = ({ children }) => {
-  const { user, isAuthenticated } = useAuth0()
+  const { user, isAuthenticated, getAccessTokenSilently } = useAuth0()
+
   useEffect(() => {
-    if (isAuthenticated && user) {
-      const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
-      fetch(`${API_BASE}/api/user/adduser`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          userId: user.sub || user.email, 
-          name: user.name || user.nickname || user.email 
+    if (!isAuthenticated || !user) return
+    let cancelled = false
+
+    async function createUser() {
+      try {
+        // /api/user/adduser is guarded by @requires_auth on the server,
+        // so this call needs a Bearer token — without it, this always
+        // 401'd silently (caught below, only logged to console).
+        const token = await getAccessTokenSilently()
+        const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+        await fetch(`${API_BASE}/api/user/adduser`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          // userId isn't sent — the backend always derives the user's
+          // identity from the token's sub claim and ignored this field
+          // anyway, so sending it was misleading.
+          body: JSON.stringify({ name: user.name || user.nickname || user.email })
         })
-      }).catch(err => console.error('Failed to create user:', err))
+      } catch (err) {
+        if (!cancelled) console.error('Failed to create user:', err)
+      }
     }
-  }, [isAuthenticated, user])
-  
+
+    createUser()
+    return () => { cancelled = true }
+  }, [isAuthenticated, user, getAccessTokenSilently])
+
   return children
 }
 

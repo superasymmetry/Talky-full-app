@@ -1,6 +1,6 @@
 import { Canvas, useFrame } from '@react-three/fiber'
 import { Cloud, Clouds, ContactShadows, Environment, OrbitControls, Sky, useAnimations, useGLTF } from '@react-three/drei'
-import { Suspense, forwardRef, useEffect, useMemo, useRef, useState } from 'react'
+import { Component, Suspense, forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import toast, { Toaster } from 'react-hot-toast';
 
@@ -69,6 +69,31 @@ async function resampleTo16k(float32Array, fromSampleRate) {
   source.start();
   const rendered = await offlineCtx.startRendering();
   return rendered.getChannelData(0);
+}
+
+// --- 3D scene error isolation ------------------------------------------------
+// The 3D scene (robot model, Draco-compressed GLTFs, clouds, etc.) is
+// decorative and shouldn't be able to take down the actual lesson UI if an
+// asset fails to load (missing file, no Draco decoder available, no network
+// in a given environment, etc.). Without this boundary, a rejected
+// useGLTF/Suspense load bubbles up and can unmount the whole component tree
+// — including the phoneme grid, record button, and score overlay that the
+// lesson actually depends on.
+class SceneErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { failed: false };
+  }
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch(error, info) {
+    console.warn('3D scene failed to load, continuing without it:', error, info);
+  }
+  render() {
+    if (this.state.failed) return null;
+    return this.props.children;
+  }
 }
 
 // --- Background scenery -----------------------------------------------------
@@ -1042,59 +1067,61 @@ export default function Lesson() {
   return (
     <div style={{ position: 'fixed', inset: 0, margin: 0, padding: 0, overflow: 'hidden' }}>
       <Toaster position="top-center" />
-      <Canvas
-        style={{ width: '100%', height: '100%' }}
-        camera={{ position: [-15, 8, 10], fov: 50 }}
-        shadows
-        gl={{ antialias: true }}
-      >
-        <Suspense fallback={null}>
-          <Sky distance={450000} sunPosition={[2, 1, 0]} inclination={0.45} azimuth={0.25} />
-          <Environment preset="sunset" background={false} />
-          <fog attach="fog" args={['#bcd4e6', 40, 190]} />
+      <SceneErrorBoundary>
+        <Canvas
+          style={{ width: '100%', height: '100%' }}
+          camera={{ position: [-15, 8, 10], fov: 50 }}
+          shadows
+          gl={{ antialias: true }}
+        >
+          <Suspense fallback={null}>
+            <Sky distance={450000} sunPosition={[2, 1, 0]} inclination={0.45} azimuth={0.25} />
+            <Environment preset="sunset" background={false} />
+            <fog attach="fog" args={['#bcd4e6', 40, 190]} />
 
-          <ambientLight intensity={0.6} />
-          <hemisphereLight args={['#bcd4f0', '#5c7a3f', 0.5]} />
-          <directionalLight position={[5, 10, 5]} intensity={1.2} castShadow shadow-mapSize-width={2048} shadow-mapSize-height={2048} />
+            <ambientLight intensity={0.6} />
+            <hemisphereLight args={['#bcd4f0', '#5c7a3f', 0.5]} />
+            <directionalLight position={[5, 10, 5]} intensity={1.2} castShadow shadow-mapSize-width={2048} shadow-mapSize-height={2048} />
 
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -1.01, 0]} receiveShadow>
-            <planeGeometry args={[260, 260]} />
-            <meshStandardMaterial color="#6aa84f" roughness={1} metalness={0} />
-          </mesh>
-
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[5, -1.0, 0]} receiveShadow>
-            <planeGeometry args={[30, 4]} />
-            <meshStandardMaterial color="#333" roughness={0.9} metalness={0.1} />
-          </mesh>
-
-          <Mountains />
-          <Trees />
-          <SkyClouds />
-
-          <group position={[20, -1, 0]}>
-            <mesh position={[0, 1, 0]} castShadow>
-              <cylinderGeometry args={[0.03, 0.03, 2, 8]} />
-              <meshStandardMaterial color="#444" />
+            <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -1.01, 0]} receiveShadow>
+              <planeGeometry args={[260, 260]} />
+              <meshStandardMaterial color="#6aa84f" roughness={1} metalness={0} />
             </mesh>
-            <mesh position={[0, 1.7, 0.45]} rotation={[0, Math.PI / 2, 0]} castShadow>
-              <planeGeometry args={[1, 0.6]} />
-              <meshStandardMaterial color="#e53935" side={2} />
+
+            <mesh rotation={[-Math.PI / 2, 0, 0]} position={[5, -1.0, 0]} receiveShadow>
+              <planeGeometry args={[30, 4]} />
+              <meshStandardMaterial color="#333" roughness={0.9} metalness={0.1} />
             </mesh>
-          </group>
 
-          <ContactShadows position={robotPos} opacity={0.6} width={4} height={4} blur={2} far={2} />
+            <Mountains />
+            <Trees />
+            <SkyClouds />
 
-          <Model
-            ref={robotRef}
-            position={robotPos}
-            scale={0.5}
-            rotation={[0, Math.PI / 2, 0]}
-            onActionsReady={setActions}
-          />
+            <group position={[20, -1, 0]}>
+              <mesh position={[0, 1, 0]} castShadow>
+                <cylinderGeometry args={[0.03, 0.03, 2, 8]} />
+                <meshStandardMaterial color="#444" />
+              </mesh>
+              <mesh position={[0, 1.7, 0.45]} rotation={[0, Math.PI / 2, 0]} castShadow>
+                <planeGeometry args={[1, 0.6]} />
+                <meshStandardMaterial color="#e53935" side={2} />
+              </mesh>
+            </group>
 
-          <OrbitControls enablePan={true} enableZoom={true} maxPolarAngle={Math.PI / 2.1} />
-        </Suspense>
-      </Canvas>
+            <ContactShadows position={robotPos} opacity={0.6} width={4} height={4} blur={2} far={2} />
+
+            <Model
+              ref={robotRef}
+              position={robotPos}
+              scale={0.5}
+              rotation={[0, Math.PI / 2, 0]}
+              onActionsReady={setActions}
+            />
+
+            <OrbitControls enablePan={true} enableZoom={true} maxPolarAngle={Math.PI / 2.1} />
+          </Suspense>
+        </Canvas>
+      </SceneErrorBoundary>
 
       <Back />
       <PerformanceTracker
