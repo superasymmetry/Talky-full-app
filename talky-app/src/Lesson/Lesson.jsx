@@ -448,10 +448,12 @@ export default function Lesson() {
   // logits to the backend instead of raw audio and the model never runs server-side.
   const workerRef = useRef(null);
   const workerReadyRef = useRef(false);
+  const workerDeviceRef = useRef(null);     // { device, dtype } the worker actually loaded, from 'ready'
   const sessionModeRef = useRef('audio');   // 'logits' | 'audio', fixed per recording session
   const pendingChunksRef = useRef(0);       // chunks handed to the worker, logits not yet emitted
   const stopPendingRef = useRef(false);     // user stopped; waiting for worker to drain
-  const stopTimeoutRef = useRef(null);
+  const stopTimeoutRef = useRef(null);      // stall watchdog: reset on every chunk that finishes
+  const stopHardCapRef = useRef(null);      // absolute cap in case the worker never makes progress
   const prosodyTimeoutRef = useRef(null);   // fallback disconnect if 'prosody' never arrives
 
   // Initialize socket once — listeners are stable across renders
@@ -566,6 +568,16 @@ export default function Lesson() {
       const msg = e.data;
       if (msg.type === 'ready') {
         workerReadyRef.current = true;
+        workerDeviceRef.current = { device: msg.device, dtype: msg.dtype };
+        if (msg.device === 'webgpu') {
+          console.info(`[wav2vec2] on-device inference ready: WebGPU/${msg.dtype}`);
+        } else {
+          // Not necessarily a bug — small EC2 instances can't run this model
+          // server-side either — but it's the slowest, least accurate tier
+          // (WASM has no oneDNN/AVX-width SIMD, and int8 quantization adds
+          // GOP-score error), so it's worth knowing when a user lands here.
+          console.warn(`[wav2vec2] WebGPU unavailable, running ${msg.device}/${msg.dtype} instead (slower, less accurate)`);
+        }
       } else if (msg.type === 'error') {
         workerReadyRef.current = false;
         console.warn('On-device wav2vec2 unavailable, streaming raw audio instead:', msg.error);
@@ -574,10 +586,10 @@ export default function Lesson() {
           socketRef.current.emit('logits_chunk', { frames: msg.frames, data: msg.data.buffer });
         }
         pendingChunksRef.current -= 1;
-        if (stopPendingRef.current && pendingChunksRef.current <= 0) emitStop();
+        onWorkerProgress();
       } else if (msg.type === 'chunk_error') {
         pendingChunksRef.current -= 1;
-        if (stopPendingRef.current && pendingChunksRef.current <= 0) emitStop();
+        onWorkerProgress();
       }
     };
 
@@ -720,15 +732,49 @@ export default function Lesson() {
     }
   };
 
-  const emitStop = () => {
+  // No progress on the worker's logits queue for this long -> assume it's
+  // stuck (not just slow) and stop waiting. Comfortably above one WASM/int8
+  // chunk's worst-case latency, which can run several times slower than a
+  // native-CPU chunk (~250-450ms) with no GPU and no oneDNN.
+  const STOP_DRAIN_STALL_MS = 8000;
+  // Absolute cap so a session can't hang indefinitely even if the worker
+  // keeps limping forward one chunk at a time.
+  const STOP_DRAIN_HARD_CAP_MS = 30000;
+
+  const clearStopTimers = () => {
     if (stopTimeoutRef.current) {
       clearTimeout(stopTimeoutRef.current);
       stopTimeoutRef.current = null;
     }
+    if (stopHardCapRef.current) {
+      clearTimeout(stopHardCapRef.current);
+      stopHardCapRef.current = null;
+    }
+  };
+
+  const emitStop = () => {
+    clearStopTimers();
     if (stopPendingRef.current) {
       stopPendingRef.current = false;
+      if (pendingChunksRef.current > 0) {
+        console.warn(`[wav2vec2] gave up draining worker with ${pendingChunksRef.current} chunk(s) still unscored`);
+      }
       socketRef.current?.emit('stop');
     }
+  };
+
+  // Reset the stall watchdog whenever a chunk actually finishes (success or
+  // error) — a worker that's merely slow but still making progress should be
+  // allowed to keep going, up to the hard cap; only a worker that's stopped
+  // making progress entirely should trip the shorter stall timeout.
+  const onWorkerProgress = () => {
+    if (!stopPendingRef.current) return;
+    if (pendingChunksRef.current <= 0) {
+      emitStop();
+      return;
+    }
+    if (stopTimeoutRef.current) clearTimeout(stopTimeoutRef.current);
+    stopTimeoutRef.current = setTimeout(emitStop, STOP_DRAIN_STALL_MS);
   };
 
   // In logits mode chunks may still be inside the worker when the user stops;
@@ -736,7 +782,8 @@ export default function Lesson() {
   const requestStop = () => {
     if (sessionModeRef.current === 'logits' && pendingChunksRef.current > 0) {
       stopPendingRef.current = true;
-      stopTimeoutRef.current = setTimeout(emitStop, 5000); // don't hang if the worker dies
+      stopTimeoutRef.current = setTimeout(emitStop, STOP_DRAIN_STALL_MS);
+      stopHardCapRef.current = setTimeout(emitStop, STOP_DRAIN_HARD_CAP_MS);
     } else {
       socketRef.current?.emit('stop');
     }
@@ -765,10 +812,7 @@ export default function Lesson() {
     sessionModeRef.current = workerReadyRef.current ? 'logits' : 'audio';
     pendingChunksRef.current = 0;
     stopPendingRef.current = false;
-    if (stopTimeoutRef.current) {
-      clearTimeout(stopTimeoutRef.current);
-      stopTimeoutRef.current = null;
-    }
+    clearStopTimers();
     if (prosodyTimeoutRef.current) {
       clearTimeout(prosodyTimeoutRef.current);
       prosodyTimeoutRef.current = null;

@@ -1,13 +1,17 @@
 // Web worker that runs wav2vec2 CTC inference in the browser via
-// transformers.js (onnxruntime-web). Prefers WebGPU, falls back to WASM.
-// Receives 16 kHz float32 audio chunks and posts back per-chunk logits
-// (frames x vocab), which the backend aligns with stream_decode_logits.
+// transformers.js (onnxruntime-web). Tries WebGPU/fp16, then WebGPU/fp32,
+// then falls back to WASM/int8. Receives 16 kHz float32 audio chunks and
+// posts back per-chunk logits (frames x vocab), which the backend aligns
+// with stream_decode_logits.
 //
 // The model must be the SAME checkpoint the backend tokenizer uses
 // (vitouphy/wav2vec2-xls-r-300m-timit-phoneme), converted to ONNX — see
-// server/scripts/export_wav2vec2_onnx.py. By default it is loaded from
-// /models/<id>/ (served out of talky-app/public/). Set VITE_W2V2_MODEL to a
-// Hugging Face repo id instead to load a hosted ONNX conversion.
+// server/scripts/export_wav2vec2_onnx.py, which produces model_fp16.onnx,
+// model.onnx, and model_quantized.onnx for the three tiers above. By
+// default it is loaded from /models/<id>/ (served out of talky-app/public/).
+// Set VITE_W2V2_MODEL to a Hugging Face repo id instead to load a hosted
+// ONNX conversion, or VITE_W2V2_DTYPE to pin a single device/dtype and skip
+// the fallback chain (e.g. for testing).
 
 import { AutoModelForCTC, AutoProcessor, env } from '@huggingface/transformers';
 
@@ -22,20 +26,43 @@ if (!HUB_MODEL) {
 
 let processor = null;
 let model = null;
+let activeDevice = null;
+let activeDtype = null;
+
+// Tried in order. fp16 halves the ~1.2 GB WebGPU download and runs faster on
+// GPU with negligible accuracy loss (the export keeps I/O tensors float32 —
+// see server/scripts/export_wav2vec2_onnx.py — so this branch always yields
+// a plain Float32Array from `logits.data`, same as fp32). If the adapter
+// lacks the shader-f16 feature, transformers.js throws during load/shader
+// compilation and we retry with fp32 on WebGPU before giving up on GPU
+// entirely and dropping to the WASM/int8 fallback.
+const LOAD_ATTEMPTS = import.meta.env.VITE_W2V2_DTYPE
+  ? [{ device: 'webgpu', dtype: import.meta.env.VITE_W2V2_DTYPE }]
+  : [
+      { device: 'webgpu', dtype: 'fp16' },
+      { device: 'webgpu', dtype: 'fp32' },
+    ];
 
 async function init() {
   processor = await AutoProcessor.from_pretrained(MODEL_ID);
-  try {
-    model = await AutoModelForCTC.from_pretrained(MODEL_ID, {
-      device: 'webgpu',
-      dtype: import.meta.env.VITE_W2V2_DTYPE || 'fp32',
-    });
-  } catch (err) {
-    console.warn('[wav2vec2Worker] WebGPU unavailable, falling back to WASM:', err);
+  for (const attempt of LOAD_ATTEMPTS) {
+    try {
+      model = await AutoModelForCTC.from_pretrained(MODEL_ID, attempt);
+      activeDevice = attempt.device;
+      activeDtype = attempt.dtype;
+      break;
+    } catch (err) {
+      console.warn(`[wav2vec2Worker] ${attempt.device}/${attempt.dtype} unavailable:`, err);
+    }
+  }
+  if (!model) {
+    console.warn('[wav2vec2Worker] WebGPU unavailable, falling back to WASM/int8');
     model = await AutoModelForCTC.from_pretrained(MODEL_ID, {
       device: 'wasm',
       dtype: 'q8',
     });
+    activeDevice = 'wasm';
+    activeDtype = 'q8';
   }
   // Warm up so the first real chunk isn't hit by shader compilation.
   const warmup = await processor(new Float32Array(8000));
@@ -43,7 +70,7 @@ async function init() {
 }
 
 const initPromise = init()
-  .then(() => self.postMessage({ type: 'ready' }))
+  .then(() => self.postMessage({ type: 'ready', device: activeDevice, dtype: activeDtype }))
   .catch((err) => {
     console.error('[wav2vec2Worker] init failed:', err);
     model = null;
