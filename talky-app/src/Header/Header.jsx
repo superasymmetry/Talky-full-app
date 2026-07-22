@@ -1,15 +1,32 @@
+import { useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import styles from "./Header.module.css";
 import talkyLogo from "../assets/talky.png";
-
 import LoginButton from "../Auth0/LoginButton";
 import LogoutButton from "../Auth0/LogoutButton";
 
-import Profile from "../Auth0/Profile";
-
 function Header() {
+  const headerRef = useRef(null);
+
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+
+    const setHeightVar = () => {
+      document.documentElement.style.setProperty(
+        '--header-height',
+        `${el.offsetHeight}px`
+      );
+    };
+
+    setHeightVar();
+    const observer = new ResizeObserver(setHeightVar);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    <header className={styles.header}>
+    <header ref={headerRef} className={styles.header}>
       <Link to="/app">
         <img src={talkyLogo} alt="Talky logo" className={styles.logo} />
       </Link>
