@@ -98,8 +98,6 @@ _model = None
 _feedback_model = None
 _device = None
 _load_lock = threading.Lock()
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"PyTorch device selected: {device}")
 
 # pyin's first call pays a ~10 s numba JIT compile that doesn't persist across
 # restarts; trigger it at boot so no lesson ever waits on it.
@@ -290,10 +288,7 @@ def lessons():
     print("user id------------------", user_id)
     user = users_collection.find_one({"userId": user_id})
     print("typeof lesson", type(lesson_id))
-    lessons_list = user.get('lessons', []) if user else []
-    lesson = _resolve_lesson(lessons_list, lesson_id)
-    if lesson is None:
-        return jsonify({"message": "Lesson not found"}), 404
+    lesson = user.get('lessons', [])[int(lesson_id)]
     word_list = lesson.get('words', [])
     print(word_list)
     prompt = f"""
