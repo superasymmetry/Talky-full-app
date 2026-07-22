@@ -33,6 +33,7 @@ function App() {
       .catch(err => console.error('Failed to fetch lessons:', err));
   }, [isAuthenticated, isLoading, user]);
   const soundBankCard = { id: "soundbank", name: "Sound Bank", description: "Browse sound categories", to: "/soundbank" }
+  const practiceCard = { id: "practice", name: "Practice Game", description: "Build your phoneme city!", to: "/practice-game" }
   const scrollBy = (delta) => scroller.current?.scrollBy({ left: delta, behavior: 'smooth' })
 
   return (

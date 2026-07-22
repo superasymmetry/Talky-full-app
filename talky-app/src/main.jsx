@@ -8,6 +8,7 @@ import SoundBank from './SoundBank/SoundBank.jsx'
 import SoundBankCategory from './SoundBank/SoundBankCategory.jsx'
 import VoiceSettings from './SoundBank/VoiceSettings.jsx'
 import Profile from './Auth0/Profile.jsx'
+import PracticeGame from './Lesson/PracticeGame.jsx'
 import Statistics from './Statistics/Statistics.jsx';
 
 import { Auth0Provider, useAuth0 } from '@auth0/auth0-react'
@@ -95,6 +96,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="/app" element={<App/>}/>
             <Route path="/lessons/:id" element={<Lesson />}/>
             <Route path="/soundbank" element={<SoundBank/>}/>
+            <Route path="/practice-game" element={<PracticeGame/>}/>
             <Route path="/soundbank/:id" element={<SoundBankCategory/>}/>
             <Route path="/voice-settings" element={<VoiceSettings/>}/>
             <Route path="/profile" element={<Profile/>}/>
