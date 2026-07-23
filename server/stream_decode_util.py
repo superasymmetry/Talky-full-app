@@ -45,8 +45,9 @@ def stream_decode_logits(logits_chunks, reference_phonemes, tokenizer):
             target_logit (float) – model logit for the expected phoneme at that frame
             decoded_logit (float) – model logit for the decoded phoneme at that frame
             gop      (float|None) – graded Goodness of Pronunciation in (0, 1]
-            score    (float) – gop when available (1.0 for exact matches),
-                               0.0 for omitted, fallback 1.0/0.5 if gop is None
+            score    (float) – 1.0 for 'correct' (exact or lenient match),
+                               gop for 'mispronounced' when available (else
+                               0.5), 0.0 for 'omitted'
     """
     reference_phonemes = [p for p in reference_phonemes if p != "ˈ"]
     pointer = 0
@@ -187,7 +188,15 @@ def stream_decode_logits(logits_chunks, reference_phonemes, tokenizer):
             # print(f"  [{label}] {p!r}: {lv:.4f}  target={target_p!r}: {target_lv:.4f}", flush=True)
             if pos is not None:
                 gop = gop_score(target_lv, float(lv))
-                score = gop if gop is not None else (1.0 if label == "correct" else 0.5)
+                # "correct" is reached two ways: an exact argmax match (where
+                # target_lv >= lv by construction, so gop is already 1.0), or
+                # the lenient top-3/threshold heuristic below, where the
+                # decoded phoneme differs from the target and target_lv < lv
+                # *by construction* — gop would always be < 1.0 there, quietly
+                # undoing the leniency the label is supposed to grant. Keep
+                # gop grading for genuine mispronunciations; always give full
+                # credit once something has been labeled "correct".
+                score = 1.0 if label == "correct" else (gop if gop is not None else 0.5)
                 yield {
                     "phoneme": reference_phonemes[pos],
                     "position": pos,
