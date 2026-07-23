@@ -427,8 +427,15 @@ export default function Lesson() {
   const match = useMatch("/lessons/:id");
   const lessonId = match?.params?.id;
   const [showIntro, setShowIntro] = useState(true);
-  // Resolved server-side from the lesson's target phoneme. Null while loading.
+  // Which phoneme this lesson is drilling — comes back on the fast
+  // sentences/IPA fetch below, independent of the (slower) video lookup.
+  const [targetPhoneme, setTargetPhoneme] = useState(null);
+  // Resolved server-side from the lesson's target phoneme, via the separate
+  // /api/lessons/intro-video call so a video cache-miss never blocks the
+  // sentences/IPA the player actually needs to start. Null while loading.
   const [introVideo, setIntroVideo] = useState(null); // { videoId, start, usedFallback }
+  const [videoLoading, setVideoLoading] = useState(true);
+  const [videoStarted, setVideoStarted] = useState(false); // click-to-play gate
   const [score, setScore] = useState(0);
   const [wordsToIPA, setWordsToIPA] = useState(null);
   const [currentWordsToIPA, setCurrentWordsToIPA] = useState(null);
@@ -613,43 +620,75 @@ export default function Lesson() {
     };
   }, []);
 
-  // Fetch lesson data — waits for Auth0 to resolve so we fetch with the
-  // real userId instead of firing once against 'demo' and never refetching.
+  // Fast path: sentences + IPA only. Waits for Auth0 to resolve so we fetch
+  // with the real userId instead of firing once against 'demo' and never
+  // refetching. This no longer waits on the video lookup — see the separate
+  // effect below.
   useEffect(() => {
     if (authLoading || !lessonId) return;
+    let cancelled = false;
 
     fetch(`${API_BASE}/api/lessons?user_id=${encodeURIComponent(userId)}&lesson_id=${encodeURIComponent(lessonId)}`, {
       cache: 'no-store',
     })
       .then((response) => response.json())
       .then((data) => {
+        if (cancelled) return;
         setCardData(data.sentences ?? data);
         const ipas = data.words_to_ipas;
         if (!ipas || ipas.length === 0) {
           toast.error('Phoneme data failed to load. Please reload the page.');
         }
         setWordsToIPA(ipas);
+        setTargetPhoneme(data.target_phoneme || null);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error("Error fetching data:", error);
+        toast.error('Failed to load lesson. Please check your connection and reload.');
+      });
 
-        // The backend resolves the lesson's target phoneme to a curated
-        // Glossika Phonics video (see build_phoneme_video_map.py). If that
-        // lookup ever misses, fall back to a generic phonemes-overview video
-        // rather than showing nothing.
+    return () => { cancelled = true; };
+  }, [authLoading, userId, lessonId, API_BASE]);
+
+  // Independent, slower path: video. Resolves in parallel and never blocks
+  // the lesson content above — the intro screen shows a thumbnail
+  // placeholder (click-to-play) until this comes back. The backend resolves
+  // the lesson's target phoneme to a curated Glossika Phonics video (see
+  // build_phoneme_video_map.py); if that lookup ever misses, fall back to a
+  // generic phonemes-overview video rather than showing nothing.
+  //
+  // Guarded against stale responses: if lessonId changes (user navigates to
+  // the next lesson) while this request is still in flight, a late-arriving
+  // response for the OLD lesson must not overwrite the video for the NEW
+  // one. This is what made it look like lessons were getting each other's
+  // videos even after the backend cache-key bug was fixed — a slow request
+  // for lesson N resolving after lesson N+1 had already mounted and started
+  // its own request.
+  useEffect(() => {
+    if (authLoading || !lessonId) return;
+    let cancelled = false;
+
+    setVideoLoading(true);
+    fetch(`${API_BASE}/api/lessons/intro-video?user_id=${encodeURIComponent(userId)}&lesson_id=${encodeURIComponent(lessonId)}`)
+      .then((response) => response.json())
+      .then((data) => {
+        if (cancelled) return;
         if (data.intro_video_id) {
-          setIntroVideo({
-            videoId: data.intro_video_id,
-            start: data.intro_video_start || 0,
-            usedFallback: false,
-          });
+          setIntroVideo({ videoId: data.intro_video_id, start: data.intro_video_start || 0, usedFallback: false });
         } else {
           setIntroVideo({ videoId: DEFAULT_INTRO_VIDEO_ID, start: 0, usedFallback: true });
           console.warn(`No intro video mapped for phoneme "${data.target_phoneme}", using fallback.`);
         }
       })
       .catch((error) => {
-        console.error("Error fetching data:", error);
-        toast.error('Failed to load lesson. Please check your connection and reload.');
+        if (cancelled) return;
+        console.error('Intro video lookup failed:', error);
         setIntroVideo({ videoId: DEFAULT_INTRO_VIDEO_ID, start: 0, usedFallback: true });
-      });
+      })
+      .finally(() => { if (!cancelled) setVideoLoading(false); });
+
+    return () => { cancelled = true; };
   }, [authLoading, userId, lessonId, API_BASE]);
 
   useEffect(() => {
@@ -897,54 +936,79 @@ export default function Lesson() {
   }
 
   if (showIntro) {
-    const embedUrl = introVideo ? buildEmbedUrl(introVideo.videoId, introVideo.start) : null;
+    const thumbUrl = introVideo
+      ? `https://img.youtube.com/vi/${introVideo.videoId}/hqdefault.jpg`
+      : null;
+    const embedUrl = introVideo
+      ? buildEmbedUrl(introVideo.videoId, introVideo.start) + '&autoplay=1'
+      : null;
+
     return (
       <div style={{
-        position: 'fixed',
-        inset: 0,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
+        position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
         background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        color: 'white',
-        textAlign: 'center',
-        padding: 24
+        color: 'white', textAlign: 'center', padding: 24
       }}>
         <Back />
-        <h2 style={{ fontSize: '2rem', marginBottom: '1rem' }}>Watch this example first</h2>
-        {embedUrl ? (
-          <iframe
-            title="intro-video"
-            src={embedUrl}
-            width="640"
-            height="360"
-            style={{ borderRadius: 12, marginBottom: '2rem' }}
-            frameBorder="0"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen
-          />
-        ) : (
-          <div style={{ marginBottom: '2rem', fontSize: '1.2rem' }}>Loading video...</div>
+        <h2 style={{ fontSize: '2rem', marginBottom: '0.4rem' }}>Watch this example first</h2>
+        {targetPhoneme && (
+          <p style={{ opacity: 0.85, marginBottom: '1.25rem', fontSize: '1rem' }}>
+            Today's focus: the <strong>/{targetPhoneme}/</strong> sound
+          </p>
         )}
+
+        <div style={{ width: 640, maxWidth: '90vw', aspectRatio: '16 / 9', marginBottom: '2rem', borderRadius: 12, overflow: 'hidden', background: 'rgba(0,0,0,0.25)' }}>
+          {videoLoading ? (
+            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem' }}>
+              Loading video...
+            </div>
+          ) : videoStarted ? (
+            <iframe
+              title="intro-video"
+              src={embedUrl}
+              width="100%"
+              height="100%"
+              style={{ border: 0 }}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            />
+          ) : (
+            // Click-to-play thumbnail instead of an always-live iframe — the
+            // YouTube player's JS only loads once someone actually wants to
+            // watch, instead of on every visit to this screen.
+            <button
+              onClick={() => setVideoStarted(true)}
+              style={{
+                width: '100%', height: '100%', border: 'none', padding: 0, cursor: 'pointer',
+                position: 'relative', backgroundImage: `url(${thumbUrl})`,
+                backgroundSize: 'cover', backgroundPosition: 'center',
+              }}
+              aria-label="Play example video"
+            >
+              <span style={{
+                position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: 'rgba(0,0,0,0.25)',
+              }}>
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="white">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              </span>
+            </button>
+          )}
+        </div>
+
         <button
           onClick={() => {
             const currentSentence = cardData?.[String(currentSentenceIndex)] || cardData?.[currentSentenceIndex] || '';
             skipNextSentenceSpeechRef.current = true;
             setShowIntro(false);
-            if (currentSentence) {
-              speakSentence(currentSentence);
-            }
+            if (currentSentence) speakSentence(currentSentence);
           }}
           style={{
-            padding: '12px 24px',
-            borderRadius: 25,
-            border: 'none',
+            padding: '12px 24px', borderRadius: 25, border: 'none',
             background: 'linear-gradient(90deg, #6dd3ff 0%, #6b73ff 100%)',
-            color: 'white',
-            fontSize: '1.1rem',
-            fontWeight: 700,
-            cursor: 'pointer',
+            color: 'white', fontSize: '1.1rem', fontWeight: 700, cursor: 'pointer',
             boxShadow: '0 8px 20px rgba(0,0,0,0.2)'
           }}
         >

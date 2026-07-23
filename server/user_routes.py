@@ -346,22 +346,32 @@ def generatenextlesson():
                 weakest_phoneme = phoneme_object['phoneme']
 
         words = random.sample(phoneme_word_bank.get(weakest_phoneme, ["practice", "word"]), k=2)
-        
-        new_lesson = {f"lessons.{next_lesson_id}": {
-                "id": next_lesson_id,
-                "phoneme": weakest_phoneme,
-                "words": words,
-                "score": 0
-            }}
+
+        new_lesson = {
+            "id": next_lesson_id,
+            "phoneme": weakest_phoneme,
+            "words": words,
+            "score": 0,
+        }
+
+        # Append with $push instead of writing to a computed
+        # `lessons.{next_lesson_id}` path. That path treated the lesson's id
+        # (1-based: "5", "6", ...) as a raw array index into a 0-based list,
+        # so it wrote the new lesson one slot past where it needed to be —
+        # e.g. with 4 existing lessons at positions 0-3, `lessons.5` set
+        # position 5 and left position 4 as a null gap. That gap is exactly
+        # what made every later lesson (and its intro video, which shares
+        # the same lookup) resolve to the WRONG lesson's content. $push
+        # always appends at the true next position, so id and position stay
+        # in sync (id = position + 1) going forward.
         users_collection.update_one(
             {"userId": user_id},
-            {"$set": new_lesson}
+            {
+                "$push": {"lessons": new_lesson},
+                "$set": {"maxLessonId": maxLessonId + 1},
+            }
         )
-        users_collection.update_one(
-            {"userId": user_id},
-            {"$set": {"maxLessonId": maxLessonId + 1}}
-        )
-        return jsonify(new_lesson), 200
+        return jsonify({f"lessons.{next_lesson_id}": new_lesson}), 200
 
 @user_bp.route("/api/getUserProfile", methods=["GET"])
 @requires_auth
