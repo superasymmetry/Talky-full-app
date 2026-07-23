@@ -12,8 +12,16 @@
 // Set VITE_W2V2_MODEL to a Hugging Face repo id instead to load a hosted
 // ONNX conversion, or VITE_W2V2_DTYPE to pin a single device/dtype and skip
 // the fallback chain (e.g. for testing).
-
-import { AutoModelForCTC, AutoProcessor, env } from '@huggingface/transformers';
+//
+// Uses AutoFeatureExtractor, not AutoProcessor: a Wav2Vec2 "processor" is a
+// feature extractor + tokenizer pair, and AutoProcessor.from_pretrained loads
+// both unconditionally even though this worker never decodes text — only the
+// backend does, from raw logits. This checkpoint's tokenizer has no fast
+// (tokenizer.json) form to give transformers.js, only the slow Python one,
+// so AutoProcessor.from_pretrained always throws here and init() never
+// completes. AutoFeatureExtractor loads just the audio-preprocessing half,
+// which is all `handleChunk` actually calls.
+import { AutoModelForCTC, AutoFeatureExtractor, env } from '@huggingface/transformers';
 
 const HUB_MODEL = import.meta.env.VITE_W2V2_MODEL;
 const MODEL_ID = HUB_MODEL || 'wav2vec2-xls-r-300m-timit-phoneme';
@@ -24,7 +32,7 @@ if (!HUB_MODEL) {
   env.localModelPath = '/models/';
 }
 
-let processor = null;
+let featureExtractor = null;
 let model = null;
 let activeDevice = null;
 let activeDtype = null;
@@ -44,7 +52,7 @@ const LOAD_ATTEMPTS = import.meta.env.VITE_W2V2_DTYPE
     ];
 
 async function init() {
-  processor = await AutoProcessor.from_pretrained(MODEL_ID);
+  featureExtractor = await AutoFeatureExtractor.from_pretrained(MODEL_ID);
   for (const attempt of LOAD_ATTEMPTS) {
     try {
       model = await AutoModelForCTC.from_pretrained(MODEL_ID, attempt);
@@ -65,7 +73,7 @@ async function init() {
     activeDtype = 'q8';
   }
   // Warm up so the first real chunk isn't hit by shader compilation.
-  const warmup = await processor(new Float32Array(8000));
+  const warmup = await featureExtractor(new Float32Array(8000));
   await model(warmup);
 }
 
@@ -84,7 +92,7 @@ async function handleChunk(msg) {
     return;
   }
   try {
-    const inputs = await processor(msg.audio);
+    const inputs = await featureExtractor(msg.audio);
     const { logits } = await model(inputs);
     const [, frames, vocab] = logits.dims; // [1, frames, vocab]
     const data = logits.data instanceof Float32Array
