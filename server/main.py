@@ -346,6 +346,7 @@ def lessons():
         "sentences": sentences,
         "expected_ipas": expected_ipas,
         "words_to_ipas": words_to_ipa_list,
+        "words": word_list,
         "target_phoneme": target_phoneme,
         "intro_video_id": intro_video_id,
         "intro_video_start": 0,

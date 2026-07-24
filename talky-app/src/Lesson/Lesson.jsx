@@ -1,13 +1,13 @@
-import { Canvas, useFrame } from '@react-three/fiber'
-import { Cloud, Clouds, ContactShadows, Environment, OrbitControls, Sky, useAnimations, useGLTF } from '@react-three/drei'
-import { Suspense, forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
+
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import { Cloud, Clouds, ContactShadows, Environment, OrbitControls, Sky, useAnimations, useGLTF } from '@react-three/drei'
+import { Component, Suspense, forwardRef, useEffect, useMemo, useRef, useState } from 'react'
+import { speakText, stopSpeech } from '../tts.js';
 import toast, { Toaster } from 'react-hot-toast';
 
 import Back from './Back.jsx';
 import { io } from 'socket.io-client';
-
-import { speakText, stopSpeech } from '../tts.js';
 import { useAuth0 } from '@auth0/auth0-react';
 import { useMatch } from 'react-router-dom';
 
@@ -232,6 +232,116 @@ const Model = forwardRef(function Model(props, ref) {
   return <primitive ref={ref} object={scene} {...props} />
 })
 
+// Catches WebGLRenderer construction failures (WebGL/hardware acceleration
+// disabled, GPU context exhausted, driver crash, etc.) — these throw inside
+// Canvas's mount effect, which would otherwise blank the whole page.
+class CanvasErrorBoundary extends Component {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  componentDidCatch(error) {
+    console.error('3D scene failed to start:', error);
+    toast.error('Could not start the 3D scene — enable hardware acceleration / WebGL in your browser settings and reload.', { duration: 8000 });
+  }
+  render() {
+    if (this.state.failed) {
+      return (
+        <div style={{
+          position: 'fixed', inset: 0, display: 'flex', alignItems: 'center',
+          justifyContent: 'center', textAlign: 'center', padding: 24,
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white',
+        }}>
+          <div>
+            <h2>3D scene unavailable</h2>
+            <p>Your browser couldn't create a WebGL context. Enable hardware acceleration / WebGL and reload the page.</p>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// One-time opening shot: swishes the camera in to the robot's face, triggers
+// its wave animation (speaking a greeting as it waves), then swishes back to
+// the original camera spot.
+function CameraIntro({ facePos, target, controlsRef, actions, greeting, onGreetingDone, canLeaveRef }) {
+  const { camera } = useThree()
+  const start = useRef(camera.position.clone())
+  const startTarget = useRef(new THREE.Vector3())
+  const phase = useRef('in') // 'in' -> 'hold' -> 'out' -> 'done'
+  const t = useRef(0)
+  const holdFor = useRef(1.5)
+  const greetingSpokenRef = useRef(false)
+  const idleResumedRef = useRef(false)
+
+  useFrame((_, delta) => {
+    if (phase.current === 'done' || !actions) return
+    const controls = controlsRef.current
+    if (controls) controls.enabled = false
+
+    if (phase.current === 'in' || phase.current === 'out') {
+      const [from, to] = phase.current === 'in' ? [start.current, facePos] : [facePos, start.current]
+      const [fromT, toT] = phase.current === 'in' ? [startTarget.current, target] : [target, startTarget.current]
+      t.current = Math.min(1, t.current + delta / 1.2)
+      const e = 1 - Math.pow(1 - t.current, 3) // ease-out
+      camera.position.lerpVectors(from, to, e)
+      controls?.target.lerpVectors(fromT, toT, e)
+
+      if (t.current === 1) {
+        t.current = 0
+        if (phase.current === 'in') {
+          const idle = actions.Idle
+          const wave = actions.Wave || Object.values(actions).find(a => /wave/i.test(a.getClip().name))
+          idle?.fadeOut(0.3)
+          if (wave) {
+            wave.reset().setLoop(THREE.LoopOnce, 1)
+            wave.clampWhenFinishActions = true
+            wave.fadeIn(0.3).play()
+            holdFor.current = wave.getClip().duration + 0.3
+          }
+          // Speak the greeting as the wave plays. The next sentence isn't
+          // spoken until this callback fires (via TTS onEnd, not just the
+          // wave clip finishing) so the two never talk over each other.
+          if (!greetingSpokenRef.current) {
+            greetingSpokenRef.current = true
+            if (greeting) {
+              speakText(greeting, { onEnd: onGreetingDone }).catch((err) => {
+                console.warn('TTS failed', err)
+                onGreetingDone?.()
+              })
+            } else {
+              onGreetingDone?.()
+            }
+          }
+          phase.current = 'hold'
+        } else {
+          phase.current = 'done'
+          controls.enabled = true
+        }
+      }
+    } else if (phase.current === 'hold') {
+      t.current += delta
+      // The wave clip itself is short, so resume idle once it's done even
+      // though the camera stays put — the robot shouldn't stay frozen
+      // mid-wave for the whole time it's talking.
+      if (!idleResumedRef.current && t.current > holdFor.current) {
+        idleResumedRef.current = true
+        actions.Idle?.reset().fadeIn(0.3).play()
+      }
+      // Don't swish the camera back out until the greeting + first sentence
+      // have actually finished being spoken (signaled via canLeaveRef), not
+      // just when the wave animation ends.
+      if (t.current > holdFor.current && canLeaveRef?.current) {
+        phase.current = 'out'
+        t.current = 0
+      }
+    }
+    controls?.update()
+  })
+
+  return null
+}
+
 const getPhonemeStyle = (score) => {
   if (score === null || score === undefined) {
     return { background: '#e5e7eb', color: '#6b7280' };
@@ -399,13 +509,20 @@ export default function Lesson() {
   const [feedbackText, setFeedbackText] = useState('');
   const [robotPos] = useState([-10, -1, 0]);
   const robotRef = useRef(null);
+  const controlsRef = useRef(null);
+  const robotFaceTarget = useMemo(() => new THREE.Vector3(robotPos[0], -0.3, robotPos[2]), [robotPos]);
+  const robotFacePos = useMemo(() => new THREE.Vector3(robotPos[0] + 3, 0.2, robotPos[2]), [robotPos]);
   const match = useMatch("/lessons/:id");
   const lessonId = match?.params?.id;
   const [showIntro, setShowIntro] = useState(true);
   // Resolved server-side from the lesson's target phoneme. Null while loading.
   const [introVideo, setIntroVideo] = useState(null); // { videoId, start, usedFallback }
+  const [introVideoLoaded, setIntroVideoLoaded] = useState(false);
   const [score, setScore] = useState(0);
   const [wordsToIPA, setWordsToIPA] = useState(null);
+  // The two target words this lesson drills (e.g. ["rainbow", "racecar"]),
+  // used to build the robot's opening greeting.
+  const [lessonWords, setLessonWords] = useState([]);
   const [currentWordsToIPA, setCurrentWordsToIPA] = useState(null);
   const [wordResults, setWordResults] = useState([]);
   // Utterance-level prosody scores from the server (null until a result arrives)
@@ -416,6 +533,42 @@ export default function Lesson() {
   const speakSentence = (sentence) => {
     return speakText(sentence).catch((err) => {
       console.warn('TTS failed', err);
+    });
+  };
+
+  // Robot's opening greeting, spoken while it waves — names the two words
+  // this lesson drills so the learner knows what to listen for.
+  const introGreeting = useMemo(() => {
+    if (!lessonWords || lessonWords.length === 0) return null;
+    const wordsPhrase = lessonWords.length >= 2
+      ? `${lessonWords[0]} and ${lessonWords[1]}`
+      : lessonWords[0];
+    return `Hi! Welcome to a new lesson, today you will practice speaking sentences including the words ${wordsPhrase}. Now, can you say this sentence?`;
+  }, [lessonWords]);
+
+  // The intro camera stays locked on the robot's face until this flips to
+  // true — set once the first practice sentence has actually finished
+  // being spoken (see handleIntroGreetingDone), not just the greeting.
+  const introCanLeaveRef = useRef(false);
+
+  // Gates the sentence/phoneme panel — hidden until the robot's spoken
+  // greeting finishes, so it doesn't appear while "Hi! Welcome to..." plays.
+  const [greetingDone, setGreetingDone] = useState(false);
+
+  // Fired once the robot's wave greeting finishes speaking — only then is it
+  // safe to speak the first practice sentence without the two overlapping.
+  const handleIntroGreetingDone = () => {
+    setGreetingDone(true);
+    const currentSentence = cardData?.[String(currentSentenceIndex)] || cardData?.[currentSentenceIndex] || '';
+    if (!currentSentence) {
+      introCanLeaveRef.current = true;
+      return;
+    }
+    speakText(currentSentence, {
+      onEnd: () => { introCanLeaveRef.current = true; },
+    }).catch((err) => {
+      console.warn('TTS failed', err);
+      introCanLeaveRef.current = true;
     });
   };
 
@@ -616,6 +769,7 @@ export default function Lesson() {
           toast.error('Phoneme data failed to load. Please reload the page.');
         }
         setWordsToIPA(ipas);
+        setLessonWords(Array.isArray(data.words) ? data.words : []);
 
         // The backend resolves the lesson's target phoneme to a curated
         // Glossika Phonics video (see build_phoneme_video_map.py). If that
@@ -942,33 +1096,35 @@ export default function Lesson() {
             frameBorder="0"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
             allowFullScreen
+            onLoad={() => setIntroVideoLoaded(true)}
           />
         ) : (
           <div style={{ marginBottom: '2rem', fontSize: '1.2rem' }}>Loading video...</div>
         )}
-        <button
-          onClick={() => {
-            const currentSentence = cardData?.[String(currentSentenceIndex)] || cardData?.[currentSentenceIndex] || '';
-            skipNextSentenceSpeechRef.current = true;
-            setShowIntro(false);
-            if (currentSentence) {
-              speakSentence(currentSentence);
-            }
-          }}
-          style={{
-            padding: '12px 24px',
-            borderRadius: 25,
-            border: 'none',
-            background: 'linear-gradient(90deg, #6dd3ff 0%, #6b73ff 100%)',
-            color: 'white',
-            fontSize: '1.1rem',
-            fontWeight: 700,
-            cursor: 'pointer',
-            boxShadow: '0 8px 20px rgba(0,0,0,0.2)'
-          }}
-        >
-          Start Lesson
-        </button>
+        {introVideoLoaded && (
+          <button
+            onClick={() => {
+              // The first sentence is spoken once the robot's wave greeting
+              // finishes (see handleIntroGreetingDone), not immediately here —
+              // otherwise the two would talk over each other.
+              skipNextSentenceSpeechRef.current = true;
+              setShowIntro(false);
+            }}
+            style={{
+              padding: '12px 24px',
+              borderRadius: 25,
+              border: 'none',
+              background: 'linear-gradient(90deg, #6dd3ff 0%, #6b73ff 100%)',
+              color: 'white',
+              fontSize: '1.1rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              boxShadow: '0 8px 20px rgba(0,0,0,0.2)'
+            }}
+          >
+            Start Lesson
+          </button>
+        )}
       </div>
     );
   }
@@ -1086,6 +1242,7 @@ export default function Lesson() {
   return (
     <div style={{ position: 'fixed', inset: 0, margin: 0, padding: 0, overflow: 'hidden' }}>
       <Toaster position="top-center" />
+      <CanvasErrorBoundary>
       <Canvas
         style={{ width: '100%', height: '100%' }}
         camera={{ position: [-15, 8, 10], fov: 50 }}
@@ -1136,9 +1293,19 @@ export default function Lesson() {
             onActionsReady={setActions}
           />
 
-          <OrbitControls enablePan={true} enableZoom={true} maxPolarAngle={Math.PI / 2.1} />
+          <CameraIntro
+            facePos={robotFacePos}
+            target={robotFaceTarget}
+            controlsRef={controlsRef}
+            actions={actions}
+            greeting={introGreeting}
+            onGreetingDone={handleIntroGreetingDone}
+            canLeaveRef={introCanLeaveRef}
+          />
+          <OrbitControls ref={controlsRef} enablePan={true} enableZoom={true} maxPolarAngle={Math.PI / 2.1} />
         </Suspense>
       </Canvas>
+      </CanvasErrorBoundary>
 
       <Back />
       <PerformanceTracker
@@ -1267,7 +1434,8 @@ export default function Lesson() {
         `}</style>
       </div>
 
-      {/* Current sentence + live phoneme display */}
+      {/* Current sentence + live phoneme display — hidden until the robot's intro greeting finishes */}
+      {greetingDone && (
       <div style={{
         position: 'absolute',
         top: 24,
@@ -1382,6 +1550,7 @@ export default function Lesson() {
           </div>
         )}
       </div>
+      )}
     </div>
   )
 }
