@@ -249,7 +249,7 @@ const Profile = () => {
     return (
       <>
         <Header />
-        <main style={{ display: 'flex', justifyContent: 'center', paddingTop: '7rem' }}>
+        <main style={{ display: 'flex', justifyContent: 'center', paddingTop: 'calc(var(--header-height, 112px) + 2rem)'}}>
           <div style={{ ...panelStyle, textAlign: 'center' }}>
             <p style={{ color: '#f1f5f9', marginBottom: '1rem' }}>
               Couldn't load your profile — nothing was changed.
@@ -393,7 +393,7 @@ const Profile = () => {
       <main style={{
         display: 'flex',
         justifyContent: 'center',
-        paddingTop: '7rem',
+        paddingTop: 'calc(var(--header-height, 112px) + 2rem)',
         paddingBottom: '3rem',
         minHeight: '100vh',
         boxSizing: 'border-box',

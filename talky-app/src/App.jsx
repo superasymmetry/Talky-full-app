@@ -79,9 +79,12 @@ function App() {
 
         <section aria-labelledby="soundbank-heading" className="mt-8 mb-12">
           <h2 id="soundbank-heading" className="text-xl text-white font-semibold mb-4">Explore</h2>
-          <div className="flex justify-center">
+          <div className="flex justify-center gap-4 flex-wrap">
             <div className="w-full max-w-sm">
               <Card {...soundBankCard} data-testid="soundbank-card" />
+            </div>
+            <div className="w-full max-w-sm">
+              <Card {...practiceCard} data-testid="practice-card" />
             </div>
           </div>
         </section>

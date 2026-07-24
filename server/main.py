@@ -281,16 +281,59 @@ def _load_model_once():
                 _device = device
     return _processor, _model, _feedback_model, _device
 
+
+def _get_lesson(user_id, lesson_id):
+    """Shared lookup used by both /api/lessons and /api/lessons/intro-video.
+
+    IMPORTANT: lessons must be looked up by their "id" FIELD, never by raw
+    array position. Lesson ids are 1-based strings ("1", "2", "3", ...)
+    while the underlying list is 0-based, so `lessons[int(lesson_id)]` was
+    silently fetching the *next* lesson's content (sentences AND video)
+    for whatever lesson the user actually opened — id "1" (position 0)
+    resolved to position 1 (id "2"), id "2" resolved to position 2 (id
+    "3"), and so on. Matching on the "id" field is also what
+    update_user_progress already does elsewhere, so this brings lookup in
+    the two lesson-content endpoints in line with the rest of the app.
+
+    Also centralizes what used to be an unguarded
+    users_collection.find_one(...).get(...) with no None-check, which would
+    500 on a bad user_id. This returns a proper 404/400 instead.
+    """
+    user = users_collection.find_one({"userId": user_id})
+    if not user:
+        return None, None, (jsonify({"error": "user not found"}), 404)
+
+    lesson_id_str = str(lesson_id)
+    lesson = next(
+        (l for l in user.get('lessons', []) if str(l.get('id')) == lesson_id_str),
+        None,
+    )
+    if lesson is None:
+        return None, None, (jsonify({"error": "invalid lesson_id"}), 400)
+    return user, lesson, None
+
+
 @app.route('/api/lessons', methods=['GET', 'POST'])
 def lessons():
     user_id = request.args.get('user_id')
     lesson_id = request.args.get('lesson_id')
-    print("user id------------------", user_id)
-    user = users_collection.find_one({"userId": user_id})
-    print("typeof lesson", type(lesson_id))
-    lesson = user.get('lessons', [])[int(lesson_id)]
+    force_regenerate = request.args.get('regenerate') == 'true'
+
+    user, lesson, err = _get_lesson(user_id, lesson_id)
+    if err:
+        return err
+
     word_list = lesson.get('words', [])
-    print(word_list)
+
+    # Serve previously-generated content unchanged instead of hitting the
+    # LLM + re-tokenizing IPA on every page load — a lesson's sentences
+    # don't need to be different each time someone opens it.
+    cached = lesson.get('generated_content')
+    if cached and not force_regenerate:
+        logger.info("Lesson %s for user %s | serving cached generated content",
+                    _sanitize_for_log(lesson_id), _sanitize_for_log(user_id))
+        return jsonify(cached)
+
     prompt = f"""
     Your tasks is to generate a list of 7 sentences for speech therapy practice. 
     Please generate the sentences based on these words: {word_list}.
@@ -303,7 +346,6 @@ def lessons():
         }}
     """
     client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
-
     chat_completion = client.chat.completions.create(
         messages=[{"role": "user", "content": prompt}],
         model="llama-3.1-8b-instant",
@@ -312,56 +354,83 @@ def lessons():
 
     sentences_str = chat_completion.choices[0].message.content
     sentences = json.loads(sentences_str)
-    # If the LLM wrapped sentences under a "sentences" key, unwrap it
     if "sentences" in sentences and isinstance(sentences["sentences"], dict):
         sentences = sentences["sentences"]
 
-    # expected_ipa is a list of ordereddicts mapping word to ipa phonemes for each sentence
-    # words_to_ipa_list is a list of lists of dicts with "word" and "phonemes" keys
     expected_ipas = []
     words_to_ipa_list = []
     try:
         for sentence in sentences.values():
             sentence_phonemes = collections.OrderedDict()
             for word in sentence.split():
-                phonemes = _word_to_phonemes(word)
-                # print("word, phonemes", word, phonemes)
-                sentence_phonemes[word] = phonemes
+                sentence_phonemes[word] = _word_to_phonemes(word)
             expected_ipas.append(sentence_phonemes)
-            words_to_ipa = [{"word": word, "phonemes": phonemes} for word, phonemes in sentence_phonemes.items()]
-            words_to_ipa_list.append(words_to_ipa)
+            words_to_ipa_list.append(
+                [{"word": w, "phonemes": p} for w, p in sentence_phonemes.items()]
+            )
     except Exception as e:
         print(f"IPA computation error: {e}")
         expected_ipas = []
         words_to_ipa_list = []
 
-    # Resolve + attach the phoneme-specific intro video (Mongo-cached, see
-    # find_video.py — only ever hits YouTube once per phoneme).
     target_phoneme = _resolve_target_phoneme(lesson, word_list)
     logger.info(
         "Lesson %s for user %s | words=%s target_phoneme=%r",
         _sanitize_for_log(lesson_id), _sanitize_for_log(user_id), word_list, target_phoneme,
     )
 
-    intro_video_id = None
-    if target_phoneme:
-        try:
-            intro_video_id = get_video_for_phoneme(target_phoneme, phoneme_video_cache)
-        except Exception as e:
-            logger.exception("Video lookup failed for phoneme %r", target_phoneme)
-    else:
-        logger.warning(
-            "No target_phoneme resolved for lesson %s (user %s) — "
-            "intro_video_id will be null, frontend will use its default.",
-            _sanitize_for_log(lesson_id), _sanitize_for_log(user_id),
-        )
-
-    logger.info("Resolved intro_video_id=%r for phoneme=%r", intro_video_id, target_phoneme)
-
-    return jsonify({
+    generated_content = {
         "sentences": sentences,
         "expected_ipas": expected_ipas,
         "words_to_ipas": words_to_ipa_list,
+        "target_phoneme": target_phoneme,
+    }
+
+    # Persist so the next load of this exact lesson skips the LLM call and
+    # the IPA computation loop entirely.
+    #
+    # Matched by the lesson's "id" FIELD (positional operator "$"), not by
+    # treating lesson_id as an array index — see _get_lesson above for why
+    # that distinction matters. Using `lessons.{lesson_id}.generated_content`
+    # here previously wrote the cached content onto the WRONG array slot
+    # for the same reason _get_lesson was reading the wrong slot.
+    users_collection.update_one(
+        {"userId": user_id, "lessons.id": lesson_id},
+        {"$set": {"lessons.$.generated_content": generated_content}}
+    )
+
+    # Note: video lookup is intentionally NOT done here — see
+    # /api/lessons/intro-video below. Bundling it into this response means a
+    # cache-miss YouTube call blocks the sentences/IPA the player actually
+    # needs to start, even though the video is just decoration on the intro
+    # screen.
+    return jsonify(generated_content)
+
+
+@app.route('/api/lessons/intro-video', methods=['GET'])
+def lesson_intro_video():
+    """Resolved separately from /api/lessons so a video cache-miss never
+    delays lesson start — see the comment above."""
+    user_id = request.args.get('user_id')
+    lesson_id = request.args.get('lesson_id')
+
+    user, lesson, err = _get_lesson(user_id, lesson_id)
+    if err:
+        return err
+
+    word_list = lesson.get('words', [])
+    target_phoneme = _resolve_target_phoneme(lesson, word_list)
+
+    intro_video_id = None
+    if target_phoneme:
+        try:
+            intro_video_id = get_video_for_phoneme(
+                target_phoneme, phoneme_video_cache, words=word_list
+            )
+        except Exception:
+            logger.exception("Video lookup failed for phoneme %r", target_phoneme)
+
+    return jsonify({
         "target_phoneme": target_phoneme,
         "intro_video_id": intro_video_id,
         "intro_video_start": 0,

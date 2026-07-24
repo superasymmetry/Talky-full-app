@@ -27,9 +27,24 @@ function rememberAudioBlob(cacheKey, blob) {
   }
 }
 
-function createAudioHandlers(audio, objectUrl, onEnd) {
+// The backend always synthesizes speech at normal speed - "speak slowly"
+// is applied client-side via HTMLMediaElement.playbackRate instead, since
+// audio elements support this natively. preservesPitch keeps the voice
+// sounding natural instead of dropping in pitch as it slows down (the
+// "chipmunk effect" in reverse). Vendor-prefixed variants cover older
+// Firefox/Safari that haven't adopted the unprefixed property yet.
+function applyPlaybackRate(audio, rate) {
+  const effectiveRate = typeof rate === "number" && rate > 0 ? rate : 1;
+  audio.playbackRate = effectiveRate;
+  audio.preservesPitch = true;
+  audio.mozPreservesPitch = true;
+  audio.webkitPreservesPitch = true;
+}
+
+function createAudioHandlers(audio, objectUrl, onEnd, rate) {
   activeAudio = audio;
   activeObjectUrl = objectUrl;
+  applyPlaybackRate(audio, rate);
 
   audio.onended = () => {
     // Once playback finishes, clean up the object URL and reset the active clip.
@@ -52,9 +67,9 @@ function createAudioHandlers(audio, objectUrl, onEnd) {
   return audio;
 }
 
-async function playBlobAudio(blob, onEnd) {
+async function playBlobAudio(blob, onEnd, rate) {
   const url = URL.createObjectURL(blob);
-  const audio = createAudioHandlers(new Audio(url), url, onEnd);
+  const audio = createAudioHandlers(new Audio(url), url, onEnd, rate);
 
   try {
     await audio.play();
@@ -88,20 +103,20 @@ async function waitForEvent(target, eventName, errorEventName = "error") {
   });
 }
 
-async function playStreamedAudio(response, onEnd, abortSignal) {
+async function playStreamedAudio(response, onEnd, abortSignal, rate) {
   const mimeType = 'audio/mpeg';
 
   if (typeof MediaSource === "undefined" || !MediaSource.isTypeSupported(mimeType)) {
-    return playBlobAudio(await response.blob(), onEnd);
+    return playBlobAudio(await response.blob(), onEnd, rate);
   }
 
   if (!response.body) {
-    return playBlobAudio(await response.blob(), onEnd);
+    return playBlobAudio(await response.blob(), onEnd, rate);
   }
 
   const mediaSource = new MediaSource();
   const objectUrl = URL.createObjectURL(mediaSource);
-  const audio = createAudioHandlers(new Audio(objectUrl), objectUrl, onEnd);
+  const audio = createAudioHandlers(new Audio(objectUrl), objectUrl, onEnd, rate);
 
   const appendQueue = [];
   const collectedChunks = [];
@@ -236,7 +251,7 @@ export function stopSpeech() {
 }
 
 export async function speakText(text, options = {}) {
-  const { interrupt = true, onEnd, voiceKey } = options;
+  const { interrupt = true, onEnd, voiceKey, rate = 1 } = options;
 
   // Nothing to speak means nothing to request from the backend
   if (!text) return null;
@@ -258,7 +273,7 @@ export async function speakText(text, options = {}) {
 
   if (cachedBlob) {
     // Reuse previously generated audio when the same text and voice are requested again.
-    return playBlobAudio(cachedBlob, onEnd);
+    return playBlobAudio(cachedBlob, onEnd, rate);
   }
 
   const requestController = new AbortController();
@@ -306,7 +321,7 @@ export async function speakText(text, options = {}) {
     throw new Error(message);
   }
   try {
-    const playbackResult = await playStreamedAudio(response, onEnd, requestController.signal);
+    const playbackResult = await playStreamedAudio(response, onEnd, requestController.signal, rate);
 
     // Cache a blob copy for repeated local playback when the same sentence is requested again.
     // This keeps later requests fast even if the browser cannot stream a second time.

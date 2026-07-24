@@ -365,7 +365,7 @@ export default function VoiceSettings({ embed = false }) {
       <main style={{
         display: 'flex',
         justifyContent: 'center',
-        paddingTop: '7rem',
+        paddingTop: 'calc(var(--header-height, 112px) + 2rem)',
         paddingBottom: '3rem',
         minHeight: '100vh',
         boxSizing: 'border-box',
