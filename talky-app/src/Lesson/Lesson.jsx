@@ -1,13 +1,16 @@
-import { Canvas, useFrame } from '@react-three/fiber'
+import 'ldrs/react/Waveform.css'
+
+import * as THREE from 'three'
+
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Cloud, Clouds, ContactShadows, Environment, OrbitControls, Sky, useAnimations, useGLTF } from '@react-three/drei'
 import { Component, Suspense, forwardRef, useEffect, useMemo, useRef, useState } from 'react'
-import * as THREE from 'three'
+import { speakText, stopSpeech } from '../tts.js';
 import toast, { Toaster } from 'react-hot-toast';
 
 import Back from './Back.jsx';
+import { Waveform } from 'ldrs/react'
 import { io } from 'socket.io-client';
-
-import { speakText, stopSpeech } from '../tts.js';
 import { useAuth0 } from '@auth0/auth0-react';
 import { useMatch } from 'react-router-dom';
 
@@ -257,6 +260,116 @@ const Model = forwardRef(function Model(props, ref) {
   return <primitive ref={ref} object={scene} {...props} />
 })
 
+// Catches WebGLRenderer construction failures (WebGL/hardware acceleration
+// disabled, GPU context exhausted, driver crash, etc.) — these throw inside
+// Canvas's mount effect, which would otherwise blank the whole page.
+class CanvasErrorBoundary extends Component {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  componentDidCatch(error) {
+    console.error('3D scene failed to start:', error);
+    toast.error('Could not start the 3D scene — enable hardware acceleration / WebGL in your browser settings and reload.', { duration: 8000 });
+  }
+  render() {
+    if (this.state.failed) {
+      return (
+        <div style={{
+          position: 'fixed', inset: 0, display: 'flex', alignItems: 'center',
+          justifyContent: 'center', textAlign: 'center', padding: 24,
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white',
+        }}>
+          <div>
+            <h2>3D scene unavailable</h2>
+            <p>Your browser couldn't create a WebGL context. Enable hardware acceleration / WebGL and reload the page.</p>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// One-time opening shot: swishes the camera in to the robot's face, triggers
+// its wave animation (speaking a greeting as it waves), then swishes back to
+// the original camera spot.
+function CameraIntro({ facePos, target, controlsRef, actions, greeting, onGreetingDone, canLeaveRef }) {
+  const { camera } = useThree()
+  const start = useRef(camera.position.clone())
+  const startTarget = useRef(new THREE.Vector3())
+  const phase = useRef('in') // 'in' -> 'hold' -> 'out' -> 'done'
+  const t = useRef(0)
+  const holdFor = useRef(1.5)
+  const greetingSpokenRef = useRef(false)
+  const idleResumedRef = useRef(false)
+
+  useFrame((_, delta) => {
+    if (phase.current === 'done' || !actions) return
+    const controls = controlsRef.current
+    if (controls) controls.enabled = false
+
+    if (phase.current === 'in' || phase.current === 'out') {
+      const [from, to] = phase.current === 'in' ? [start.current, facePos] : [facePos, start.current]
+      const [fromT, toT] = phase.current === 'in' ? [startTarget.current, target] : [target, startTarget.current]
+      t.current = Math.min(1, t.current + delta / 1.2)
+      const e = 1 - Math.pow(1 - t.current, 3) // ease-out
+      camera.position.lerpVectors(from, to, e)
+      controls?.target.lerpVectors(fromT, toT, e)
+
+      if (t.current === 1) {
+        t.current = 0
+        if (phase.current === 'in') {
+          const idle = actions.Idle
+          const wave = actions.Wave || Object.values(actions).find(a => /wave/i.test(a.getClip().name))
+          idle?.fadeOut(0.3)
+          if (wave) {
+            wave.reset().setLoop(THREE.LoopOnce, 1)
+            wave.clampWhenFinishActions = true
+            wave.fadeIn(0.3).play()
+            holdFor.current = wave.getClip().duration + 0.3
+          }
+          // Speak the greeting as the wave plays. The next sentence isn't
+          // spoken until this callback fires (via TTS onEnd, not just the
+          // wave clip finishing) so the two never talk over each other.
+          if (!greetingSpokenRef.current) {
+            greetingSpokenRef.current = true
+            if (greeting) {
+              speakText(greeting, { onEnd: onGreetingDone }).catch((err) => {
+                console.warn('TTS failed', err)
+                onGreetingDone?.()
+              })
+            } else {
+              onGreetingDone?.()
+            }
+          }
+          phase.current = 'hold'
+        } else {
+          phase.current = 'done'
+          controls.enabled = true
+        }
+      }
+    } else if (phase.current === 'hold') {
+      t.current += delta
+      // The wave clip itself is short, so resume idle once it's done even
+      // though the camera stays put — the robot shouldn't stay frozen
+      // mid-wave for the whole time it's talking.
+      if (!idleResumedRef.current && t.current > holdFor.current) {
+        idleResumedRef.current = true
+        actions.Idle?.reset().fadeIn(0.3).play()
+      }
+      // Don't swish the camera back out until the greeting + first sentence
+      // have actually finished being spoken (signaled via canLeaveRef), not
+      // just when the wave animation ends.
+      if (t.current > holdFor.current && canLeaveRef?.current) {
+        phase.current = 'out'
+        t.current = 0
+      }
+    }
+    controls?.update()
+  })
+
+  return null
+}
+
 const getPhonemeStyle = (score) => {
   if (score === null || score === undefined) {
     return { background: '#e5e7eb', color: '#6b7280' };
@@ -424,6 +537,9 @@ export default function Lesson() {
   const [feedbackText, setFeedbackText] = useState('');
   const [robotPos] = useState([-10, -1, 0]);
   const robotRef = useRef(null);
+  const controlsRef = useRef(null);
+  const robotFaceTarget = useMemo(() => new THREE.Vector3(robotPos[0], -0.3, robotPos[2]), [robotPos]);
+  const robotFacePos = useMemo(() => new THREE.Vector3(robotPos[0] + 3, 0.2, robotPos[2]), [robotPos]);
   const match = useMatch("/lessons/:id");
   const lessonId = match?.params?.id;
   const [showIntro, setShowIntro] = useState(true);
@@ -438,7 +554,13 @@ export default function Lesson() {
   const [videoStarted, setVideoStarted] = useState(false); // click-to-play gate
   const [score, setScore] = useState(0);
   const [wordsToIPA, setWordsToIPA] = useState(null);
+  // The two target words this lesson drills (e.g. ["rainbow", "racecar"]),
+  // used to build the robot's opening greeting.
+  const [lessonWords, setLessonWords] = useState([]);
   const [currentWordsToIPA, setCurrentWordsToIPA] = useState(null);
+  // Mirrors currentWordsToIPA for the socket handlers below, which are wired
+  // up once on mount and would otherwise close over a stale null/empty value.
+  const currentWordsToIPARef = useRef(null);
   const [wordResults, setWordResults] = useState([]);
   // Utterance-level prosody scores from the server (null until a result arrives)
   const [prosody, setProsody] = useState(null);
@@ -448,6 +570,42 @@ export default function Lesson() {
   const speakSentence = (sentence) => {
     return speakText(sentence).catch((err) => {
       console.warn('TTS failed', err);
+    });
+  };
+
+  // Robot's opening greeting, spoken while it waves — names the two words
+  // this lesson drills so the learner knows what to listen for.
+  const introGreeting = useMemo(() => {
+    if (!lessonWords || lessonWords.length === 0) return null;
+    const wordsPhrase = lessonWords.length >= 2
+      ? `${lessonWords[0]} and ${lessonWords[1]}`
+      : lessonWords[0];
+    return `Hi! Welcome to a new lesson, today you will practice speaking sentences including the words ${wordsPhrase}. Now, can you say this sentence?`;
+  }, [lessonWords]);
+
+  // The intro camera stays locked on the robot's face until this flips to
+  // true — set once the first practice sentence has actually finished
+  // being spoken (see handleIntroGreetingDone), not just the greeting.
+  const introCanLeaveRef = useRef(false);
+
+  // Gates the sentence/phoneme panel — hidden until the robot's spoken
+  // greeting finishes, so it doesn't appear while "Hi! Welcome to..." plays.
+  const [greetingDone, setGreetingDone] = useState(false);
+
+  // Fired once the robot's wave greeting finishes speaking — only then is it
+  // safe to speak the first practice sentence without the two overlapping.
+  const handleIntroGreetingDone = () => {
+    setGreetingDone(true);
+    const currentSentence = cardData?.[String(currentSentenceIndex)] || cardData?.[currentSentenceIndex] || '';
+    if (!currentSentence) {
+      introCanLeaveRef.current = true;
+      return;
+    }
+    speakText(currentSentence, {
+      onEnd: () => { introCanLeaveRef.current = true; },
+    }).catch((err) => {
+      console.warn('TTS failed', err);
+      introCanLeaveRef.current = true;
     });
   };
 
@@ -480,10 +638,12 @@ export default function Lesson() {
   // logits to the backend instead of raw audio and the model never runs server-side.
   const workerRef = useRef(null);
   const workerReadyRef = useRef(false);
+  const workerDeviceRef = useRef(null);     // { device, dtype } the worker actually loaded, from 'ready'
   const sessionModeRef = useRef('audio');   // 'logits' | 'audio', fixed per recording session
   const pendingChunksRef = useRef(0);       // chunks handed to the worker, logits not yet emitted
   const stopPendingRef = useRef(false);     // user stopped; waiting for worker to drain
-  const stopTimeoutRef = useRef(null);
+  const stopTimeoutRef = useRef(null);      // stall watchdog: reset on every chunk that finishes
+  const stopHardCapRef = useRef(null);      // absolute cap in case the worker never makes progress
   const prosodyTimeoutRef = useRef(null);   // fallback disconnect if 'prosody' never arrives
 
   // Initialize socket once — listeners are stable across renders
@@ -505,6 +665,17 @@ export default function Lesson() {
         next[data.word_index] = { word: data.word, phonemes: data.phonemes };
         return next;
       });
+
+      // Live decoded-vs-target phoneme breakdown, printed as each word scores
+      // in so you can watch accuracy come in while the user is still talking.
+      const targetPhonemes = currentWordsToIPARef.current?.[data.word_index]?.phonemes || [];
+      const rows = (data.phonemes || []).map((p, i) => ({
+        target: targetPhonemes[i] ?? '—',
+        decoded: p.decoded,
+        score: p.score != null ? p.score.toFixed(2) : 'n/a',
+      }));
+      console.log(`[phoneme] word ${data.word_index} "${data.word}"`);
+      console.table(rows);
     });
 
     // Lesson-wide performance tracking: lives + running accuracy + phoneme
@@ -598,6 +769,16 @@ export default function Lesson() {
       const msg = e.data;
       if (msg.type === 'ready') {
         workerReadyRef.current = true;
+        workerDeviceRef.current = { device: msg.device, dtype: msg.dtype };
+        if (msg.device === 'webgpu') {
+          console.info(`[wav2vec2] on-device inference ready: WebGPU/${msg.dtype}`);
+        } else {
+          // Not necessarily a bug — small EC2 instances can't run this model
+          // server-side either — but it's the slowest, least accurate tier
+          // (WASM has no oneDNN/AVX-width SIMD, and int8 quantization adds
+          // GOP-score error), so it's worth knowing when a user lands here.
+          console.warn(`[wav2vec2] WebGPU unavailable, running ${msg.device}/${msg.dtype} instead (slower, less accurate)`);
+        }
       } else if (msg.type === 'error') {
         workerReadyRef.current = false;
         console.warn('On-device wav2vec2 unavailable, streaming raw audio instead:', msg.error);
@@ -606,10 +787,10 @@ export default function Lesson() {
           socketRef.current.emit('logits_chunk', { frames: msg.frames, data: msg.data.buffer });
         }
         pendingChunksRef.current -= 1;
-        if (stopPendingRef.current && pendingChunksRef.current <= 0) emitStop();
+        onWorkerProgress();
       } else if (msg.type === 'chunk_error') {
         pendingChunksRef.current -= 1;
-        if (stopPendingRef.current && pendingChunksRef.current <= 0) emitStop();
+        onWorkerProgress();
       }
     };
 
@@ -640,6 +821,7 @@ export default function Lesson() {
           toast.error('Phoneme data failed to load. Please reload the page.');
         }
         setWordsToIPA(ipas);
+        setLessonWords(Array.isArray(data.words) ? data.words : []);
         setTargetPhoneme(data.target_phoneme || null);
       })
       .catch((error) => {
@@ -693,7 +875,9 @@ export default function Lesson() {
 
   useEffect(() => {
     if (wordsToIPA && currentSentenceIndex > 0) {
-      setCurrentWordsToIPA(wordsToIPA[currentSentenceIndex - 1] || null);
+      const words = wordsToIPA[currentSentenceIndex - 1] || null;
+      setCurrentWordsToIPA(words);
+      currentWordsToIPARef.current = words;
       setWordResults([]);
     }
   }, [wordsToIPA, currentSentenceIndex]);
@@ -784,15 +968,49 @@ export default function Lesson() {
     }
   };
 
-  const emitStop = () => {
+  // No progress on the worker's logits queue for this long -> assume it's
+  // stuck (not just slow) and stop waiting. Comfortably above one WASM/int8
+  // chunk's worst-case latency, which can run several times slower than a
+  // native-CPU chunk (~250-450ms) with no GPU and no oneDNN.
+  const STOP_DRAIN_STALL_MS = 8000;
+  // Absolute cap so a session can't hang indefinitely even if the worker
+  // keeps limping forward one chunk at a time.
+  const STOP_DRAIN_HARD_CAP_MS = 30000;
+
+  const clearStopTimers = () => {
     if (stopTimeoutRef.current) {
       clearTimeout(stopTimeoutRef.current);
       stopTimeoutRef.current = null;
     }
+    if (stopHardCapRef.current) {
+      clearTimeout(stopHardCapRef.current);
+      stopHardCapRef.current = null;
+    }
+  };
+
+  const emitStop = () => {
+    clearStopTimers();
     if (stopPendingRef.current) {
       stopPendingRef.current = false;
+      if (pendingChunksRef.current > 0) {
+        console.warn(`[wav2vec2] gave up draining worker with ${pendingChunksRef.current} chunk(s) still unscored`);
+      }
       socketRef.current?.emit('stop');
     }
+  };
+
+  // Reset the stall watchdog whenever a chunk actually finishes (success or
+  // error) — a worker that's merely slow but still making progress should be
+  // allowed to keep going, up to the hard cap; only a worker that's stopped
+  // making progress entirely should trip the shorter stall timeout.
+  const onWorkerProgress = () => {
+    if (!stopPendingRef.current) return;
+    if (pendingChunksRef.current <= 0) {
+      emitStop();
+      return;
+    }
+    if (stopTimeoutRef.current) clearTimeout(stopTimeoutRef.current);
+    stopTimeoutRef.current = setTimeout(emitStop, STOP_DRAIN_STALL_MS);
   };
 
   // In logits mode chunks may still be inside the worker when the user stops;
@@ -800,7 +1018,8 @@ export default function Lesson() {
   const requestStop = () => {
     if (sessionModeRef.current === 'logits' && pendingChunksRef.current > 0) {
       stopPendingRef.current = true;
-      stopTimeoutRef.current = setTimeout(emitStop, 5000); // don't hang if the worker dies
+      stopTimeoutRef.current = setTimeout(emitStop, STOP_DRAIN_STALL_MS);
+      stopHardCapRef.current = setTimeout(emitStop, STOP_DRAIN_HARD_CAP_MS);
     } else {
       socketRef.current?.emit('stop');
     }
@@ -829,10 +1048,7 @@ export default function Lesson() {
     sessionModeRef.current = workerReadyRef.current ? 'logits' : 'audio';
     pendingChunksRef.current = 0;
     stopPendingRef.current = false;
-    if (stopTimeoutRef.current) {
-      clearTimeout(stopTimeoutRef.current);
-      stopTimeoutRef.current = null;
-    }
+    clearStopTimers();
     if (prosodyTimeoutRef.current) {
       clearTimeout(prosodyTimeoutRef.current);
       prosodyTimeoutRef.current = null;
@@ -843,7 +1059,7 @@ export default function Lesson() {
     // phoneme averages for the live improved/worse deltas.
     const socket = socketRef.current;
     if (socket.connected) socket.disconnect();
-    pendingSessionRef.current = { sentence, words_ipa, userId, mode: sessionModeRef.current };
+    pendingSessionRef.current = { sentence, words_ipa, userId, mode: sessionModeRef.current, target_phoneme: targetPhoneme };
     socket.connect();
 
     let stream;
@@ -960,8 +1176,8 @@ export default function Lesson() {
 
         <div style={{ width: 640, maxWidth: '90vw', aspectRatio: '16 / 9', marginBottom: '2rem', borderRadius: 12, overflow: 'hidden', background: 'rgba(0,0,0,0.25)' }}>
           {videoLoading ? (
-            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem' }}>
-              Loading video...
+            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Waveform size="35" stroke="3.5" speed="1" color="white" />
             </div>
           ) : videoStarted ? (
             <iframe
@@ -1000,10 +1216,11 @@ export default function Lesson() {
 
         <button
           onClick={() => {
-            const currentSentence = cardData?.[String(currentSentenceIndex)] || cardData?.[currentSentenceIndex] || '';
+            // The first sentence is spoken once the robot's wave greeting
+            // finishes (see handleIntroGreetingDone), not immediately here —
+            // otherwise the two would talk over each other.
             skipNextSentenceSpeechRef.current = true;
             setShowIntro(false);
-            if (currentSentence) speakSentence(currentSentence);
           }}
           style={{
             padding: '12px 24px', borderRadius: 25, border: 'none',
@@ -1131,6 +1348,7 @@ export default function Lesson() {
   return (
     <div style={{ position: 'fixed', inset: 0, margin: 0, padding: 0, overflow: 'hidden' }}>
       <Toaster position="top-center" />
+      <CanvasErrorBoundary>
       <SceneErrorBoundary>
         <Canvas
           style={{ width: '100%', height: '100%' }}
@@ -1182,10 +1400,20 @@ export default function Lesson() {
               onActionsReady={setActions}
             />
 
-            <OrbitControls enablePan={true} enableZoom={true} maxPolarAngle={Math.PI / 2.1} />
+            <CameraIntro
+              facePos={robotFacePos}
+              target={robotFaceTarget}
+              controlsRef={controlsRef}
+              actions={actions}
+              greeting={introGreeting}
+              onGreetingDone={handleIntroGreetingDone}
+              canLeaveRef={introCanLeaveRef}
+            />
+            <OrbitControls ref={controlsRef} enablePan={true} enableZoom={true} maxPolarAngle={Math.PI / 2.1} />
           </Suspense>
         </Canvas>
       </SceneErrorBoundary>
+      </CanvasErrorBoundary>
 
       <Back />
       <PerformanceTracker
@@ -1314,7 +1542,8 @@ export default function Lesson() {
         `}</style>
       </div>
 
-      {/* Current sentence + live phoneme display */}
+      {/* Current sentence + live phoneme display — hidden until the robot's intro greeting finishes */}
+      {greetingDone && (
       <div style={{
         position: 'absolute',
         top: 24,
@@ -1329,7 +1558,7 @@ export default function Lesson() {
       }}>
         <div>Say this sentence:</div>
         <div style={{ fontWeight: 'bold', marginTop: 4 }}>
-          {cardData ? cardData[currentSentenceIndex.toString()] || 'End of lesson' : 'Loading...'}
+          {cardData ? cardData[currentSentenceIndex.toString()] || 'End of lesson' : <Waveform size="20" stroke="2" speed="1" color="white" />}
         </div>
 
         {currentWordsToIPA && (
@@ -1429,6 +1658,7 @@ export default function Lesson() {
           </div>
         )}
       </div>
+      )}
     </div>
   )
 }
