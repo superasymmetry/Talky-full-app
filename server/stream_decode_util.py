@@ -14,12 +14,20 @@ def normalize(phoneme):
     return phoneme
 
 
-def gop_score(target_logit, decoded_logit):
+# exp(min(target_logit - decoded_logit, 0)) is the softmax probability ratio
+# P(target)/P(decoded) — exact, since the normalizer cancels out of the ratio.
+# CTC-trained logits are sharply peaked, so that ratio collapses to ~0 for
+# any gap beyond a few units. Dividing the gap by this temperature before
+# exponentiating stretches the falloff back out; higher = more gradual/lenient.
+GOP_TEMPERATURE = 5.0
+
+
+def gop_score(target_logit, decoded_logit, temperature=GOP_TEMPERATURE):
     """Graded Goodness of Pronunciation in (0, 1]: how close the expected
     phoneme's logit was to what the model actually decoded at that frame."""
     if np.isnan(target_logit) or np.isnan(decoded_logit):
         return None
-    return float(np.exp(min(target_logit - decoded_logit, 0.0)))
+    return float(np.exp(min(target_logit - decoded_logit, 0.0) / temperature))
 
 
 def stream_decode_logits(logits_chunks, reference_phonemes, tokenizer):

@@ -1,3 +1,5 @@
+import 'ldrs/react/Waveform.css'
+
 import * as THREE from 'three'
 
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
@@ -7,6 +9,7 @@ import { speakText, stopSpeech } from '../tts.js';
 import toast, { Toaster } from 'react-hot-toast';
 
 import Back from './Back.jsx';
+import { Waveform } from 'ldrs/react'
 import { io } from 'socket.io-client';
 import { useAuth0 } from '@auth0/auth0-react';
 import { useMatch } from 'react-router-dom';
@@ -523,7 +526,14 @@ export default function Lesson() {
   // The two target words this lesson drills (e.g. ["rainbow", "racecar"]),
   // used to build the robot's opening greeting.
   const [lessonWords, setLessonWords] = useState([]);
+  // The phoneme this lesson is drilling (e.g. "r"), sent up with 'start' so
+  // the backend can weight the lesson score toward the sounds actually being
+  // practiced instead of every phoneme in the sentence equally.
+  const [targetPhoneme, setTargetPhoneme] = useState(null);
   const [currentWordsToIPA, setCurrentWordsToIPA] = useState(null);
+  // Mirrors currentWordsToIPA for the socket handlers below, which are wired
+  // up once on mount and would otherwise close over a stale null/empty value.
+  const currentWordsToIPARef = useRef(null);
   const [wordResults, setWordResults] = useState([]);
   // Utterance-level prosody scores from the server (null until a result arrives)
   const [prosody, setProsody] = useState(null);
@@ -628,6 +638,17 @@ export default function Lesson() {
         next[data.word_index] = { word: data.word, phonemes: data.phonemes };
         return next;
       });
+
+      // Live decoded-vs-target phoneme breakdown, printed as each word scores
+      // in so you can watch accuracy come in while the user is still talking.
+      const targetPhonemes = currentWordsToIPARef.current?.[data.word_index]?.phonemes || [];
+      const rows = (data.phonemes || []).map((p, i) => ({
+        target: targetPhonemes[i] ?? '—',
+        decoded: p.decoded,
+        score: p.score != null ? p.score.toFixed(2) : 'n/a',
+      }));
+      console.log(`[phoneme] word ${data.word_index} "${data.word}"`);
+      console.table(rows);
     });
 
     // Lesson-wide performance tracking: lives + running accuracy + phoneme
@@ -770,6 +791,7 @@ export default function Lesson() {
         }
         setWordsToIPA(ipas);
         setLessonWords(Array.isArray(data.words) ? data.words : []);
+        setTargetPhoneme(data.target_phoneme || null);
 
         // The backend resolves the lesson's target phoneme to a curated
         // Glossika Phonics video (see build_phoneme_video_map.py). If that
@@ -795,7 +817,9 @@ export default function Lesson() {
 
   useEffect(() => {
     if (wordsToIPA && currentSentenceIndex > 0) {
-      setCurrentWordsToIPA(wordsToIPA[currentSentenceIndex - 1] || null);
+      const words = wordsToIPA[currentSentenceIndex - 1] || null;
+      setCurrentWordsToIPA(words);
+      currentWordsToIPARef.current = words;
       setWordResults([]);
     }
   }, [wordsToIPA, currentSentenceIndex]);
@@ -977,7 +1001,7 @@ export default function Lesson() {
     // phoneme averages for the live improved/worse deltas.
     const socket = socketRef.current;
     if (socket.connected) socket.disconnect();
-    pendingSessionRef.current = { sentence, words_ipa, userId, mode: sessionModeRef.current };
+    pendingSessionRef.current = { sentence, words_ipa, userId, mode: sessionModeRef.current, target_phoneme: targetPhoneme };
     socket.connect();
 
     let stream;
@@ -1099,7 +1123,14 @@ export default function Lesson() {
             onLoad={() => setIntroVideoLoaded(true)}
           />
         ) : (
-          <div style={{ marginBottom: '2rem', fontSize: '1.2rem' }}>Loading video...</div>
+          <div style={{ marginBottom: '2rem', fontSize: '1.2rem' }}>
+            <Waveform
+              size="35"
+              stroke="3.5"
+              speed="1"
+              color="black" 
+            />
+          </div>
         )}
         {introVideoLoaded && (
           <button
@@ -1450,7 +1481,7 @@ export default function Lesson() {
       }}>
         <div>Say this sentence:</div>
         <div style={{ fontWeight: 'bold', marginTop: 4 }}>
-          {cardData ? cardData[currentSentenceIndex.toString()] || 'End of lesson' : 'Loading...'}
+          {cardData ? cardData[currentSentenceIndex.toString()] || 'End of lesson' : <Waveform size="20" stroke="2" speed="1" color="white" />}
         </div>
 
         {currentWordsToIPA && (

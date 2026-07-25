@@ -96,12 +96,18 @@ sessions = {}
 # server-side would reset every sentence instead of persisting across the
 # whole lesson) — this constant just tells the frontend which words count
 # against the player.
-WORD_FAIL_SCORE_THRESHOLD = 0.5
+WORD_FAIL_SCORE_THRESHOLD = 0.3
 
 # How big a gap between a phoneme's score-this-attempt and the user's
 # historical average for that phoneme counts as a meaningful improvement or
 # regression, vs. just noise.
 PHONEME_DELTA_MARGIN = 0.05
+
+# How much more a lesson's target phoneme (the sound it's actually drilling)
+# counts toward the lesson score than every other phoneme in the sentence.
+# E.g. a lesson on "r" scores a sentence mostly on how well the user nailed
+# the "r"s, not diluted by the other, incidental phonemes in the words.
+TARGET_PHONEME_WEIGHT = 4.0
 
 phoneme_word_bank = {
     "p": ["pat", "pop", "paper", "puppy", "apple", "stop", "pepper", "paint"],
@@ -400,21 +406,57 @@ def wordbank():
 
     return jsonify(chat_completion.choices[0].message.content)
 
+def _generate_detailed_feedback(results, target_phoneme, avg):
+    weak_phonemes = sorted((p for r in results for p in r['phonemes']), key=lambda p: p['score'])[:5]
+    weak_summary = ", ".join(f"'{p['phoneme']}' (heard as '{p['decoded']}', score {p['score']:.2f})" for p in weak_phonemes)
+    word_summary = ", ".join(f"{r['word']} ({r['score']:.2f})" for r in results)
+
+    prompt = f"""
+    A speech therapy student just finished a lesson practicing the "{target_phoneme}" sound.
+    Their overall accuracy score was {avg:.2f} (out of 1.0).
+    Per-word scores: {word_summary}
+    Weakest phonemes: {weak_summary}
+
+    Write one short (1 sentence), encouraging piece of feedback that:
+    - Names the specific sound(s) in the specific word(s) they struggled with
+    - Gives one concrete tip for improving that sound
+    - Avoids generic phrases like "try again" or "good job"
+    """
+    try:
+        client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+        chat_completion = client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model="llama-3.1-8b-instant",
+        )
+        return chat_completion.choices[0].message.content.strip()
+    except Exception:
+        logger.exception("Groq feedback generation failed")
+        return "Hmm, try again."
+
 def finalize_session(sid):
     session = sessions.pop(sid, None)
     if not session:
         return
     results = session['results']
-    # NOTE: this used to be `len(results) / total_words` — i.e. "fraction of
-    # words attempted", not an accuracy score, so a lesson where every word
-    # scored 0.1 would still report "100%" once all words were attempted.
-    # This is the number the whole lesson-performance feature depends on, so
-    # it needs to actually be the average word score.
-    avg = sum(r['score'] for r in results) / len(results) if results else 0.0
+    target_phoneme = session.get('target_phoneme')
+
+    # Weighted average of scores: target phoneme weighs more
+    phoneme_scores = [p for r in results for p in r['phonemes']]
+    if phoneme_scores:
+        weighted_sum = 0.0
+        weight_total = 0.0
+        for p in phoneme_scores:
+            weight = TARGET_PHONEME_WEIGHT if p['phoneme'] == target_phoneme else 1.0
+            weighted_sum += p['score'] * weight
+            weight_total += weight
+        avg = weighted_sum / weight_total
+    else:
+        avg = 0.0
+    feedback = "Great job!" if avg >= 0.8 else _generate_detailed_feedback(results, target_phoneme, avg)
     socketio.emit('result', {
         'score': avg,
         'passed': avg >= 0.8,
-        'feedback': "Great job!" if avg >= 0.8 else "Hmm, try again.",
+        'feedback': feedback,
         'res': results,
     }, to=sid)
 
@@ -447,6 +489,13 @@ def handle_start(data):
         for word_idx, w in enumerate(words_ipa)
         for _ in w['phonemes']
     ]
+    # First flat position belonging to each word, so a match's global
+    # `position` can be converted to its local slot within the word.
+    word_start_position = []
+    _pos = 0
+    for w in words_ipa:
+        word_start_position.append(_pos)
+        _pos += len(w['phonemes'])
     chunk_queue = queue.Queue()
     # mode 'audio': client streams raw 16 kHz PCM, wav2vec2 runs server-side.
     # mode 'logits': client already ran wav2vec2 (e.g. transformers.js on WebGPU)
@@ -455,12 +504,22 @@ def handle_start(data):
     #                be scored server-side (see handle_chunk).
     mode = data.get('mode', 'audio')
     sentence = data.get('sentence', '')
+    # The phoneme this lesson is drilling (e.g. "r"), so finalize_session can
+    # weight the lesson score toward it instead of averaging every phoneme
+    # in the sentence equally.
+    target_phoneme = data.get('target_phoneme')
     session = {'words_ipa': words_ipa, 'queue': chunk_queue, 'results': [],
-               'mode': mode, 'audio': []}
+               'mode': mode, 'audio': [], 'target_phoneme': target_phoneme}
     sessions[sid] = session
 
     def run():
-        word_phoneme_scores = [[] for _ in words_ipa]
+        # Pre-sized per word (None = not yet scored) and filled by position,
+        # not appended in arrival order — the aligner can rewind and re-emit
+        # an earlier position (see stream_decode_util's backward realignment),
+        # and blind appending would then shift every later phoneme in the
+        # word into the wrong slot.
+        word_phoneme_scores = [[None] * len(w['phonemes']) for w in words_ipa]
+        word_completed = [False] * len(words_ipa)
         stream_ended = False
 
         def drain():
@@ -481,9 +540,15 @@ def handle_start(data):
                 if match['label'] == 'insertion' or match['position'] is None:
                     continue
                 word_idx = position_to_word_idx[match['position']]
-                word_phoneme_scores[word_idx].append({'phoneme': match['phoneme'], 'score': match['score']})
+                if word_completed[word_idx]:
+                    continue
+                local_idx = match['position'] - word_start_position[word_idx]
                 word_entry = words_ipa[word_idx]
-                if len(word_phoneme_scores[word_idx]) == len(word_entry['phonemes']):
+                if not (0 <= local_idx < len(word_entry['phonemes'])):
+                    continue
+                word_phoneme_scores[word_idx][local_idx] = {'phoneme': match['phoneme'], 'decoded': match['decoded'], 'score': match['score']}
+                if all(s is not None for s in word_phoneme_scores[word_idx]):
+                    word_completed[word_idx] = True
                     scores = word_phoneme_scores[word_idx]
                     word_score = sum(p['score'] for p in scores) / len(scores)
                     result = {
