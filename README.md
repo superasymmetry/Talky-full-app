@@ -23,46 +23,58 @@ The Duolingo for speech therapy–we're making better speech accessible to all, 
 
 <a id="how"></a>
 ## How is Talky made?
-Talky is made with many different technologies. Here are our major ones:
-- React frontend (Vite, Three.js, Auth0, TailWind CSS)
-- Flask backend (MongoDB, REST API)
-- Goodness of Pronounciation Algorithm ([this](#credits) Huggingface model, [this](#credits) algorithm for evaluation, and the forced alignment algorithm)
-- SpeechSynthesis by Mozilla
+Talky is made with many different technologies. Here we credit the major ones we've used.
+- We run on a React + Vite frontend with a Flask backend. Our database uses MongoDB.
+- Backend is served on EC2, and frontend on CloudFront + S3.
+- Goodness of Pronounciation Algorithm ([this](#credits) Huggingface model, [this](#credits) algorithm for evaluation, and the forced alignment algorithm). I wrote about how we did this on my [personal website](https://cszeng.vercel.app/projects/2_talky/), and I have also open-sourced my approach here as a [PyPI library](http://github.com/superasymmetry/pronounce-assess).
+- WebSockets for real-time speech evaluation.
+- Three.js for WebGL rendering.
+- ElevenLabs for Text-to-Speech.
 
 <a id="features"></a>
 ## Features
-Here are some of the features of Talky! More are currently being implemented!
+Here are the current features of Talky.
 
 ### Iterative Lessons
 
-Talky has lessons which unlock when the previous lesson is completed. The subsequent lesson is then generated with content and exercises prioritizing the user's weakest phonemes.
+Talky's lessons unlock iteratively based on the user's global performance on all phonemes, where weaker phonemes are prioritized to be selected for the next lesson.
 
-<img height="1500" alt="image" src="https://github.com/user-attachments/assets/bca2136b-7855-4bdc-92f3-6146b714e139" />
+<img width="3164" height="1648" alt="image" src="https://github.com/user-attachments/assets/21293384-b979-4439-92fa-b3f4e31626ea" />
 
-For each lesson, the user will walk our robot mascot, Talky, to the end flag. When a sentence is pronounced well enough, the robot will advance forward in our 3D terrain.
+This is an example of our 3D terrain on which the our robot mascot, Rocky, walks.
 
-<img height="1500" alt="image" src="https://github.com/user-attachments/assets/d3062c32-20db-493e-9d9e-b1a0cb2757c7" />
+<img width="3200" height="1652" alt="image" src="https://github.com/user-attachments/assets/081a367e-e8c7-47d2-b74f-6983fc5d3d63" />
+
+<img width="3200" height="1654" alt="image" src="https://github.com/user-attachments/assets/c0a71eae-df08-4579-90e0-1c856b4bc161" />
+
 
 ### Voice Evaluation
 
-Talky will use the Goodness of Pronounciation algorithm to provide a detailed phoneme-level score analysis for the user. Each phoneme is colored with a different label depending on how well that phoneme was pronounced. A more precise score is also seen when hovering over each phoneme.
+Talky will use the Goodness of Pronounciation algorithm to provide a detailed phoneme-level score analysis for the user. Each phoneme is highlighted in real time as you speak, with its color indicating accuracy, as well as a side panel displaying the exact scores that was achieved for each phoneme.
 
-<img height="1500" alt="image" src="https://github.com/user-attachments/assets/b6bb290d-2f0b-4585-ac65-8d92d58103d6" />
+<img width="3200" height="1656" alt="image" src="https://github.com/user-attachments/assets/f4cac665-4119-403a-a3f2-f67ce5ed74cb" />
 
 ### Super Sound Bank
 
 The user can also choose to target-practice individual phonemes in the word bank. For each commonly-mispronounced phoneme, there is an interactice page which contains cards with words for that specific phoneme.
 
-<img height="1500" alt="image" src="https://github.com/user-attachments/assets/9b21155d-8a03-4d5a-8030-1cb280767a72" />
+<img width="3164" height="1644" alt="image" src="https://github.com/user-attachments/assets/3221b500-ef8b-4ee4-8dab-59e77c4de77c" />
 
 For fun, a card will be randomly selected for the user to practice, and a standard pronounciation will be generated according to the user's selected voice accent. 
 
-<img height="1500" alt="image" src="https://github.com/user-attachments/assets/f1e12668-01b7-4537-aff8-5f2bb279fe5f" />
+<img width="3170" height="1666" alt="image" src="https://github.com/user-attachments/assets/e17b66be-f879-40bd-8196-dbc1fa2084ed" />
 
 <a id="getting-started"></a>
+
+### Practice Game
+
+We also have a pokemon + city builder style game for users to practice individual words. The user gains points by attacking game enemies, where attacks are fired through speaking the target words correctly. These points could be in turn used to play the long-term city builder game.
+
+<img width="3200" height="1648" alt="image" src="https://github.com/user-attachments/assets/c0514665-9e4f-4006-9330-4a1895ee97de" />
+
 ## Getting Started
 
-Thanks for trying out Talky! While we had (will soon be reinstated) deployed link, you can also try out Talky locally. To do this, here are some dependencies you would need: 
+Thanks for trying out Talky! You can not only try it our at our [link](https://talkwithtalky.org/), you could also run this project locally. To do this, here are some dependencies you would need: 
 * [ffmpeg](https://www.ffmpeg.org/download.html)
 * [Flask](https://flask.palletsprojects.com/en/stable/installation/)
 * [React, Node.js](https://nodejs.org/en/download)
@@ -167,6 +179,10 @@ http://creativecommons.org/publicdomain/zero/1.0/legalcode
 
 <a id="credits"></a>
 ## Credits
+
+**Thank you to all the open-source contributors who helped with this project! Your hard work is truly appreciated!**
+
+Besides that, though, here are the sources that inspired this project's approach to our main voice-evaluation feature.
 
 ```bibtex
 @article{witt2000phone,
