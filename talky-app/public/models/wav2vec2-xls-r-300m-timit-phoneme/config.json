@@ -101,7 +101,7 @@
     1,
     1
   ],
-  "transformers_version": "4.57.6",
+  "transformers_version": "4.57.1",
   "use_weighted_layer_sum": false,
   "vocab_size": 44,
   "xvector_output_dim": 512

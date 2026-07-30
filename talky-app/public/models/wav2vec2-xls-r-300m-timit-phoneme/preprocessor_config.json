@@ -4,7 +4,6 @@
   "feature_size": 1,
   "padding_side": "right",
   "padding_value": 0.0,
-  "processor_class": "Wav2Vec2Processor",
   "return_attention_mask": true,
   "sampling_rate": 16000
 }

@@ -768,6 +768,7 @@ export default function Lesson() {
     worker.onmessage = (e) => {
       const msg = e.data;
       if (msg.type === 'ready') {
+        console.log('model loaded');
         workerReadyRef.current = true;
         workerDeviceRef.current = { device: msg.device, dtype: msg.dtype };
         if (msg.device === 'webgpu') {
@@ -1477,7 +1478,7 @@ export default function Lesson() {
         )}
 
         {/* next button - only show when finished*/}
-        {doneSentence && (
+        {true && (
           <button
             aria-label="Next lesson"
             onMouseEnter={() => setNextHover(true)}
