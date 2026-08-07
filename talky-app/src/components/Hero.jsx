@@ -1,14 +1,15 @@
-import { curve, heroBackground } from "../assets";
-import homescreen from "../assets/homescreen.png";
-import Button from "./Button";
-import Section from "./Section";
 import { BackgroundCircles, BottomLine, Gradient } from "./design/Hero";
-import { heroIcons } from "../constants";
-import { ScrollParallax } from "react-just-parallax";
-import { useRef } from "react";
+import { curve, heroBackground } from "../assets";
+
+import Button from "./Button";
+import CompanyLogos from "./CompanyLogos";
 import Generating from "./Generating";
 import Notification from "./Notification";
-import CompanyLogos from "./CompanyLogos";
+import { ScrollParallax } from "react-just-parallax";
+import Section from "./Section";
+import { heroIcons } from "../constants";
+import homescreen from "../assets/homescreen.png";
+import { useRef } from "react";
 
 const Hero = () => {
   const parallaxRef = useRef(null);
@@ -25,7 +26,7 @@ const Hero = () => {
         <div className="relative z-1 max-w-[62rem] mx-auto text-center mb-[3.875rem] md:mb-20 lg:mb-[6.25rem]">
           <h1 className="h5 font-code mb-4">Your space adventure awaits!</h1>
           <h1 className="h1 mb-6">
-            Discover New Words and Voices with{` `}
+            Access free, personalized speech therapy with {` `} 
             <span className="font-code inline-block relative font-extrabold">
               TALKY{" "}
               <img
@@ -38,7 +39,7 @@ const Hero = () => {
             </span>
           </h1>
           <p className="body-1 max-w-3xl mx-auto mb-6 text-n-2 lg:mb-8">
-            Speech therapy made fun. Launching little voices on a journey to the stars!
+            We are the Duolingo for speech therapy. We make it accessible without all the crazy costs.
           </p>
           <Button href="/app">
             Get started

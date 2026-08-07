@@ -3,6 +3,22 @@
 @tailwind components;
 @tailwind utilities;
 
+@theme {
+  --font-sans: "JetBrains Mono", ui-monospace, monospace;
+  --font-serif: "JetBrains Mono", ui-monospace, monospace;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+:root {
+  --font-jetbrains: "JetBrains Mono", ui-monospace, monospace;
+}
+
+*,
+*::before,
+*::after {
+  font-family: var(--font-jetbrains);
+}
+
 .card{
   width: 50%;
   border: 1px solid black;
@@ -21,7 +37,23 @@
   min-height: 100vh;
   background-color: white;
   background-attachment: fixed; /* makes gradient stay in place on scroll */
-  font-family: "Lucida Console", sans-serif;
+  font-family: var(--font-jetbrains);
+}
+
+/* Hide scrollbars everywhere while keeping scrolling functional */
+html,
+body,
+* {
+  scrollbar-width: none;      /* Firefox */
+  -ms-overflow-style: none;   /* IE / old Edge */
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;              /* Chrome / Safari / Edge */
 }
 
 @keyframes borderGlow {

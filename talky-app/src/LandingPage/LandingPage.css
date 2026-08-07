@@ -1,11 +1,9 @@
-@import url("https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600&display=swap");
-@import url("https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;600;700&display=swap");
-@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap");
 
 :root {
-  --font-sora: "Sora", sans-serif;
-  --font-code: "Source Code Pro", monospace;
-  --font-grotesk: "Space Grotesk", sans-serif;
+  --font-sora: "JetBrains Mono", ui-monospace, monospace;
+  --font-code: "JetBrains Mono", ui-monospace, monospace;
+  --font-grotesk: "JetBrains Mono", ui-monospace, monospace;
   color-scheme: dark;
 }
 

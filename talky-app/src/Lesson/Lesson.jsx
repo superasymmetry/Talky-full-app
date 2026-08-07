@@ -9,6 +9,8 @@ import { speakText, stopSpeech } from '../tts.js';
 import toast, { Toaster } from 'react-hot-toast';
 
 import Back from './Back.jsx';
+// Chamfered corners + the shared card surface, same as the Statistics board.
+import '../Statistics/Statistics.css';
 import { Waveform } from 'ldrs/react'
 import { io } from 'socket.io-client';
 import { useAuth0 } from '@auth0/auth0-react';
@@ -273,11 +275,7 @@ class CanvasErrorBoundary extends Component {
   render() {
     if (this.state.failed) {
       return (
-        <div style={{
-          position: 'fixed', inset: 0, display: 'flex', alignItems: 'center',
-          justifyContent: 'center', textAlign: 'center', padding: 24,
-          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white',
-        }}>
+        <div style={{ ...screenStyle, padding: 24 }}>
           <div>
             <h2>3D scene unavailable</h2>
             <p>Your browser couldn't create a WebGL context. Enable hardware acceleration / WebGL and reload the page.</p>
@@ -370,20 +368,59 @@ function CameraIntro({ facePos, target, controlsRef, actions, greeting, onGreeti
   return null
 }
 
+// Shared palette with the Statistics dashboard (see tailwind.config.cjs) —
+// spelled out as constants here because this page styles inline rather than
+// with Tailwind classes.
+const N8 = '#0E0C15';
+const N7 = '#15131D';
+const N6 = '#252134';
+const N1 = '#FFFFFF';
+const N3 = '#ADA8C3';
+const N4 = '#757185';
+const EDGE = 'rgba(255,255,255,0.1)';
+const ACCENT = '#AC6AFF';   // color-1
+const GOOD = '#7ADB78';     // color-4
+const WARN = '#FFC876';     // color-2
+const BAD = '#FF776F';      // color-3
+
 const getPhonemeStyle = (score) => {
   if (score === null || score === undefined) {
-    return { background: '#e5e7eb', color: '#6b7280' };
+    return { background: N6, color: N4 };
   }
   if (score >= 0.9) {
-    return { background: '#bbf7d0', color: '#166534' };
+    return { background: 'rgba(122,219,120,0.18)', color: GOOD };
   }
   if (score >= 0.7) {
-    return { background: '#fef08a', color: '#92400e' };
+    return { background: 'rgba(255,200,118,0.18)', color: WARN };
   }
-  return { background: '#fecaca', color: '#991b1b' };
+  return { background: 'rgba(255,119,111,0.18)', color: BAD };
 };
 
-const scoreColor = (score) => (score >= 0.8 ? '#4ade80' : score >= 0.5 ? '#facc15' : '#f87171');
+const scoreColor = (score) => (score >= 0.8 ? GOOD : score >= 0.5 ? WARN : BAD);
+
+// The one button shape this page uses, chamfered like everything else.
+const buttonStyle = (variant = 'primary') => ({
+  padding: '12px 24px',
+  border: 'none',
+  background: variant === 'primary' ? ACCENT : N7,
+  color: variant === 'primary' ? N8 : N1,
+  boxShadow: variant === 'primary' ? 'none' : `inset 0 0 0 1px ${EDGE}`,
+  fontSize: '1.1rem',
+  fontWeight: 700,
+  cursor: 'pointer',
+});
+
+// Full-screen states (intro / failed / complete) all sit on the n-8 page fill.
+const screenStyle = {
+  position: 'fixed',
+  inset: 0,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  background: N8,
+  color: N1,
+  textAlign: 'center',
+};
 
 // Always-visible-throughout-the-lesson performance HUD: running accuracy,
 // attempts remaining (the non-hearts "hearts" system), a live phoneme
@@ -409,11 +446,12 @@ function PerformanceTracker({ lives, maxLives, runningScore, phonemeStats, wordH
     }}>
       <button
         onClick={() => setOpen(o => !o)}
+        className="cut-chip"
         style={{
           display: 'flex', alignItems: 'center', gap: 10,
-          background: 'rgba(0,0,0,0.7)', color: 'white', border: 'none',
-          padding: '8px 16px', borderRadius: 20, cursor: 'pointer',
-          backdropFilter: 'blur(6px)', fontWeight: 700, fontSize: 14,
+          background: N7, color: N1, border: 'none',
+          padding: '8px 16px', cursor: 'pointer',
+          fontWeight: 700, fontSize: 14,
         }}
       >
         <span style={{ display: 'flex', gap: 4 }} aria-label={`${lives} of ${maxLives} attempts remaining`}>
@@ -421,8 +459,8 @@ function PerformanceTracker({ lives, maxLives, runningScore, phonemeStats, wordH
             <svg key={i} width="16" height="16" viewBox="0 0 24 24">
               <path
                 d="M13 2 L4 14 h6 l-1 8 9-12h-6z"
-                fill={i < lives ? '#ffd93d' : 'none'}
-                stroke={i < lives ? '#ffd93d' : '#777'}
+                fill={i < lives ? WARN : 'none'}
+                stroke={i < lives ? WARN : N4}
                 strokeWidth="1.5"
                 strokeLinejoin="round"
               />
@@ -433,18 +471,18 @@ function PerformanceTracker({ lives, maxLives, runningScore, phonemeStats, wordH
         <span style={{ fontSize: 11, opacity: 0.75 }}>{open ? '▲ hide' : '▼ stats'}</span>
       </button>
 
+      {/* The scroll lives on an inner div: `cut-card` paints its fill and edge
+          with absolutely-positioned pseudo-elements, which would scroll away
+          from the content if the card itself were the scroll container. */}
       {open && (
-        <div style={{
-          width: 260, maxHeight: '60vh', overflowY: 'auto',
-          background: 'rgba(0,0,0,0.8)', color: 'white', borderRadius: 12,
-          padding: 16, backdropFilter: 'blur(6px)', textAlign: 'left',
-        }}>
+        <div className="cut-card" style={{ width: 260, color: N1, padding: 16, textAlign: 'left' }}>
+        <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 11, opacity: 0.75, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>
               Lesson accuracy
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ flex: 1, height: 8, background: 'rgba(255,255,255,0.2)', borderRadius: 4, overflow: 'hidden' }}>
+              <div style={{ flex: 1, height: 8, background: N6, overflow: 'hidden' }}>
                 <div style={{
                   width: `${Math.round((runningScore || 0) * 100)}%`,
                   height: '100%',
@@ -473,8 +511,8 @@ function PerformanceTracker({ lives, maxLives, runningScore, phonemeStats, wordH
                     <span style={{ color: scoreColor(r.avgScore) }}>{Math.round(r.avgScore * 100)}%</span>
                     {r.avgDelta != null && (
                       <span style={{
-                        color: r.avgDelta > PHONEME_TREND_MARGIN ? '#4ade80'
-                          : r.avgDelta < -PHONEME_TREND_MARGIN ? '#f87171' : '#ccc',
+                        color: r.avgDelta > PHONEME_TREND_MARGIN ? GOOD
+                          : r.avgDelta < -PHONEME_TREND_MARGIN ? BAD : N3,
                         fontSize: 11,
                       }}>
                         {r.avgDelta > PHONEME_TREND_MARGIN ? '▲' : r.avgDelta < -PHONEME_TREND_MARGIN ? '▼' : '—'}
@@ -499,6 +537,7 @@ function PerformanceTracker({ lives, maxLives, runningScore, phonemeStats, wordH
               ))}
             </div>
           )}
+        </div>
         </div>
       )}
     </div>
@@ -1161,24 +1200,19 @@ export default function Lesson() {
       : null;
 
     return (
-      <div style={{
-        position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column',
-        alignItems: 'center', justifyContent: 'center',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        color: 'white', textAlign: 'center', padding: 24
-      }}>
+      <div style={{ ...screenStyle, flexDirection: 'column', padding: 24 }}>
         <Back />
         <h2 style={{ fontSize: '2rem', marginBottom: '0.4rem' }}>Watch this example first</h2>
         {targetPhoneme && (
-          <p style={{ opacity: 0.85, marginBottom: '1.25rem', fontSize: '1rem' }}>
-            Today's focus: the <strong>/{targetPhoneme}/</strong> sound
+          <p style={{ color: N3, marginBottom: '1.25rem', fontSize: '1rem' }}>
+            Today's focus: the <strong style={{ color: ACCENT }}>/{targetPhoneme}/</strong> sound
           </p>
         )}
 
-        <div style={{ width: 640, maxWidth: '90vw', aspectRatio: '16 / 9', marginBottom: '2rem', borderRadius: 12, overflow: 'hidden', background: 'rgba(0,0,0,0.25)' }}>
+        <div style={{ width: 640, maxWidth: '90vw', aspectRatio: '16 / 9', marginBottom: '2rem', overflow: 'hidden', background: N7 }}>
           {videoLoading ? (
             <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Waveform size="35" stroke="3.5" speed="1" color="white" />
+              <Waveform size="35" stroke="3.5" speed="1" color={ACCENT} />
             </div>
           ) : videoStarted ? (
             <iframe
@@ -1223,12 +1257,8 @@ export default function Lesson() {
             skipNextSentenceSpeechRef.current = true;
             setShowIntro(false);
           }}
-          style={{
-            padding: '12px 24px', borderRadius: 25, border: 'none',
-            background: 'linear-gradient(90deg, #6dd3ff 0%, #6b73ff 100%)',
-            color: 'white', fontSize: '1.1rem', fontWeight: 700, cursor: 'pointer',
-            boxShadow: '0 8px 20px rgba(0,0,0,0.2)'
-          }}
+          className="cut-chip"
+          style={buttonStyle()}
         >
           Start Lesson
         </button>
@@ -1239,55 +1269,29 @@ export default function Lesson() {
   if (lessonFailed) {
     const { needsWork } = summarizePhonemeDeltas(phonemeStats);
     return (
-      <div style={{
-        position: 'fixed',
-        inset: 0,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'linear-gradient(135deg, #4b1c1c 0%, #7a2626 100%)',
-        color: 'white',
-        textAlign: 'center'
-      }}>
+      <div style={screenStyle}>
         <div>
-          <h1 style={{ fontSize: '3rem', marginBottom: '1rem' }}>Out of Attempts</h1>
+          <h1 style={{ fontSize: '3rem', marginBottom: '1rem', color: BAD }}>Out of Attempts</h1>
           <p style={{ fontSize: '1.2rem', marginBottom: '0.5rem' }}>
             You ran out of tries for this lesson — accuracy was {Math.round((runningScore || 0) * 100)}%.
           </p>
           {needsWork.length > 0 && (
-            <p style={{ fontSize: '1rem', marginBottom: '2rem', opacity: 0.9 }}>
+            <p style={{ fontSize: '1rem', marginBottom: '2rem', color: N3 }}>
               Sounds to practice: {needsWork.map(n => n.phoneme).join(', ')}
             </p>
           )}
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
             <button
               onClick={() => window.location.reload()}
-              style={{
-                padding: '12px 24px',
-                borderRadius: 25,
-                border: 'none',
-                background: 'linear-gradient(90deg, #6dd3ff 0%, #6b73ff 100%)',
-                color: 'white',
-                fontSize: '1.1rem',
-                fontWeight: 700,
-                cursor: 'pointer',
-                boxShadow: '0 8px 20px rgba(0,0,0,0.2)'
-              }}
+              className="cut-chip"
+              style={buttonStyle()}
             >
               Try Lesson Again
             </button>
             <button
               onClick={() => window.location.href = '/app'}
-              style={{
-                padding: '12px 24px',
-                borderRadius: 25,
-                border: '2px solid rgba(255,255,255,0.6)',
-                background: 'transparent',
-                color: 'white',
-                fontSize: '1.1rem',
-                fontWeight: 700,
-                cursor: 'pointer',
-              }}
+              className="cut-chip"
+              style={buttonStyle('ghost')}
             >
               Back to Home
             </button>
@@ -1300,44 +1304,26 @@ export default function Lesson() {
   if (isFinished) {
     const { improved, needsWork } = summarizePhonemeDeltas(phonemeStats);
     return (
-      <div style={{
-        position: 'fixed',
-        inset: 0,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        color: 'white',
-        textAlign: 'center'
-      }}>
+      <div style={screenStyle}>
         <div>
           <h1 style={{ fontSize: '3rem', marginBottom: '1rem' }}>🎉 Lesson Complete!</h1>
           <p style={{ fontSize: '1.2rem', marginBottom: '0.5rem' }}>
             Overall accuracy: {Math.round((runningScore || 0) * 100)}%
           </p>
           {improved.length > 0 && (
-            <p style={{ fontSize: '1rem', marginBottom: '0.25rem', opacity: 0.9 }}>
+            <p style={{ fontSize: '1rem', marginBottom: '0.25rem', color: GOOD }}>
               Most improved: {improved.map(i => i.phoneme).join(', ')}
             </p>
           )}
           {needsWork.length > 0 && (
-            <p style={{ fontSize: '1rem', marginBottom: '1.5rem', opacity: 0.9 }}>
+            <p style={{ fontSize: '1rem', marginBottom: '1.5rem', color: N3 }}>
               Keep practicing: {needsWork.map(i => i.phoneme).join(', ')}
             </p>
           )}
           <button
             onClick={() => window.location.href = '/app'}
-            style={{
-              padding: '12px 24px',
-              borderRadius: 25,
-              border: 'none',
-              background: 'linear-gradient(90deg, #6dd3ff 0%, #6b73ff 100%)',
-              color: 'white',
-              fontSize: '1.1rem',
-              fontWeight: 700,
-              cursor: 'pointer',
-              boxShadow: '0 8px 20px rgba(0,0,0,0.2)'
-            }}
+            className="cut-chip"
+            style={buttonStyle()}
           >
             Back to Home
           </button>
@@ -1441,18 +1427,13 @@ export default function Lesson() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background: 'rgba(0,0,0,0.5)',
+            background: 'rgba(0,0,0,0.6)',
             backdropFilter: 'blur(4px)'
           }}>
-            <div style={{
-              width: '50%',
-              maxWidth: 600,
-              background: 'white',
-              borderRadius: 16,
-              padding: 24,
-              boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-              position: 'relative'
-            }}>
+            <div
+              className="cut-card"
+              style={{ width: '50%', maxWidth: 600, padding: 24 }}
+            >
               <button
                 onClick={() => {
                   setFeedbackText('')
@@ -1466,13 +1447,13 @@ export default function Lesson() {
                   border: 'none',
                   fontSize: 24,
                   cursor: 'pointer',
-                  color: '#666'
+                  color: N4
                 }}
               >
                 ×
               </button>
-              <h3 style={{ marginTop: 0, marginBottom: 16, color: '#333' }}>Feedback</h3>
-              <div style={{ color: '#555', lineHeight: 1.6 }}>{feedbackText}</div>
+              <h3 style={{ marginTop: 0, marginBottom: 16, color: N1 }}>Feedback</h3>
+              <div style={{ color: N3, lineHeight: 1.6 }}>{feedbackText}</div>
             </div>
           </div>
         )}
@@ -1487,27 +1468,23 @@ export default function Lesson() {
               goToNextSentence();
               stopSpeech()
             }}
+            className="cut-chip"
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: 10,
               padding: '12px 18px',
-              borderRadius: 999,
+              border: 'none',
               cursor: 'pointer',
-              background: nextHover
-                ? 'linear-gradient(90deg, #ff8a00 0%, #e52e71 100%)'
-                : 'linear-gradient(90deg, #6dd3ff 0%, #6b73ff 100%)',
-              color: '#fff',
+              background: nextHover ? WARN : ACCENT,
+              color: N8,
               fontWeight: 700,
-              boxShadow: nextHover ? '0 10px 30px rgba(229,46,113,0.35)' : '0 8px 24px rgba(107,115,255,0.18)',
-              transform: nextHover ? 'translateY(-2px)' : 'translateY(0)',
-              transition: 'all 180ms ease',
-              backdropFilter: 'blur(6px)',
+              transition: 'background 180ms ease',
             }}
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <path d="M5 12h14" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M12 5l7 7-7 7" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M12 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
         )}
@@ -1517,19 +1494,14 @@ export default function Lesson() {
       <div style={{ position: 'absolute', left: 24, bottom: 24, zIndex: 30 }}>
         <button
           onClick={toggleRecording}
+          className="cut-chip"
           style={{
             padding: '10px 14px',
-            borderRadius: 20,
             border: 'none',
-            background: isRecording
-              ? 'linear-gradient(90deg, #ff6b6b, #ff4444)'
-              : 'linear-gradient(90deg,#6dd3ff,#6b73ff)',
-            color: 'white',
+            background: isRecording ? BAD : ACCENT,
+            color: N8,
             fontWeight: 700,
             cursor: 'pointer',
-            boxShadow: isRecording
-              ? '0 0 0 3px rgba(255,100,100,0.4)'
-              : '0 8px 20px rgba(0,0,0,0.15)',
             animation: isRecording ? 'pulse 1.2s infinite' : 'none',
           }}
         >
@@ -1537,29 +1509,29 @@ export default function Lesson() {
         </button>
         <style>{`
           @keyframes pulse {
-            0%, 100% { box-shadow: 0 0 0 3px rgba(255,100,100,0.4); }
-            50% { box-shadow: 0 0 0 8px rgba(255,100,100,0.1); }
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
           }
         `}</style>
       </div>
 
       {/* Current sentence + live phoneme display — hidden until the robot's intro greeting finishes */}
       {greetingDone && (
-      <div style={{
-        position: 'absolute',
-        top: 24,
-        left: '50%',
-        transform: 'translateX(-50%)',
-        zIndex: 30,
-        background: 'rgba(0,0,0,0.7)',
-        color: 'white',
-        padding: '12px 20px',
-        borderRadius: 12,
-        backdropFilter: 'blur(6px)'
-      }}>
-        <div>Say this sentence:</div>
+      <div
+        className="cut-card"
+        style={{
+          position: 'absolute',
+          top: 24,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 30,
+          color: N1,
+          padding: '12px 20px',
+        }}
+      >
+        <div style={{ color: N3 }}>Say this sentence:</div>
         <div style={{ fontWeight: 'bold', marginTop: 4 }}>
-          {cardData ? cardData[currentSentenceIndex.toString()] || 'End of lesson' : <Waveform size="20" stroke="2" speed="1" color="white" />}
+          {cardData ? cardData[currentSentenceIndex.toString()] || 'End of lesson' : <Waveform size="20" stroke="2" speed="1" color={ACCENT} />}
         </div>
 
         {currentWordsToIPA && (
@@ -1568,15 +1540,12 @@ export default function Lesson() {
               {currentWordsToIPA.map(({ word, phonemes }, wordIdx) => {
                 const returnedWord = wordResults?.[wordIdx];
                 return (
-                  <div key={word + wordIdx} style={{
-                    border: '1px solid #ddd',
-                    borderRadius: 6,
+                  <div key={word + wordIdx} className="cut-chip" style={{
                     padding: 6,
-                    color: '#333',
-                    background: '#f9f9f9',
+                    color: N1,
+                    background: N6,
                     minWidth: 70,
                     marginBottom: 4,
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
                   }}>
                     <div style={{ fontWeight: 'bold', marginBottom: 2, textAlign: 'center', fontSize: 13 }}>{word}</div>
                     <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', justifyContent: 'center' }}>
@@ -1595,7 +1564,7 @@ export default function Lesson() {
                           : trendAvg > PHONEME_TREND_MARGIN ? '▲'
                           : trendAvg < -PHONEME_TREND_MARGIN ? '▼'
                           : null;
-                        const trendColor = trendAvg > 0 ? '#16a34a' : '#dc2626';
+                        const trendColor = trendAvg > 0 ? GOOD : BAD;
                         return (
                           <span
                             key={i}
@@ -1603,7 +1572,6 @@ export default function Lesson() {
                               ...getPhonemeStyle(score),
                               display: 'inline-block',
                               padding: '2px 5px',
-                              borderRadius: 4,
                               fontWeight: 500,
                               fontSize: 12,
                               margin: 1,

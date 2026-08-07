@@ -3,6 +3,8 @@ import PropTypes from 'prop-types';
 import VanillaTilt from 'vanilla-tilt';
 import talkyRocket from './assets/logo.png';
 import { useNavigate } from 'react-router-dom';
+// Chamfered corners + the n-7 card fill, shared with the Statistics dashboard.
+import './Statistics/Statistics.css';
 
 function Card(props) {
     const tilt = useRef(null);
@@ -16,6 +18,10 @@ function Card(props) {
         noNavigate = false,
         showRocket = false,
         isLoading = false,
+        // Every card now uses the one Statistics surface (n-7 + hairline edge),
+        // so there's no light/dark split any more. Still destructured so it
+        // doesn't land in `rest` and get spread onto the DOM node.
+        // eslint-disable-next-line no-unused-vars
         dark = false,
         name = '',
         description,
@@ -85,52 +91,31 @@ function Card(props) {
                     handleCardClick();
                 }
             }}
-            className={`relative group cursor-pointer ${className}`}
+            className={`
+                cut-card p-6 cursor-pointer transition-colors duration-300
+                ${!disabled && 'cut-card-interactive'}
+                ${isLoading ? 'opacity-50' : 'opacity-100'}
+                ${className}
+            `}
         >
-            {/* Gradient border wrapper */}
-            <div className={`
-                absolute inset-0 rounded-2xl
-                p-[2px] w-full h-full
-                bg-transparent
-                ${!disabled && (dark
-                    ? 'group-hover:bg-gradient-to-r group-hover:from-[#f5a962] group-hover:via-[#ef7a5f] group-hover:to-[#f5a962] group-hover:bg-[length:200%_200%] group-hover:animate-[borderGlow_6s_linear_infinite]'
-                    : 'group-hover:bg-gradient-to-r group-hover:from-cyan-400 group-hover:via-blue-500 group-hover:to-sky-600 group-hover:bg-[length:200%_200%] group-hover:animate-[borderGlow_6s_linear_infinite]')}
-                transition-all duration-300
-            `}></div>
+            {showRocket && (
+                <img
+                    src={talkyRocket}
+                    alt="talky rocket"
+                    className="block max-w-[64px] w-full h-auto object-contain mx-auto"
+                />
+            )}
+            <h3 className={titleClass || 'mt-3 text-lg font-semibold text-center text-n-1'}>
+                {name || '\u00A0'}
+            </h3>
+            <p className="text-sm text-center text-n-3">{description}</p>
 
-            {/* Inner card */}
-            <div
-                className={`
-                    relative rounded-2xl p-6 w-full h-full
-                    backdrop-blur-md transition-all duration-300
-                    ${dark
-                        ? `bg-[rgba(23,28,58,0.75)] shadow-[0_8px_20px_rgba(0,0,0,0.45)]
-                           ${!disabled && 'group-hover:bg-[rgba(23,28,58,0.92)] group-hover:shadow-[0_0_10px_rgba(245,169,98,0.5),0_0_20px_rgba(245,169,98,0.3),0_0_30px_rgba(245,169,98,0.2)] transform group-hover:-translate-y-2 group-hover:scale-105'}`
-                        : `bg-white/75 shadow-[0_8px_20px_rgba(0,120,255,0.4)]
-                           ${!disabled && 'group-hover:bg-white/90 group-hover:shadow-[0_0_10px_rgba(0,180,255,0.6),0_0_20px_rgba(0,120,255,0.4),0_0_30px_rgba(0,120,255,0.25)] transform group-hover:-translate-y-2 group-hover:scale-105'}`
-                    }
-                    ${isLoading ? 'opacity-50' : 'opacity-100'}
-                `}
-            >
-                {showRocket && (
-                    <img
-                        src={talkyRocket}
-                        alt="talky rocket"
-                        className="block max-w-[64px] w-full h-auto object-contain rounded-md mx-auto"
-                    />
-                )}
-                <h3 className={titleClass || `mt-3 text-lg font-semibold text-center ${dark ? 'text-slate-100' : 'text-slate-900'}`}>
-                    {name || '\u00A0'}
-                </h3>
-                <p className={`text-sm text-center ${dark ? 'text-slate-300' : 'text-slate-700'}`}>{description}</p>
-
-                {/* emoji content */}
-                {content && (
-                    <p className={`mt-2 text-center ${isEmoji(content) ? 'text-4xl' : 'text-xs'} select-none`}>
-                        {content}
-                    </p>
-                )}
-            </div>
+            {/* emoji content */}
+            {content && (
+                <p className={`mt-2 text-center ${isEmoji(content) ? 'text-4xl' : 'text-xs'} select-none`}>
+                    {content}
+                </p>
+            )}
         </div>
     )
 }

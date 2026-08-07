@@ -1,4 +1,6 @@
 import './App.css'
+// Chamfered corners, shared with the Statistics board and the lesson cards.
+import './Statistics/Statistics.css'
 
 import React, { useEffect, useRef, useState } from 'react'
 
@@ -39,12 +41,21 @@ function App() {
   return (
     <div className="flex flex-col min-h-screen">
       <Header />
-      <div className="max-w-6xl mx-auto px-4 flex-grow w-full">
+      <div
+        className="max-w-6xl mx-auto px-4 flex-grow w-full"
+        style={{ paddingTop: 'var(--header-height, 85px)' }}
+      >
         <section aria-labelledby="lessons-heading" className="mb-5 mt-10">
           <h2 id="lessons-heading" className="text-xl text-white font-semibold mb-4">Lessons</h2>
 
           <div className="slider-shell">
-            <button onClick={() => scrollBy(-300)} className="px-3 py-2 rounded bg-gray-200">‹</button>
+            <button
+              onClick={() => scrollBy(-300)}
+              aria-label="Scroll lessons left"
+              className="cut-chip px-3 py-2 bg-n-7 text-n-1 border border-n-1/10 hover:text-color-1"
+            >
+              ‹
+            </button>
             <div
               ref={scroller}
               className="slider-row no-scrollbar"
@@ -73,7 +84,13 @@ function App() {
                 </div>
               ))}
             </div>
-            <button onClick={() => scrollBy(300)} className="px-3 py-2 rounded bg-gray-200">›</button>
+            <button
+              onClick={() => scrollBy(300)}
+              aria-label="Scroll lessons right"
+              className="cut-chip px-3 py-2 bg-n-7 text-n-1 border border-n-1/10 hover:text-color-1"
+            >
+              ›
+            </button>
           </div>
         </section>
 

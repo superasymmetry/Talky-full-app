@@ -1,102 +1,157 @@
-/* Header */
+/* Header — mirrors the landing page navbar (src/components/Header.jsx):
+   transparent bar over the dark page background, blurred, with a hairline
+   bottom rule; logo left, links centered, auth action right. */
 .header {
-  font-family: "Lucida Console", sans-serif;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
   width: 100%;
-  padding: 1.5rem 3rem;
+  padding: 0 1.25rem;
   display: flex;
-  justify-content: space-between;
   align-items: center;
   position: fixed;
   top: 0;
   left: 0;
-  z-index: 1000;
+  z-index: 50;
 
-  background: linear-gradient(90deg, rgb(6, 17, 34), rgb(20, 28, 92),rgb(22, 50, 153));
-  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  background: transparent;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-bottom: 1px solid #fff;
 }
 
-/* Logo */
+@media (min-width: 1024px) {
+  .header {
+    padding: 0 1.875rem;
+  }
+}
+
+@media (min-width: 1280px) {
+  .header {
+    padding: 0 2.5rem;
+  }
+}
+
+/* Logo — same 150px block the landing header uses */
+.logoLink {
+  display: block;
+  width: 12rem;
+  flex-shrink: 0;
+}
+
 .logo {
-  height: 4rem;
-  width: auto;
+  display: block;
+  width: 150px;
+  height: auto;
   cursor: pointer;
-  transition: transform 0.3s ease;
 }
 
-.logo:hover {
-  transform: scale(1.1) rotate(-3deg);
-}
-
-/* Navigation */
+/* Navigation — centered between the logo and the auth action */
 .nav {
   display: flex;
+  margin: 0 auto;
 }
 
 .navList {
   display: flex;
-  gap: 2rem;
   list-style: none;
   margin: 0;
   padding: 0;
-  align-items: center; /* added: vertically center items in the row */
+  align-items: center;
 }
 
 .navItem {
   margin: 0;
-  display: flex;       /* added: make each list item a flex container */
-  align-items: center; /* added: center children (links/buttons) vertically */
+  display: flex;
+  align-items: center;
 }
 
 .navLink {
   color: #fff;
   text-decoration: none;
-  padding: 0.65rem 1.4rem;
-  border-radius: 8px;
-  transition: all 0.3s ease;
-  background: transparent;       /* completely transparent by default */
-  border: none;                  /* no border by default */
-  box-shadow: none;              /* no glow by default */
-  backdrop-filter: none;         /* no blur by default */
-  position: relative;
-  cursor: pointer; /* added so buttons show pointer like links */
+  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+  padding: 32px 24px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  cursor: pointer;
+  transition: opacity 200ms linear;
+  white-space: nowrap;
 
-  display: inline-flex;   /* added: make anchors and buttons behave the same */
-  align-items: center;    /* vertically center label inside control */
-  vertical-align: middle; /* keep inline alignment consistent */
-  font: inherit;          /* ensure buttons use same font metrics as anchors */
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  font-family: inherit;
+}
+
+@media (min-width: 1280px) {
+  .navLink {
+    padding-left: 48px;
+    padding-right: 48px;
+  }
+}
+
+/* Tablet: the dashboard keeps all four links visible (no hamburger), so
+   tighten the spacing rather than let "Voice Settings" wrap. */
+@media (min-width: 769px) and (max-width: 1023px) {
+  .logoLink,
+  .actions {
+    width: auto;
+  }
+
+  .logo {
+    width: 120px;
+  }
+
+  .navLink {
+    padding: 32px 10px;
+  }
 }
 
 .navLink:hover {
-  background: linear-gradient(135deg, rgba(0,180,255,0.25), rgba(0,120,255,0.15));
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  backdrop-filter: blur(6px);   /* frosted glass effect */
-  box-shadow: 
-      0 0 10px rgba(0,180,255,0.6),
-      0 0 20px rgba(0,120,255,0.4),
-      0 0 30px rgba(0,120,255,0.25);
-  transform: translateY(-2px) scale(1.03);
+  opacity: 0.75;
 }
 
-.navLink:active {
-  transform: translateY(0) scale(1);
+/* Auth action, right-aligned in a block matching the logo's width */
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  width: 12rem;
+  flex-shrink: 0;
 }
 
 /* Responsive */
 @media (max-width: 768px) {
   .header {
     flex-direction: column;
-    gap: 1rem;
-    padding: 1rem 1.5rem;
+    padding: 1rem 1.25rem;
+    gap: 0.5rem;
+  }
+
+  .logoLink {
+    width: auto;
+  }
+
+  .logo {
+    width: 120px;
+  }
+
+  .nav {
+    margin: 0;
+    width: 100%;
   }
 
   .navList {
-    flex-direction: column;
-    gap: 1rem;
-    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
   }
 
   .navLink {
-    width: 100%;
-    text-align: center;
+    padding: 0.5rem 0.75rem;
+  }
+
+  .actions {
+    width: auto;
   }
 }
