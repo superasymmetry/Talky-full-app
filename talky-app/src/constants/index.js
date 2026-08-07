@@ -42,8 +42,6 @@ import {
   yourlogo,
 } from "../assets";
 
-
-
 export const navigation = [
   {
     id: "0",
@@ -103,34 +101,26 @@ export const roadmap = [
   {
     id: "0",
     title: "Voice recognition",
-    text: "Enable the chatbot to understand and respond to voice commands, making it easier for users to interact with the app hands-free.",
-    date: "February 2025",
-    status: "done",
+    text: "We've developed and open-sourced our own real-time voice evaluation system.",
     imageUrl: roadmap1,
     colorful: true,
   },
   {
     id: "1",
     title: "Gamification",
-    text: "Add game-like elements, such as badges or leaderboards, to incentivize users to engage with the chatbot more frequently.",
-    date: "February 2025",
-    status: "progress",
+    text: "Our app is essentially a game. It's fun!",
     imageUrl: roadmap2,
   },
   {
     id: "2",
     title: "Customized Learning",
-    text: "Talky adapts to the user's strengths and weaknesses, making it more engaging and effective to learn.",
-    date: "February 2025",
-    status: "done",
+    text: "We drill you on your weak areas and adapt to how you learn.",
     imageUrl: roadmap3,
   },
   {
     id: "3",
-    title: "Integration with APIs",
-    text: "Allow the chatbot to access external data sources, such as weather APIs or news APIs, to provide more relevant recommendations.",
-    date: "February 2025",
-    status: "progress",
+    title: "Statistics",
+    text: "We track your progress and improvements with a statistics dashboard.",
     imageUrl: roadmap4,
   },
 ];

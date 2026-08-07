@@ -12,22 +12,13 @@ logger = logging.getLogger("find_video")
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 _CONSENT_WALL_MARKERS = ("consent.youtube.com", "Before you continue to YouTube")
 
-# If set, use the official YouTube Data API instead of scraping search HTML.
-# Far more reliable (no consent-wall failures) and lets us filter by
-# duration/safe-search server-side instead of guessing from title text.
 YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY")
 
-# Title substrings that reliably mean "not a kid-appropriate phonics clip"
-# even though the search matched — cheap filter, especially useful in
-# scrape mode where we have no real duration/category metadata.
 _BLOCKLIST_TERMS = (
     "trailer", "official video", "official music video", "full movie",
     "lyrics", "compilation", "18+", "prank", "reaction",
 )
 
-# Known-good channels for short kid-appropriate phonics/pronunciation
-# content. Used to rank results (API mode) — extend this list over time
-# rather than trusting arbitrary search results.
 PREFERRED_CHANNELS = (
     "Jack Hartmann Kids Music Channel",
     "Speech Blubs",
@@ -35,7 +26,6 @@ PREFERRED_CHANNELS = (
     "Boom Learning",
     "Mommy Speech Therapy",
 )
-
 
 def _word_key(words):
     """Stable short key for a lesson's target words, so different word sets
@@ -55,7 +45,6 @@ def _word_key(words):
         return "generic"
     return hashlib.sha1("-".join(cleaned).encode("utf-8")).hexdigest()[:12]
 
-
 def _build_query(phoneme, words):
     """Bias toward short, kid-friendly phonics content and toward the
     lesson's actual target words — a bare IPA symbol search ("ʃ
@@ -67,11 +56,9 @@ def _build_query(phoneme, words):
         return f'"{phoneme}" sound {words_part} pronunciation for kids speech therapy'
     return f'"{phoneme}" phoneme sound pronunciation for kids speech therapy'
 
-
 def _looks_blocklisted(title):
     t = (title or "").lower()
     return any(term in t for term in _BLOCKLIST_TERMS)
-
 
 def _search_via_api(query, max_results=5):
     params = {
@@ -79,7 +66,7 @@ def _search_via_api(query, max_results=5):
         "q": query,
         "type": "video",
         "maxResults": max_results,
-        "videoDuration": "short",   # < 4 min — rules out movies/full lectures
+        "videoDuration": "short",
         "safeSearch": "strict",
         "relevanceLanguage": "en",
         "key": YOUTUBE_API_KEY,
@@ -94,9 +81,8 @@ def _search_via_api(query, max_results=5):
         if not vid or _looks_blocklisted(title):
             continue
         out.append({"video_id": vid, "title": title, "channel": channel})
-    out.sort(key=lambda v: v["channel"] not in PREFERRED_CHANNELS)  # preferred channels first
+    out.sort(key=lambda v: v["channel"] not in PREFERRED_CHANNELS)
     return out
-
 
 def _search_via_scrape(query, max_results=5):
     """Fallback when no API key is configured. Fragile by nature (consent
@@ -141,7 +127,6 @@ def _search_via_scrape(query, max_results=5):
         )
     return out
 
-
 def search_videos(query, max_results=5):
     if YOUTUBE_API_KEY:
         try:
@@ -150,11 +135,9 @@ def search_videos(query, max_results=5):
             logger.exception("YouTube Data API search failed, falling back to scrape | query=%r", query)
     return _search_via_scrape(query, max_results)
 
-
 def get_first_vid(query):
     results = search_videos(query, max_results=1)
     return f"https://www.youtube.com/watch?v={results[0]['video_id']}" if results else None
-
 
 def get_first_video_id(query):
     results = search_videos(query, max_results=1)
@@ -162,7 +145,6 @@ def get_first_video_id(query):
         logger.warning("get_first_video_id: no results | query=%r", query)
         return None
     return results[0]["video_id"]
-
 
 def get_video_for_phoneme(phoneme, cache_collection, words=None, force_refresh=False):
     """

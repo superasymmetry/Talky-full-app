@@ -21,10 +21,6 @@ from prosody_eval import warmup_async
 
 load_dotenv()
 
-# Without this, logger.info/.warning calls in this file and in find_video.py
-# go nowhere — Flask doesn't configure the root logger for you. Set
-# LOG_LEVEL=DEBUG in the environment if you need to see search_videos'
-# per-request detail too.
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -39,7 +35,6 @@ ALLOWED_ORIGINS = [
     ).split(",")
 ]
 
-# Prevent accidentally allowing every website
 if "*" in ALLOWED_ORIGINS:
     raise ValueError("Wildcard '*' is not allowed for CORS origins.")
 
@@ -63,23 +58,11 @@ CORS(
     },
 )
 
-
-# Any request that sends a custom header (our Authorization: Bearer ...
-# header counts) triggers a CORS preflight OPTIONS request from the
-# browser first. Flask/Werkzeug is supposed to auto-handle OPTIONS on any
-# registered route, but that was 404ing here for routes like
-# /api/user/roster even though the GET on the exact same path worked fine
-# — the browser then blocks the real request entirely since the preflight
-# failed. This unconditionally answers every OPTIONS request before
-# routing/404 logic gets a chance to run, and flask-cors's after_request
-# hook still attaches the correct Access-Control-* headers on the way out.
 @app.before_request
 def _handle_cors_preflight():
     if request.method == "OPTIONS":
         return app.make_default_options_response()
 
-
-# Register routes
 app.register_blueprint(user_bp)
 app.register_blueprint(score_bp)
 
@@ -99,30 +82,14 @@ _feedback_model = None
 _device = None
 _load_lock = threading.Lock()
 
-# pyin's first call pays a ~10 s numba JIT compile that doesn't persist across
-# restarts; trigger it at boot so no lesson ever waits on it.
 warmup_async()
 
 sessions = {}
 
-# --- Lesson performance / "hearts" config -----------------------------------
-# A word scoring below this counts as a "strike" toward the lesson's early
-# cutoff. The actual lives counter is tracked lesson-wide on the frontend
-# (each sentence gets a brand-new session dict here, so a lives count kept
-# server-side would reset every sentence instead of persisting across the
-# whole lesson) — this constant just tells the frontend which words count
-# against the player.
 WORD_FAIL_SCORE_THRESHOLD = 0.3
 
-# How big a gap between a phoneme's score-this-attempt and the user's
-# historical average for that phoneme counts as a meaningful improvement or
-# regression, vs. just noise.
 PHONEME_DELTA_MARGIN = 0.05
 
-# How much more a lesson's target phoneme (the sound it's actually drilling)
-# counts toward the lesson score than every other phoneme in the sentence.
-# E.g. a lesson on "r" scores a sentence mostly on how well the user nailed
-# the "r"s, not diluted by the other, incidental phonemes in the words.
 TARGET_PHONEME_WEIGHT = 4.0
 
 phoneme_word_bank = {
@@ -201,20 +168,10 @@ arpabet_to_ipa = {
     "ZH": "ʒ"
 }
 
-# Strips newlines/control characters from user-supplied values (query
-# params, etc.) before they're written into a log line. Without this, an
-# attacker can pass e.g. user_id=demo%0d%0a<fake log line> to inject a
-# forged entry that looks like a genuine log record — this is the classic
-# CRLF/log-injection issue (CWE-117). Only needed for values that originate
-# from outside our system (request.args); values we generate ourselves
-# (e.g. target_phoneme, which only ever comes from phoneme_word_bank keys
-# or our own Mongo cache) don't need it.
 _LOG_CONTROL_CHARS_RE = re.compile(r'[\r\n\x00-\x1f\x7f]')
-
 
 def _sanitize_for_log(value):
     return _LOG_CONTROL_CHARS_RE.sub('', str(value))
-
 
 def _word_to_phonemes(word):
     """Convert an English word to a list of IPA phoneme strings.
@@ -270,7 +227,6 @@ def _resolve_target_phoneme(lesson, word_list):
             best_phoneme, best_overlap = phoneme, overlap
     return best_phoneme
 
-
 def _load_model_once():
     global _processor, _model, _feedback_model, _device
     if _processor is None or _model is None:
@@ -286,7 +242,6 @@ def _load_model_once():
                 _feedback_model = Groq(api_key=os.environ.get("GROQ_API_KEY"))
                 _device = device
     return _processor, _model, _feedback_model, _device
-
 
 def _get_lesson(user_id, lesson_id):
     """Shared lookup used by both /api/lessons and /api/lessons/intro-video.
@@ -318,7 +273,6 @@ def _get_lesson(user_id, lesson_id):
         return None, None, (jsonify({"error": "invalid lesson_id"}), 400)
     return user, lesson, None
 
-
 @app.route('/api/lessons', methods=['GET', 'POST'])
 def lessons():
     user_id = request.args.get('user_id')
@@ -331,9 +285,6 @@ def lessons():
 
     word_list = lesson.get('words', [])
 
-    # Serve previously-generated content unchanged instead of hitting the
-    # LLM + re-tokenizing IPA on every page load — a lesson's sentences
-    # don't need to be different each time someone opens it.
     cached = lesson.get('generated_content')
     if cached and not force_regenerate:
         logger.info("Lesson %s for user %s | serving cached generated content",
@@ -393,26 +344,12 @@ def lessons():
         "target_phoneme": target_phoneme,
     }
 
-    # Persist so the next load of this exact lesson skips the LLM call and
-    # the IPA computation loop entirely.
-    #
-    # Matched by the lesson's "id" FIELD (positional operator "$"), not by
-    # treating lesson_id as an array index — see _get_lesson above for why
-    # that distinction matters. Using `lessons.{lesson_id}.generated_content`
-    # here previously wrote the cached content onto the WRONG array slot
-    # for the same reason _get_lesson was reading the wrong slot.
     users_collection.update_one(
         {"userId": user_id, "lessons.id": lesson_id},
         {"$set": {"lessons.$.generated_content": generated_content}}
     )
 
-    # Note: video lookup is intentionally NOT done here — see
-    # /api/lessons/intro-video below. Bundling it into this response means a
-    # cache-miss YouTube call blocks the sentences/IPA the player actually
-    # needs to start, even though the video is just decoration on the intro
-    # screen.
     return jsonify(generated_content)
-
 
 @app.route('/api/lessons/intro-video', methods=['GET'])
 def lesson_intro_video():
@@ -442,7 +379,6 @@ def lesson_intro_video():
         "intro_video_id": intro_video_id,
         "intro_video_start": 0,
     })
-
 
 @app.route('/api/wordbank', methods=['GET', 'POST'])
 def wordbank():
@@ -524,7 +460,6 @@ def finalize_session(sid):
     results = session['results']
     target_phoneme = session.get('target_phoneme')
 
-    # Weighted average of scores: target phoneme weighs more
     phoneme_scores = [p for r in results for p in r['phonemes']]
     if phoneme_scores:
         weighted_sum = 0.0
@@ -554,11 +489,6 @@ def handle_start(data):
     words_ipa = data['words_ipa']
     user_id = data.get('userId')
 
-    # Pull this user's historical per-phoneme averages once per sentence
-    # attempt, so we can tell them "better/worse than usual" on each
-    # phoneme live, not just a bare per-word pass/fail. Best-effort: if no
-    # userId is sent, or the user has no scored phonemes yet, deltas just
-    # come back None/"new" for everything below.
     baseline = {}
     if user_id:
         user = users_collection.find_one({"userId": user_id}, {"progress.phonemeScores": 1})
@@ -573,35 +503,20 @@ def handle_start(data):
         for word_idx, w in enumerate(words_ipa)
         for _ in w['phonemes']
     ]
-    # First flat position belonging to each word, so a match's global
-    # `position` can be converted to its local slot within the word.
     word_start_position = []
     _pos = 0
     for w in words_ipa:
         word_start_position.append(_pos)
         _pos += len(w['phonemes'])
     chunk_queue = queue.Queue()
-    # mode 'audio': client streams raw 16 kHz PCM, wav2vec2 runs server-side.
-    # mode 'logits': client already ran wav2vec2 (e.g. transformers.js on WebGPU)
-    #                and streams per-chunk logits; only alignment runs here.
-    #                The client also streams the raw audio so prosody can still
-    #                be scored server-side (see handle_chunk).
     mode = data.get('mode', 'audio')
     sentence = data.get('sentence', '')
-    # The phoneme this lesson is drilling (e.g. "r"), so finalize_session can
-    # weight the lesson score toward it instead of averaging every phoneme
-    # in the sentence equally.
     target_phoneme = data.get('target_phoneme')
     session = {'words_ipa': words_ipa, 'queue': chunk_queue, 'results': [],
                'mode': mode, 'audio': [], 'target_phoneme': target_phoneme}
     sessions[sid] = session
 
     def run():
-        # Pre-sized per word (None = not yet scored) and filled by position,
-        # not appended in arrival order — the aligner can rewind and re-emit
-        # an earlier position (see stream_decode_util's backward realignment),
-        # and blind appending would then shift every later phoneme in the
-        # word into the wrong slot.
         word_phoneme_scores = [[None] * len(w['phonemes']) for w in words_ipa]
         word_completed = [False] * len(words_ipa)
         stream_ended = False
@@ -644,10 +559,6 @@ def handle_start(data):
                     session['results'].append(result)
                     socketio.emit('partial_result', result, to=sid)
 
-                    # Per-phoneme delta vs. this user's historical baseline, plus
-                    # whether this word counts as a "strike". The lesson-wide
-                    # lives count and running accuracy are accumulated on the
-                    # frontend across all sentences in the lesson — see Lesson.jsx.
                     phoneme_deltas = []
                     for entry in scores:
                         ph = entry['phoneme']
@@ -677,18 +588,12 @@ def handle_start(data):
                         'phoneme_deltas': phoneme_deltas,
                     }, to=sid)
 
-            # Alignment can finish before the speaker does — wait for the
-            # stream to end ('stop' or disconnect) so the result isn't sent
-            # mid-recording and prosody sees the full utterance.
             if not stream_ended:
                 for _ in drain():
                     pass
         except Exception:
             logger.exception("Stream decode failed")
         finally:
-            # The word-score result must go out even if decode blew up, and
-            # before prosody: pyin can take seconds, and the main score
-            # shouldn't wait on it.
             finalize_session(sid)
 
         if session['audio']:
@@ -703,20 +608,15 @@ def handle_start(data):
     threading.Thread(target=run, daemon=True).start()
     print(f"Session started for {sid}: {data['sentence']}")
 
-
 @socketio.on('chunk')
 def handle_chunk(data):
     session = sessions.get(request.sid)
     if not session:
         return
     arr = np.frombuffer(data, dtype=np.float32)
-    # Raw audio is buffered in both modes so prosody can be evaluated over the
-    # full utterance after the word-score result goes out; in audio mode it
-    # additionally drives alignment via the queue.
     session['audio'].append(arr)
     if session.get('mode') != 'logits':
         session['queue'].put(arr)
-
 
 @socketio.on('logits_chunk')
 def handle_logits_chunk(data):
@@ -734,20 +634,17 @@ def handle_logits_chunk(data):
         return
     session['queue'].put(arr.reshape(frames, -1))
 
-
 @socketio.on('stop')
 def handle_stop():
     session = sessions.get(request.sid)
     if session:
         session['queue'].put(None)
 
-
 @socketio.on('disconnect')
 def handle_disconnect():
     session = sessions.pop(request.sid, None)
     if session:
         session['queue'].put(None)
-
 
 @app.route("/", methods=["GET"])
 def home():

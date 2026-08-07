@@ -27,7 +27,7 @@ function Header() {
 
   return (
     <header ref={headerRef} className={styles.header}>
-      <Link to="/app">
+      <Link to="/app" className={styles.logoLink}>
         <img src={talkyLogo} alt="Talky logo" className={styles.logo} />
       </Link>
 
@@ -45,12 +45,13 @@ function Header() {
           <li className={styles.navItem}>
             <Link to="/profile" className={styles.navLink}>Profile</Link>
           </li>
-          <li className={styles.navItem}>
-            <LoginButton />
-            <LogoutButton />
-          </li>
         </ul>
       </nav>
+
+      <div className={styles.actions}>
+        <LoginButton />
+        <LogoutButton />
+      </div>
     </header>
   );
 }

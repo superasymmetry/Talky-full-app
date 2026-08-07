@@ -1,4 +1,5 @@
 import 'ldrs/react/Waveform.css'
+import '../Statistics/Statistics.css';
 
 import * as THREE from 'three'
 
@@ -17,18 +18,9 @@ import { useMatch } from 'react-router-dom';
 useGLTF.preload('/robot-draco.glb')
 useGLTF.preload('/seagull-2.glb')
 
-// Fallback used if the lesson's target phoneme has no mapped video yet
-// (e.g. new phoneme added before the backend map is regenerated).
 const DEFAULT_INTRO_VIDEO_ID = 'IwWw6Xe09O0';
 
-// --- Lesson-wide performance / "hearts" config -------------------------------
-// Duolingo-style early cutoff: this many strikes and the lesson ends early.
-// Tracked lesson-wide (across all sentences), not per-sentence, since each
-// sentence recording opens its own socket session on the backend.
 const LESSON_START_LIVES = 3;
-// How big an average delta (vs. historical baseline) counts as a real
-// improvement/regression for a phoneme, vs. noise. Mirrors PHONEME_DELTA_MARGIN
-// on the backend, used here only for summarizing the deltas the backend sends.
 const PHONEME_TREND_MARGIN = 0.05;
 
 function extractWordScores(res) {
@@ -41,9 +33,6 @@ function extractWordScores(res) {
   });
 }
 
-// Turns the lesson-wide phoneme stats (phoneme -> { scores: [], deltas: [] })
-// into "most improved" / "needs practice" lists for the end-of-lesson summary
-// and the early-failure screen.
 function summarizePhonemeDeltas(phonemeStats) {
   const entries = Object.entries(phonemeStats)
     .filter(([, v]) => v.deltas && v.deltas.length > 0)
@@ -74,14 +63,6 @@ async function resampleTo16k(float32Array, fromSampleRate) {
   return rendered.getChannelData(0);
 }
 
-// --- 3D scene error isolation ------------------------------------------------
-// The 3D scene (robot model, Draco-compressed GLTFs, clouds, etc.) is
-// decorative and shouldn't be able to take down the actual lesson UI if an
-// asset fails to load (missing file, no Draco decoder available, no network
-// in a given environment, etc.). Without this boundary, a rejected
-// useGLTF/Suspense load bubbles up and can unmount the whole component tree
-// — including the phoneme grid, record button, and score overlay that the
-// lesson actually depends on.
 class SceneErrorBoundary extends Component {
   constructor(props) {
     super(props);
@@ -99,14 +80,6 @@ class SceneErrorBoundary extends Component {
   }
 }
 
-// --- Background scenery -----------------------------------------------------
-// Purely decorative — none of this touches lesson state. Positions are
-// randomized once per mount (useMemo) so they don't reshuffle on re-render,
-// and everything sits far enough from the road/robot area to avoid
-// overlapping the parts of the scene that matter for the lesson.
-
-// A single low-poly pine: a trunk cylinder + 2-3 stacked cone tiers.
-// Scale/tint vary slightly per-tree so a whole cluster doesn't look stamped out.
 function Pine({ position, scale = 1, hue = 0 }) {
   const green = `hsl(${100 + hue}, 35%, ${28 + hue}%)`
   return (
@@ -131,7 +104,6 @@ function Pine({ position, scale = 1, hue = 0 }) {
   )
 }
 
-// A rounder, leafier tree for variety among the pines.
 function LeafyTree({ position, scale = 1, hue = 0 }) {
   const green = `hsl(${95 + hue}, 45%, ${32 + hue}%)`
   return (
@@ -148,14 +120,11 @@ function LeafyTree({ position, scale = 1, hue = 0 }) {
   )
 }
 
-// Scatters pines + leafy trees around the field, keeping clear of the road
-// strip (x > ~3 near z ~ 0) and the robot's walking lane.
 function Trees() {
   const trees = useMemo(() => {
     const items = []
     let seed = 1337
     const rand = () => {
-      // simple deterministic PRNG so the layout is stable across re-renders
       seed = (seed * 9301 + 49297) % 233280
       return seed / 233280
     }
@@ -164,7 +133,6 @@ function Trees() {
       const radius = 16 + rand() * 22
       const x = Math.cos(angle) * radius - 8
       const z = Math.sin(angle) * radius
-      // keep clear of the paved road area and the open lesson stage
       if (Math.abs(z) < 5 && x > -6) continue
       const scale = 0.8 + rand() * 0.9
       const hue = rand() * 20 - 10
@@ -183,8 +151,6 @@ function Trees() {
   )
 }
 
-// Layered low-poly mountains ringing the horizon, tinted progressively bluer
-// and lighter with distance for a simple atmospheric-perspective effect.
 function Mountains() {
   const ranges = useMemo(() => {
     const items = []
@@ -223,7 +189,6 @@ function Mountains() {
   )
 }
 
-// Drifting cloud puffs at a few heights/depths using drei's volumetric Cloud.
 function SkyClouds() {
   const groupRef = useRef(null)
   useFrame((_, delta) => {
@@ -260,9 +225,6 @@ const Model = forwardRef(function Model(props, ref) {
   return <primitive ref={ref} object={scene} {...props} />
 })
 
-// Catches WebGLRenderer construction failures (WebGL/hardware acceleration
-// disabled, GPU context exhausted, driver crash, etc.) — these throw inside
-// Canvas's mount effect, which would otherwise blank the whole page.
 class CanvasErrorBoundary extends Component {
   state = { failed: false };
   static getDerivedStateFromError() { return { failed: true }; }
@@ -273,11 +235,7 @@ class CanvasErrorBoundary extends Component {
   render() {
     if (this.state.failed) {
       return (
-        <div style={{
-          position: 'fixed', inset: 0, display: 'flex', alignItems: 'center',
-          justifyContent: 'center', textAlign: 'center', padding: 24,
-          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white',
-        }}>
+        <div style={{ ...screenStyle, padding: 24 }}>
           <div>
             <h2>3D scene unavailable</h2>
             <p>Your browser couldn't create a WebGL context. Enable hardware acceleration / WebGL and reload the page.</p>
@@ -289,14 +247,11 @@ class CanvasErrorBoundary extends Component {
   }
 }
 
-// One-time opening shot: swishes the camera in to the robot's face, triggers
-// its wave animation (speaking a greeting as it waves), then swishes back to
-// the original camera spot.
 function CameraIntro({ facePos, target, controlsRef, actions, greeting, onGreetingDone, canLeaveRef }) {
   const { camera } = useThree()
   const start = useRef(camera.position.clone())
   const startTarget = useRef(new THREE.Vector3())
-  const phase = useRef('in') // 'in' -> 'hold' -> 'out' -> 'done'
+  const phase = useRef('in')
   const t = useRef(0)
   const holdFor = useRef(1.5)
   const greetingSpokenRef = useRef(false)
@@ -311,7 +266,7 @@ function CameraIntro({ facePos, target, controlsRef, actions, greeting, onGreeti
       const [from, to] = phase.current === 'in' ? [start.current, facePos] : [facePos, start.current]
       const [fromT, toT] = phase.current === 'in' ? [startTarget.current, target] : [target, startTarget.current]
       t.current = Math.min(1, t.current + delta / 1.2)
-      const e = 1 - Math.pow(1 - t.current, 3) // ease-out
+      const e = 1 - Math.pow(1 - t.current, 3)
       camera.position.lerpVectors(from, to, e)
       controls?.target.lerpVectors(fromT, toT, e)
 
@@ -327,9 +282,6 @@ function CameraIntro({ facePos, target, controlsRef, actions, greeting, onGreeti
             wave.fadeIn(0.3).play()
             holdFor.current = wave.getClip().duration + 0.3
           }
-          // Speak the greeting as the wave plays. The next sentence isn't
-          // spoken until this callback fires (via TTS onEnd, not just the
-          // wave clip finishing) so the two never talk over each other.
           if (!greetingSpokenRef.current) {
             greetingSpokenRef.current = true
             if (greeting) {
@@ -349,16 +301,10 @@ function CameraIntro({ facePos, target, controlsRef, actions, greeting, onGreeti
       }
     } else if (phase.current === 'hold') {
       t.current += delta
-      // The wave clip itself is short, so resume idle once it's done even
-      // though the camera stays put — the robot shouldn't stay frozen
-      // mid-wave for the whole time it's talking.
       if (!idleResumedRef.current && t.current > holdFor.current) {
         idleResumedRef.current = true
         actions.Idle?.reset().fadeIn(0.3).play()
       }
-      // Don't swish the camera back out until the greeting + first sentence
-      // have actually finished being spoken (signaled via canLeaveRef), not
-      // just when the wave animation ends.
       if (t.current > holdFor.current && canLeaveRef?.current) {
         phase.current = 'out'
         t.current = 0
@@ -370,25 +316,55 @@ function CameraIntro({ facePos, target, controlsRef, actions, greeting, onGreeti
   return null
 }
 
+const N8 = '#0E0C15';
+const N7 = '#15131D';
+const N6 = '#252134';
+const N1 = '#FFFFFF';
+const N3 = '#ADA8C3';
+const N4 = '#757185';
+const EDGE = 'rgba(255,255,255,0.1)';
+const ACCENT = '#AC6AFF';
+const GOOD = '#7ADB78';
+const WARN = '#FFC876';
+const BAD = '#FF776F';
+
 const getPhonemeStyle = (score) => {
   if (score === null || score === undefined) {
-    return { background: '#e5e7eb', color: '#6b7280' };
+    return { background: N6, color: N4 };
   }
   if (score >= 0.9) {
-    return { background: '#bbf7d0', color: '#166534' };
+    return { background: 'rgba(122,219,120,0.18)', color: GOOD };
   }
   if (score >= 0.7) {
-    return { background: '#fef08a', color: '#92400e' };
+    return { background: 'rgba(255,200,118,0.18)', color: WARN };
   }
-  return { background: '#fecaca', color: '#991b1b' };
+  return { background: 'rgba(255,119,111,0.18)', color: BAD };
 };
 
-const scoreColor = (score) => (score >= 0.8 ? '#4ade80' : score >= 0.5 ? '#facc15' : '#f87171');
+const scoreColor = (score) => (score >= 0.8 ? GOOD : score >= 0.5 ? WARN : BAD);
 
-// Always-visible-throughout-the-lesson performance HUD: running accuracy,
-// attempts remaining (the non-hearts "hearts" system), a live phoneme
-// breakdown (score + trend vs. this user's history), and a scroll of
-// recently-scored words. Collapsible so it doesn't have to stay in the way.
+const buttonStyle = (variant = 'primary') => ({
+  padding: '12px 24px',
+  border: 'none',
+  background: variant === 'primary' ? ACCENT : N7,
+  color: variant === 'primary' ? N8 : N1,
+  boxShadow: variant === 'primary' ? 'none' : `inset 0 0 0 1px ${EDGE}`,
+  fontSize: '1.1rem',
+  fontWeight: 700,
+  cursor: 'pointer',
+});
+
+const screenStyle = {
+  position: 'fixed',
+  inset: 0,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  background: N8,
+  color: N1,
+  textAlign: 'center',
+};
+
 function PerformanceTracker({ lives, maxLives, runningScore, phonemeStats, wordHistory }) {
   const [open, setOpen] = useState(true);
 
@@ -400,7 +376,7 @@ function PerformanceTracker({ lives, maxLives, runningScore, phonemeStats, wordH
       avgDelta: v.deltas.length ? v.deltas.reduce((a, b) => a + b, 0) / v.deltas.length : null,
       attempts: v.scores.length,
     }))
-    .sort((a, b) => a.avgScore - b.avgScore); // weakest first, so problem sounds surface first
+    .sort((a, b) => a.avgScore - b.avgScore);
 
   return (
     <div style={{
@@ -409,11 +385,12 @@ function PerformanceTracker({ lives, maxLives, runningScore, phonemeStats, wordH
     }}>
       <button
         onClick={() => setOpen(o => !o)}
+        className="cut-chip"
         style={{
           display: 'flex', alignItems: 'center', gap: 10,
-          background: 'rgba(0,0,0,0.7)', color: 'white', border: 'none',
-          padding: '8px 16px', borderRadius: 20, cursor: 'pointer',
-          backdropFilter: 'blur(6px)', fontWeight: 700, fontSize: 14,
+          background: N7, color: N1, border: 'none',
+          padding: '8px 16px', cursor: 'pointer',
+          fontWeight: 700, fontSize: 14,
         }}
       >
         <span style={{ display: 'flex', gap: 4 }} aria-label={`${lives} of ${maxLives} attempts remaining`}>
@@ -421,8 +398,8 @@ function PerformanceTracker({ lives, maxLives, runningScore, phonemeStats, wordH
             <svg key={i} width="16" height="16" viewBox="0 0 24 24">
               <path
                 d="M13 2 L4 14 h6 l-1 8 9-12h-6z"
-                fill={i < lives ? '#ffd93d' : 'none'}
-                stroke={i < lives ? '#ffd93d' : '#777'}
+                fill={i < lives ? WARN : 'none'}
+                stroke={i < lives ? WARN : N4}
                 strokeWidth="1.5"
                 strokeLinejoin="round"
               />
@@ -434,17 +411,14 @@ function PerformanceTracker({ lives, maxLives, runningScore, phonemeStats, wordH
       </button>
 
       {open && (
-        <div style={{
-          width: 260, maxHeight: '60vh', overflowY: 'auto',
-          background: 'rgba(0,0,0,0.8)', color: 'white', borderRadius: 12,
-          padding: 16, backdropFilter: 'blur(6px)', textAlign: 'left',
-        }}>
+        <div className="cut-card" style={{ width: 260, color: N1, padding: 16, textAlign: 'left' }}>
+        <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 11, opacity: 0.75, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>
               Lesson accuracy
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ flex: 1, height: 8, background: 'rgba(255,255,255,0.2)', borderRadius: 4, overflow: 'hidden' }}>
+              <div style={{ flex: 1, height: 8, background: N6, overflow: 'hidden' }}>
                 <div style={{
                   width: `${Math.round((runningScore || 0) * 100)}%`,
                   height: '100%',
@@ -473,8 +447,8 @@ function PerformanceTracker({ lives, maxLives, runningScore, phonemeStats, wordH
                     <span style={{ color: scoreColor(r.avgScore) }}>{Math.round(r.avgScore * 100)}%</span>
                     {r.avgDelta != null && (
                       <span style={{
-                        color: r.avgDelta > PHONEME_TREND_MARGIN ? '#4ade80'
-                          : r.avgDelta < -PHONEME_TREND_MARGIN ? '#f87171' : '#ccc',
+                        color: r.avgDelta > PHONEME_TREND_MARGIN ? GOOD
+                          : r.avgDelta < -PHONEME_TREND_MARGIN ? BAD : N3,
                         fontSize: 11,
                       }}>
                         {r.avgDelta > PHONEME_TREND_MARGIN ? '▲' : r.avgDelta < -PHONEME_TREND_MARGIN ? '▼' : '—'}
@@ -500,15 +474,12 @@ function PerformanceTracker({ lives, maxLives, runningScore, phonemeStats, wordH
             </div>
           )}
         </div>
+        </div>
       )}
     </div>
   );
 }
 
-// Builds a YouTube embed URL from a bare video ID (+ optional start offset in seconds).
-// Kept separate from the lesson-fetch logic so the mapping itself can live entirely
-// on the backend (see /scripts/build_phoneme_video_map.py) and just get shipped down
-// as { intro_video_id, intro_video_start } on the lesson payload.
 const buildEmbedUrl = (videoId, startSeconds) => {
   if (!videoId) return null;
   const s = Number.isFinite(startSeconds) ? Math.max(0, Math.floor(startSeconds)) : 0;
@@ -519,11 +490,6 @@ const buildEmbedUrl = (videoId, startSeconds) => {
 
 export default function Lesson() {
   const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
-  // Auth0 is the source of truth for who's logged in — every other page
-  // (App.jsx, Profile.jsx, Statistics.jsx) keys off user.sub || user.email.
-  // This page used to read localStorage.getItem('user_id'/'userId'), which
-  // nothing ever wrote, so every lesson fetch AND every progress save was
-  // silently going to the 'demo' account instead of the real signed-in user.
   const { user, isAuthenticated, isLoading: authLoading } = useAuth0();
   const userId = isAuthenticated && user ? (user.sub || user.email) : 'demo';
 
@@ -543,26 +509,16 @@ export default function Lesson() {
   const match = useMatch("/lessons/:id");
   const lessonId = match?.params?.id;
   const [showIntro, setShowIntro] = useState(true);
-  // Which phoneme this lesson is drilling — comes back on the fast
-  // sentences/IPA fetch below, independent of the (slower) video lookup.
   const [targetPhoneme, setTargetPhoneme] = useState(null);
-  // Resolved server-side from the lesson's target phoneme, via the separate
-  // /api/lessons/intro-video call so a video cache-miss never blocks the
-  // sentences/IPA the player actually needs to start. Null while loading.
-  const [introVideo, setIntroVideo] = useState(null); // { videoId, start, usedFallback }
+  const [introVideo, setIntroVideo] = useState(null);
   const [videoLoading, setVideoLoading] = useState(true);
-  const [videoStarted, setVideoStarted] = useState(false); // click-to-play gate
+  const [videoStarted, setVideoStarted] = useState(false);
   const [score, setScore] = useState(0);
   const [wordsToIPA, setWordsToIPA] = useState(null);
-  // The two target words this lesson drills (e.g. ["rainbow", "racecar"]),
-  // used to build the robot's opening greeting.
   const [lessonWords, setLessonWords] = useState([]);
   const [currentWordsToIPA, setCurrentWordsToIPA] = useState(null);
-  // Mirrors currentWordsToIPA for the socket handlers below, which are wired
-  // up once on mount and would otherwise close over a stale null/empty value.
   const currentWordsToIPARef = useRef(null);
   const [wordResults, setWordResults] = useState([]);
-  // Utterance-level prosody scores from the server (null until a result arrives)
   const [prosody, setProsody] = useState(null);
   const wordScoresRef = useRef([]);
   const skipNextSentenceSpeechRef = useRef(false);
@@ -573,8 +529,6 @@ export default function Lesson() {
     });
   };
 
-  // Robot's opening greeting, spoken while it waves — names the two words
-  // this lesson drills so the learner knows what to listen for.
   const introGreeting = useMemo(() => {
     if (!lessonWords || lessonWords.length === 0) return null;
     const wordsPhrase = lessonWords.length >= 2
@@ -583,17 +537,10 @@ export default function Lesson() {
     return `Hi! Welcome to a new lesson, today you will practice speaking sentences including the words ${wordsPhrase}. Now, can you say this sentence?`;
   }, [lessonWords]);
 
-  // The intro camera stays locked on the robot's face until this flips to
-  // true — set once the first practice sentence has actually finished
-  // being spoken (see handleIntroGreetingDone), not just the greeting.
   const introCanLeaveRef = useRef(false);
 
-  // Gates the sentence/phoneme panel — hidden until the robot's spoken
-  // greeting finishes, so it doesn't appear while "Hi! Welcome to..." plays.
   const [greetingDone, setGreetingDone] = useState(false);
 
-  // Fired once the robot's wave greeting finishes speaking — only then is it
-  // safe to speak the first practice sentence without the two overlapping.
   const handleIntroGreetingDone = () => {
     setGreetingDone(true);
     const currentSentence = cardData?.[String(currentSentenceIndex)] || cardData?.[currentSentenceIndex] || '';
@@ -609,49 +556,38 @@ export default function Lesson() {
     });
   };
 
-  // --- Lesson-wide performance tracking (persists across all sentences) ---
   const [lives, setLives] = useState(LESSON_START_LIVES);
   const [runningScore, setRunningScore] = useState(0);
-  // phoneme -> { scores: [raw scores this lesson], deltas: [vs. historical baseline] }
   const [phonemeStats, setPhonemeStats] = useState({});
-  // Every word scored this lesson (not just ones in a passed sentence), in order.
   const [wordHistory, setWordHistory] = useState([]);
   const [lessonFailed, setLessonFailed] = useState(false);
-  const allWordScoresRef = useRef([]); // every word score across the whole lesson
+  const allWordScoresRef = useRef([]);
   const lessonFailedRef = useRef(false);
-  // Caps strikes to at most 1 per sentence attempt — without this, a sentence
-  // with several low-scoring words would burn through all lives at once
-  // instead of costing a single life per attempt. Reset in startRecording.
   const sentenceStrikeAppliedRef = useRef(false);
 
-  // Audio + socket refs
   const socketRef = useRef(null);
   const audioContextRef = useRef(null);
   const processorRef = useRef(null);
   const streamRef = useRef(null);
   const accumChunksRef = useRef([]);
   const chunkIntervalRef = useRef(null);
-  const pendingSessionRef = useRef(null); // holds { sentence, words_ipa, userId, mode } until connect fires
+  const pendingSessionRef = useRef(null);
   const sentencePassedRef = useRef(false);
 
-  // On-device wav2vec2 (transformers.js / WebGPU) — when ready, we stream
-  // logits to the backend instead of raw audio and the model never runs server-side.
   const workerRef = useRef(null);
   const workerReadyRef = useRef(false);
-  const workerDeviceRef = useRef(null);     // { device, dtype } the worker actually loaded, from 'ready'
-  const sessionModeRef = useRef('audio');   // 'logits' | 'audio', fixed per recording session
-  const pendingChunksRef = useRef(0);       // chunks handed to the worker, logits not yet emitted
-  const stopPendingRef = useRef(false);     // user stopped; waiting for worker to drain
-  const stopTimeoutRef = useRef(null);      // stall watchdog: reset on every chunk that finishes
-  const stopHardCapRef = useRef(null);      // absolute cap in case the worker never makes progress
-  const prosodyTimeoutRef = useRef(null);   // fallback disconnect if 'prosody' never arrives
+  const workerDeviceRef = useRef(null);
+  const sessionModeRef = useRef('audio');
+  const pendingChunksRef = useRef(0);
+  const stopPendingRef = useRef(false);
+  const stopTimeoutRef = useRef(null);
+  const stopHardCapRef = useRef(null);
+  const prosodyTimeoutRef = useRef(null);
 
-  // Initialize socket once — listeners are stable across renders
   useEffect(() => {
     const socket = io(API_BASE, { autoConnect: false, transports: ['websocket', 'polling'] });
     socketRef.current = socket;
 
-    // After the transport connects, emit 'start' with session metadata
     socket.on('connect', () => {
       if (pendingSessionRef.current) {
         socket.emit('start', pendingSessionRef.current);
@@ -666,8 +602,6 @@ export default function Lesson() {
         return next;
       });
 
-      // Live decoded-vs-target phoneme breakdown, printed as each word scores
-      // in so you can watch accuracy come in while the user is still talking.
       const targetPhonemes = currentWordsToIPARef.current?.[data.word_index]?.phonemes || [];
       const rows = (data.phonemes || []).map((p, i) => ({
         target: targetPhonemes[i] ?? '—',
@@ -678,9 +612,6 @@ export default function Lesson() {
       console.table(rows);
     });
 
-    // Lesson-wide performance tracking: lives + running accuracy + phoneme
-    // breakdown + word history, fed by the raw per-word score/deltas the
-    // backend streams on every scored word.
     socket.on('stats_update', (data) => {
       allWordScoresRef.current.push(data.score);
       const scores = allWordScoresRef.current;
@@ -703,17 +634,12 @@ export default function Lesson() {
         });
       }
 
-      // Only the first strike within a given sentence attempt actually costs
-      // a life — otherwise a sentence with several rough words would knock
-      // out multiple lives in one go instead of one per exercise attempt.
       if (data.is_strike && !sentenceStrikeAppliedRef.current) {
         sentenceStrikeAppliedRef.current = true;
         setLives(prev => {
           const next = Math.max(0, prev - 1);
           if (next === 0 && !lessonFailedRef.current) {
             lessonFailedRef.current = true;
-            // Duolingo-hearts-style early cutoff: stop the lesson right here
-            // instead of limping through the rest of the sentences.
             socketRef.current?.emit('stop');
             stopRecording();
             setLessonFailed(true);
@@ -725,14 +651,10 @@ export default function Lesson() {
     });
 
     socket.on('result', (data) => {
-      // Once the lesson has been failed out, ignore any trailing 'result'
-      // event from the sentence that was in flight when lives hit zero.
       if (lessonFailedRef.current) return;
       handleFinalResult(data);
     });
 
-    // Prosody arrives after 'result' (pyin is slow); it's the last event of a
-    // session, so the connection can be dropped once it lands.
     socket.on('prosody', (data) => {
       setProsody(data);
       if (prosodyTimeoutRef.current) {
@@ -752,9 +674,6 @@ export default function Lesson() {
     };
   }, [API_BASE]);
 
-  // Spin up the on-device wav2vec2 worker once. Model download + WebGPU init
-  // happen in the background; until 'ready' fires, sessions fall back to
-  // streaming raw audio (the server-side inference path).
   useEffect(() => {
     let worker;
     try {
@@ -774,10 +693,6 @@ export default function Lesson() {
         if (msg.device === 'webgpu') {
           console.info(`[wav2vec2] on-device inference ready: WebGPU/${msg.dtype}`);
         } else {
-          // Not necessarily a bug — small EC2 instances can't run this model
-          // server-side either — but it's the slowest, least accurate tier
-          // (WASM has no oneDNN/AVX-width SIMD, and int8 quantization adds
-          // GOP-score error), so it's worth knowing when a user lands here.
           console.warn(`[wav2vec2] WebGPU unavailable, running ${msg.device}/${msg.dtype} instead (slower, less accurate)`);
         }
       } else if (msg.type === 'error') {
@@ -802,10 +717,6 @@ export default function Lesson() {
     };
   }, []);
 
-  // Fast path: sentences + IPA only. Waits for Auth0 to resolve so we fetch
-  // with the real userId instead of firing once against 'demo' and never
-  // refetching. This no longer waits on the video lookup — see the separate
-  // effect below.
   useEffect(() => {
     if (authLoading || !lessonId) return;
     let cancelled = false;
@@ -834,20 +745,6 @@ export default function Lesson() {
     return () => { cancelled = true; };
   }, [authLoading, userId, lessonId, API_BASE]);
 
-  // Independent, slower path: video. Resolves in parallel and never blocks
-  // the lesson content above — the intro screen shows a thumbnail
-  // placeholder (click-to-play) until this comes back. The backend resolves
-  // the lesson's target phoneme to a curated Glossika Phonics video (see
-  // build_phoneme_video_map.py); if that lookup ever misses, fall back to a
-  // generic phonemes-overview video rather than showing nothing.
-  //
-  // Guarded against stale responses: if lessonId changes (user navigates to
-  // the next lesson) while this request is still in flight, a late-arriving
-  // response for the OLD lesson must not overwrite the video for the NEW
-  // one. This is what made it look like lessons were getting each other's
-  // videos even after the backend cache-key bug was fixed — a slow request
-  // for lesson N resolving after lesson N+1 had already mounted and started
-  // its own request.
   useEffect(() => {
     if (authLoading || !lessonId) return;
     let cancelled = false;
@@ -883,7 +780,6 @@ export default function Lesson() {
     }
   }, [wordsToIPA, currentSentenceIndex]);
 
-  // TTS for current sentence
   useEffect(() => {
     if (!cardData || showIntro) return;
     const currentSentence = cardData[String(currentSentenceIndex)] || cardData[currentSentenceIndex] || '';
@@ -918,12 +814,8 @@ export default function Lesson() {
 
   const handleFinalResult = (data) => {
     setWordResults(data.res || []);
-    // Older servers bundle prosody into the result instead of sending a
-    // separate 'prosody' event afterwards.
     if (data.prosody) setProsody(data.prosody);
     stopRecording();
-    // Stay connected for the trailing 'prosody' event; give up after 20 s so a
-    // dead server can't hold the socket open forever.
     if (prosodyTimeoutRef.current) clearTimeout(prosodyTimeoutRef.current);
     prosodyTimeoutRef.current = setTimeout(() => {
       prosodyTimeoutRef.current = null;
@@ -960,8 +852,6 @@ export default function Lesson() {
     let offset = 0;
     for (const c of chunks) { flat.set(c, offset); offset += c.length; }
     const resampled = await resampleTo16k(flat, sampleRate);
-    // Raw audio always goes to the server: in audio mode it drives alignment,
-    // in logits mode the server only buffers it to score prosody at the end.
     socketRef.current.emit('chunk', resampled.buffer);
     if (sessionModeRef.current === 'logits' && workerRef.current) {
       pendingChunksRef.current += 1;
@@ -969,13 +859,7 @@ export default function Lesson() {
     }
   };
 
-  // No progress on the worker's logits queue for this long -> assume it's
-  // stuck (not just slow) and stop waiting. Comfortably above one WASM/int8
-  // chunk's worst-case latency, which can run several times slower than a
-  // native-CPU chunk (~250-450ms) with no GPU and no oneDNN.
   const STOP_DRAIN_STALL_MS = 8000;
-  // Absolute cap so a session can't hang indefinitely even if the worker
-  // keeps limping forward one chunk at a time.
   const STOP_DRAIN_HARD_CAP_MS = 30000;
 
   const clearStopTimers = () => {
@@ -1000,10 +884,6 @@ export default function Lesson() {
     }
   };
 
-  // Reset the stall watchdog whenever a chunk actually finishes (success or
-  // error) — a worker that's merely slow but still making progress should be
-  // allowed to keep going, up to the hard cap; only a worker that's stopped
-  // making progress entirely should trip the shorter stall timeout.
   const onWorkerProgress = () => {
     if (!stopPendingRef.current) return;
     if (pendingChunksRef.current <= 0) {
@@ -1014,8 +894,6 @@ export default function Lesson() {
     stopTimeoutRef.current = setTimeout(emitStop, STOP_DRAIN_STALL_MS);
   };
 
-  // In logits mode chunks may still be inside the worker when the user stops;
-  // wait for them to drain so the tail of the utterance is scored too.
   const requestStop = () => {
     if (sessionModeRef.current === 'logits' && pendingChunksRef.current > 0) {
       stopPendingRef.current = true;
@@ -1040,12 +918,9 @@ export default function Lesson() {
 
     setIsRecording(true);
     setWordResults([]);
-    // Fresh attempt: allow (at most) one more strike to count against lives.
     sentenceStrikeAppliedRef.current = false;
     setProsody(null);
 
-    // Lock the pipeline for this session: on-device inference if the worker
-    // finished loading, otherwise stream raw audio for server-side inference.
     sessionModeRef.current = workerReadyRef.current ? 'logits' : 'audio';
     pendingChunksRef.current = 0;
     stopPendingRef.current = false;
@@ -1055,9 +930,6 @@ export default function Lesson() {
       prosodyTimeoutRef.current = null;
     }
 
-    // Store session metadata so the 'connect' listener can emit 'start'.
-    // userId is sent so the backend can look up this user's historical
-    // phoneme averages for the live improved/worse deltas.
     const socket = socketRef.current;
     if (socket.connected) socket.disconnect();
     pendingSessionRef.current = { sentence, words_ipa, userId, mode: sessionModeRef.current, target_phoneme: targetPhoneme };
@@ -1082,7 +954,6 @@ export default function Lesson() {
     const BUFFER_SIZE = 2048;
     const CHUNK_INTERVAL_MS = 500;
 
-    // ScriptProcessorNode is deprecated but avoids needing a separate worklet file
     const processor = ctx.createScriptProcessor(BUFFER_SIZE, 1, 1);
     processorRef.current = processor;
     accumChunksRef.current = [];
@@ -1102,7 +973,7 @@ export default function Lesson() {
 
   const toggleRecording = () => {
     if (isRecording) {
-      requestStop(); // ask server to finalize (after worker drains, in logits mode); disconnect happens in handleFinalResult
+      requestStop();
       stopRecording();
     } else {
       startRecording();
@@ -1133,8 +1004,6 @@ export default function Lesson() {
         body: JSON.stringify({
           userId: userId,
           lessonId: currentLessonId,
-          // Real lesson-wide accuracy, tracked from the per-word scores the
-          // backend streams — replaces the old (score / 700) || 0.1 guess.
           addScore: runningScore || 0.1,
           wordScores: wordScoresRef.current
         })
@@ -1161,24 +1030,19 @@ export default function Lesson() {
       : null;
 
     return (
-      <div style={{
-        position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column',
-        alignItems: 'center', justifyContent: 'center',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        color: 'white', textAlign: 'center', padding: 24
-      }}>
+      <div style={{ ...screenStyle, flexDirection: 'column', padding: 24 }}>
         <Back />
         <h2 style={{ fontSize: '2rem', marginBottom: '0.4rem' }}>Watch this example first</h2>
         {targetPhoneme && (
-          <p style={{ opacity: 0.85, marginBottom: '1.25rem', fontSize: '1rem' }}>
-            Today's focus: the <strong>/{targetPhoneme}/</strong> sound
+          <p style={{ color: N3, marginBottom: '1.25rem', fontSize: '1rem' }}>
+            Today's focus: the <strong style={{ color: ACCENT }}>/{targetPhoneme}/</strong> sound
           </p>
         )}
 
-        <div style={{ width: 640, maxWidth: '90vw', aspectRatio: '16 / 9', marginBottom: '2rem', borderRadius: 12, overflow: 'hidden', background: 'rgba(0,0,0,0.25)' }}>
+        <div style={{ width: 640, maxWidth: '90vw', aspectRatio: '16 / 9', marginBottom: '2rem', overflow: 'hidden', background: N7 }}>
           {videoLoading ? (
             <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Waveform size="35" stroke="3.5" speed="1" color="white" />
+              <Waveform size="35" stroke="3.5" speed="1" color={ACCENT} />
             </div>
           ) : videoStarted ? (
             <iframe
@@ -1191,9 +1055,6 @@ export default function Lesson() {
               allowFullScreen
             />
           ) : (
-            // Click-to-play thumbnail instead of an always-live iframe — the
-            // YouTube player's JS only loads once someone actually wants to
-            // watch, instead of on every visit to this screen.
             <button
               onClick={() => setVideoStarted(true)}
               style={{
@@ -1217,18 +1078,11 @@ export default function Lesson() {
 
         <button
           onClick={() => {
-            // The first sentence is spoken once the robot's wave greeting
-            // finishes (see handleIntroGreetingDone), not immediately here —
-            // otherwise the two would talk over each other.
             skipNextSentenceSpeechRef.current = true;
             setShowIntro(false);
           }}
-          style={{
-            padding: '12px 24px', borderRadius: 25, border: 'none',
-            background: 'linear-gradient(90deg, #6dd3ff 0%, #6b73ff 100%)',
-            color: 'white', fontSize: '1.1rem', fontWeight: 700, cursor: 'pointer',
-            boxShadow: '0 8px 20px rgba(0,0,0,0.2)'
-          }}
+          className="cut-chip"
+          style={buttonStyle()}
         >
           Start Lesson
         </button>
@@ -1239,55 +1093,29 @@ export default function Lesson() {
   if (lessonFailed) {
     const { needsWork } = summarizePhonemeDeltas(phonemeStats);
     return (
-      <div style={{
-        position: 'fixed',
-        inset: 0,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'linear-gradient(135deg, #4b1c1c 0%, #7a2626 100%)',
-        color: 'white',
-        textAlign: 'center'
-      }}>
+      <div style={screenStyle}>
         <div>
-          <h1 style={{ fontSize: '3rem', marginBottom: '1rem' }}>Out of Attempts</h1>
+          <h1 style={{ fontSize: '3rem', marginBottom: '1rem', color: BAD }}>Out of Attempts</h1>
           <p style={{ fontSize: '1.2rem', marginBottom: '0.5rem' }}>
             You ran out of tries for this lesson — accuracy was {Math.round((runningScore || 0) * 100)}%.
           </p>
           {needsWork.length > 0 && (
-            <p style={{ fontSize: '1rem', marginBottom: '2rem', opacity: 0.9 }}>
+            <p style={{ fontSize: '1rem', marginBottom: '2rem', color: N3 }}>
               Sounds to practice: {needsWork.map(n => n.phoneme).join(', ')}
             </p>
           )}
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
             <button
               onClick={() => window.location.reload()}
-              style={{
-                padding: '12px 24px',
-                borderRadius: 25,
-                border: 'none',
-                background: 'linear-gradient(90deg, #6dd3ff 0%, #6b73ff 100%)',
-                color: 'white',
-                fontSize: '1.1rem',
-                fontWeight: 700,
-                cursor: 'pointer',
-                boxShadow: '0 8px 20px rgba(0,0,0,0.2)'
-              }}
+              className="cut-chip"
+              style={buttonStyle()}
             >
               Try Lesson Again
             </button>
             <button
               onClick={() => window.location.href = '/app'}
-              style={{
-                padding: '12px 24px',
-                borderRadius: 25,
-                border: '2px solid rgba(255,255,255,0.6)',
-                background: 'transparent',
-                color: 'white',
-                fontSize: '1.1rem',
-                fontWeight: 700,
-                cursor: 'pointer',
-              }}
+              className="cut-chip"
+              style={buttonStyle('ghost')}
             >
               Back to Home
             </button>
@@ -1300,44 +1128,26 @@ export default function Lesson() {
   if (isFinished) {
     const { improved, needsWork } = summarizePhonemeDeltas(phonemeStats);
     return (
-      <div style={{
-        position: 'fixed',
-        inset: 0,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        color: 'white',
-        textAlign: 'center'
-      }}>
+      <div style={screenStyle}>
         <div>
           <h1 style={{ fontSize: '3rem', marginBottom: '1rem' }}>🎉 Lesson Complete!</h1>
           <p style={{ fontSize: '1.2rem', marginBottom: '0.5rem' }}>
             Overall accuracy: {Math.round((runningScore || 0) * 100)}%
           </p>
           {improved.length > 0 && (
-            <p style={{ fontSize: '1rem', marginBottom: '0.25rem', opacity: 0.9 }}>
+            <p style={{ fontSize: '1rem', marginBottom: '0.25rem', color: GOOD }}>
               Most improved: {improved.map(i => i.phoneme).join(', ')}
             </p>
           )}
           {needsWork.length > 0 && (
-            <p style={{ fontSize: '1rem', marginBottom: '1.5rem', opacity: 0.9 }}>
+            <p style={{ fontSize: '1rem', marginBottom: '1.5rem', color: N3 }}>
               Keep practicing: {needsWork.map(i => i.phoneme).join(', ')}
             </p>
           )}
           <button
             onClick={() => window.location.href = '/app'}
-            style={{
-              padding: '12px 24px',
-              borderRadius: 25,
-              border: 'none',
-              background: 'linear-gradient(90deg, #6dd3ff 0%, #6b73ff 100%)',
-              color: 'white',
-              fontSize: '1.1rem',
-              fontWeight: 700,
-              cursor: 'pointer',
-              boxShadow: '0 8px 20px rgba(0,0,0,0.2)'
-            }}
+            className="cut-chip"
+            style={buttonStyle()}
           >
             Back to Home
           </button>
@@ -1441,18 +1251,13 @@ export default function Lesson() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background: 'rgba(0,0,0,0.5)',
+            background: 'rgba(0,0,0,0.6)',
             backdropFilter: 'blur(4px)'
           }}>
-            <div style={{
-              width: '50%',
-              maxWidth: 600,
-              background: 'white',
-              borderRadius: 16,
-              padding: 24,
-              boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-              position: 'relative'
-            }}>
+            <div
+              className="cut-card"
+              style={{ width: '50%', maxWidth: 600, padding: 24 }}
+            >
               <button
                 onClick={() => {
                   setFeedbackText('')
@@ -1466,18 +1271,17 @@ export default function Lesson() {
                   border: 'none',
                   fontSize: 24,
                   cursor: 'pointer',
-                  color: '#666'
+                  color: N4
                 }}
               >
                 ×
               </button>
-              <h3 style={{ marginTop: 0, marginBottom: 16, color: '#333' }}>Feedback</h3>
-              <div style={{ color: '#555', lineHeight: 1.6 }}>{feedbackText}</div>
+              <h3 style={{ marginTop: 0, marginBottom: 16, color: N1 }}>Feedback</h3>
+              <div style={{ color: N3, lineHeight: 1.6 }}>{feedbackText}</div>
             </div>
           </div>
         )}
 
-        {/* next button - only show when finished*/}
         {true && (
           <button
             aria-label="Next lesson"
@@ -1487,49 +1291,39 @@ export default function Lesson() {
               goToNextSentence();
               stopSpeech()
             }}
+            className="cut-chip"
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: 10,
               padding: '12px 18px',
-              borderRadius: 999,
+              border: 'none',
               cursor: 'pointer',
-              background: nextHover
-                ? 'linear-gradient(90deg, #ff8a00 0%, #e52e71 100%)'
-                : 'linear-gradient(90deg, #6dd3ff 0%, #6b73ff 100%)',
-              color: '#fff',
+              background: nextHover ? WARN : ACCENT,
+              color: N8,
               fontWeight: 700,
-              boxShadow: nextHover ? '0 10px 30px rgba(229,46,113,0.35)' : '0 8px 24px rgba(107,115,255,0.18)',
-              transform: nextHover ? 'translateY(-2px)' : 'translateY(0)',
-              transition: 'all 180ms ease',
-              backdropFilter: 'blur(6px)',
+              transition: 'background 180ms ease',
             }}
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <path d="M5 12h14" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M12 5l7 7-7 7" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M12 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
         )}
       </div>
 
-      {/* Record toggle button */}
       <div style={{ position: 'absolute', left: 24, bottom: 24, zIndex: 30 }}>
         <button
           onClick={toggleRecording}
+          className="cut-chip"
           style={{
             padding: '10px 14px',
-            borderRadius: 20,
             border: 'none',
-            background: isRecording
-              ? 'linear-gradient(90deg, #ff6b6b, #ff4444)'
-              : 'linear-gradient(90deg,#6dd3ff,#6b73ff)',
-            color: 'white',
+            background: isRecording ? BAD : ACCENT,
+            color: N8,
             fontWeight: 700,
             cursor: 'pointer',
-            boxShadow: isRecording
-              ? '0 0 0 3px rgba(255,100,100,0.4)'
-              : '0 8px 20px rgba(0,0,0,0.15)',
             animation: isRecording ? 'pulse 1.2s infinite' : 'none',
           }}
         >
@@ -1537,29 +1331,28 @@ export default function Lesson() {
         </button>
         <style>{`
           @keyframes pulse {
-            0%, 100% { box-shadow: 0 0 0 3px rgba(255,100,100,0.4); }
-            50% { box-shadow: 0 0 0 8px rgba(255,100,100,0.1); }
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
           }
         `}</style>
       </div>
 
-      {/* Current sentence + live phoneme display — hidden until the robot's intro greeting finishes */}
       {greetingDone && (
-      <div style={{
-        position: 'absolute',
-        top: 24,
-        left: '50%',
-        transform: 'translateX(-50%)',
-        zIndex: 30,
-        background: 'rgba(0,0,0,0.7)',
-        color: 'white',
-        padding: '12px 20px',
-        borderRadius: 12,
-        backdropFilter: 'blur(6px)'
-      }}>
-        <div>Say this sentence:</div>
+      <div
+        className="cut-card"
+        style={{
+          position: 'absolute',
+          top: 24,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 30,
+          color: N1,
+          padding: '12px 20px',
+        }}
+      >
+        <div style={{ color: N3 }}>Say this sentence:</div>
         <div style={{ fontWeight: 'bold', marginTop: 4 }}>
-          {cardData ? cardData[currentSentenceIndex.toString()] || 'End of lesson' : <Waveform size="20" stroke="2" speed="1" color="white" />}
+          {cardData ? cardData[currentSentenceIndex.toString()] || 'End of lesson' : <Waveform size="20" stroke="2" speed="1" color={ACCENT} />}
         </div>
 
         {currentWordsToIPA && (
@@ -1568,15 +1361,12 @@ export default function Lesson() {
               {currentWordsToIPA.map(({ word, phonemes }, wordIdx) => {
                 const returnedWord = wordResults?.[wordIdx];
                 return (
-                  <div key={word + wordIdx} style={{
-                    border: '1px solid #ddd',
-                    borderRadius: 6,
+                  <div key={word + wordIdx} className="cut-chip" style={{
                     padding: 6,
-                    color: '#333',
-                    background: '#f9f9f9',
+                    color: N1,
+                    background: N6,
                     minWidth: 70,
                     marginBottom: 4,
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
                   }}>
                     <div style={{ fontWeight: 'bold', marginBottom: 2, textAlign: 'center', fontSize: 13 }}>{word}</div>
                     <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', justifyContent: 'center' }}>
@@ -1585,7 +1375,6 @@ export default function Lesson() {
                         if (returnedWord && returnedWord.phonemes[i] && returnedWord.phonemes[i].phoneme === ph) {
                           score = returnedWord.phonemes[i].score;
                         }
-                        // Lesson-wide trend for this phoneme, from stats_update deltas.
                         const stats = phonemeStats[ph];
                         const trendAvg = stats && stats.deltas.length
                           ? stats.deltas.reduce((a, b) => a + b, 0) / stats.deltas.length
@@ -1595,7 +1384,7 @@ export default function Lesson() {
                           : trendAvg > PHONEME_TREND_MARGIN ? '▲'
                           : trendAvg < -PHONEME_TREND_MARGIN ? '▼'
                           : null;
-                        const trendColor = trendAvg > 0 ? '#16a34a' : '#dc2626';
+                        const trendColor = trendAvg > 0 ? GOOD : BAD;
                         return (
                           <span
                             key={i}
@@ -1603,7 +1392,6 @@ export default function Lesson() {
                               ...getPhonemeStyle(score),
                               display: 'inline-block',
                               padding: '2px 5px',
-                              borderRadius: 4,
                               fontWeight: 500,
                               fontSize: 12,
                               margin: 1,

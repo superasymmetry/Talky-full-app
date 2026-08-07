@@ -43,8 +43,6 @@ const setMasteredWords = (id, words) => {
   try {
     localStorage.setItem(`talky:mastered:${id}`, JSON.stringify(words));
   } catch {
-    // localStorage unavailable (private browsing, etc) — fail silently,
-    // mastery just won't persist across sessions.
   }
 };
 
@@ -84,8 +82,6 @@ function SoundBank({
     ? tiles.filter((t) => !t.word || !masteredSet.has(t.word))
     : tiles;
 
-  // Always render 16 slots regardless of how many real tiles came back
-  // (previously this could throw if the API ever returned >16 words).
   const displayTiles = Array.from({ length: 16 }, (_, i) => visibleTiles[i] || { word: '', emoji: '' });
 
   return (
@@ -104,7 +100,6 @@ function SoundBank({
 
         return (
           <div key={index} className="relative">
-            {/* highlight ring */}
             <div
               className={`absolute inset-0 rounded-xl pointer-events-none transition-all duration-150
                 ${isHighlighted ? `
@@ -117,14 +112,12 @@ function SoundBank({
                 ${isMastered && !isHighlighted && !isSelected ? "ring-2 ring-[#f5a962]" : ""}`}
             ></div>
 
-            {/* loading overlay */}
             {isLoading && (
               <div className="absolute inset-0 z-20 rounded-xl flex items-center justify-center bg-black/15 text-white text-2xl font-bold animate-pulse pointer-events-none">
                 ...
               </div>
             )}
 
-            {/* mastery star toggle */}
             {tile.word && !isLoading && (
               <button
                 onClick={(e) => {
@@ -201,10 +194,9 @@ export default function SoundBankCategory() {
       if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
       const data = await res.json();
       const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
-      // Convert to {word, emoji} structure
       const wordsArray = Object.values(parsedData).map(w => ({
-        word: toTitleCase(w.word || w), // fallback in case API just returns word
-        emoji: w.emoji || '' // assumes Groq API returns emoji field
+        word: toTitleCase(w.word || w),
+        emoji: w.emoji || ''
       }));
       setWords(wordsArray);
     } catch (err) {

@@ -27,8 +27,6 @@ if (typeof document !== 'undefined' && !document.getElementById(styleId)) {
   document.head.appendChild(style);
 }
 
-// Exported so SoundBankCategory can look up name/icon/description by id
-// instead of re-deriving them from the url slug.
 export const categories = [
   { id: 'l-sounds', icon: '🦁', name: 'L Sounds', description: 'Words like "lion", "leaf", and "lamp"!' },
   { id: 'r-sounds', icon: '🐰', name: 'R Sounds', description: 'Words like "rabbit", "rose", and "rain".' },
@@ -92,8 +90,6 @@ export default function SoundBank() {
   const [query, setQuery] = useState('')
   const [masteredCounts, setMasteredCounts] = useState({})
 
-  // Re-read mastered counts whenever this page is shown, so counts stay
-  // fresh if a kid just finished practicing a category and hit "back".
   useEffect(() => {
     const counts = {};
     categories.forEach((cat) => {
@@ -121,7 +117,6 @@ export default function SoundBank() {
     <div className="min-h-screen bg-page" style={{ position: 'fixed', inset: 0, overflowY: 'auto' }}>
       <Header />
       <main className="max-w-7xl mx-auto" style={{ padding: '2rem', paddingTop: 'calc(var(--header-height, 112px) + 2rem)', paddingBottom: '3rem' }}>
-        {/* top title row */}
         <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
           <div className="flex items-center gap-4">
             <button
@@ -158,7 +153,6 @@ export default function SoundBank() {
           )}
         </div>
 
-        {/* search */}
         <div style={{ marginBottom: '2rem', maxWidth: '360px' }}>
           <input
             className="talky-sb-input"

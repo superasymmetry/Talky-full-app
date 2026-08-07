@@ -28,9 +28,6 @@ const UserCreator = ({ children }) => {
 
     async function createUser() {
       try {
-        // /api/user/adduser is guarded by @requires_auth on the server,
-        // so this call needs a Bearer token — without it, this always
-        // 401'd silently (caught below, only logged to console).
         const token = await getAccessTokenSilently()
         const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
         await fetch(`${API_BASE}/api/user/adduser`, {
@@ -39,9 +36,6 @@ const UserCreator = ({ children }) => {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
-          // userId isn't sent — the backend always derives the user's
-          // identity from the token's sub claim and ignored this field
-          // anyway, so sending it was misleading.
           body: JSON.stringify({ name: user.name || user.nickname || user.email })
         })
       } catch (err) {
@@ -56,17 +50,11 @@ const UserCreator = ({ children }) => {
   return children
 }
 
-// Wraps Auth0Provider so we can use react-router's navigate() inside
-// onRedirectCallback. Must render *inside* BrowserRouter for useNavigate to work.
 // eslint-disable-next-line react-refresh/only-export-components
 const Auth0ProviderWithNavigate = ({ children }) => {
   const navigate = useNavigate()
 
   const onRedirectCallback = (appState) => {
-    // Without this, Auth0's default callback just strips the query params
-    // and leaves you on whatever path the browser is currently on after
-    // the redirect back from Auth0 — which, combined with redirect_uri
-    // pointing at the bare origin, is why it was dumping everyone on "/".
     navigate(appState?.returnTo || '/app')
   }
 
@@ -76,9 +64,6 @@ const Auth0ProviderWithNavigate = ({ children }) => {
       clientId={clientId}
       authorizationParams={{ redirect_uri: window.location.origin, audience }}
       onRedirectCallback={onRedirectCallback}
-      // Default is 'memory', which only lives for the current page load.
-      // Any full navigation/refresh wiped the session, so /app always
-      // looked logged-out even though the Auth0 session cookie was fine.
       cacheLocation="localstorage"
       useRefreshTokens={true}
     >

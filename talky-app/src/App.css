@@ -39,6 +39,71 @@ body {
   padding: 24px 24px;
 }
 
+.dashboard-shell {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  text-align: left;
+}
+
+.dashboard-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dashboard-lessons {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dashboard-lessons .slider-shell {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+  padding: 8px 16px;
+}
+
+.dashboard-lessons .slider-row {
+  height: 100%;
+  padding: 14px 0;
+}
+
+.dashboard-lessons .lesson-slide {
+  flex: 0 0 calc((100% - 3 * 16px) / 4);
+  min-width: 0;
+}
+
+@media (max-width: 767px) {
+  .dashboard-lessons .lesson-slide {
+    flex: 0 0 240px;
+  }
+}
+
+.dashboard-lessons .lesson-card {
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 1rem 1.25rem;
+}
+
+.dashboard-lessons .lesson-card img {
+  flex: 0 1 auto;
+  min-height: 0;
+}
+
+.dashboard-explore {
+  flex: 0 0 auto;
+}
+
 .slider-row {
   display: flex;
   gap: 16px;
@@ -83,10 +148,10 @@ body {
 .card-container {
   display: grid;
   padding: 20px;
-  max-width: 1280px;      /* allow full sane layout width */
+  max-width: 1280px;
   margin: 0 auto;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); /* responsive columns */
-  gap: 1rem;               /* spacing between cards */
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
 }
 
 .search-container {

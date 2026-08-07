@@ -4,6 +4,43 @@ import * as THREE from 'three'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls, Text } from '@react-three/drei'
 import Back from './Back.jsx'
+// `cut-card` (n-7 panel + hairline edge + chamfered corners) and `cut-chip`
+// (the same chamfer for pills/buttons), shared with the Statistics dashboard.
+import '../Statistics/Statistics.css'
+
+// The Statistics palette, so this page's HUD reads as part of the same app.
+// Only the UI chrome uses these — the 3D board keeps its own gameplay colours.
+const UI = {
+  n1: '#FFFFFF',
+  n2: '#CAC6DD',
+  n3: '#ADA8C3',
+  n4: '#757185',
+  n6: '#252134',
+  n7: '#15131D',
+  n8: '#0E0C15',
+  accent: '#AC6AFF',  // color-1
+  warm: '#FFC876',    // color-2
+  danger: '#FF776F',  // color-3
+  good: '#7ADB78',    // color-4
+  indigo: '#858DFF',  // color-5
+}
+
+// Buttons are chamfered by the `cut-chip` class; this just carries the fill.
+const button = (background, color = UI.n8) => ({
+  padding: '10px 14px',
+  border: 'none',
+  background,
+  color,
+  fontWeight: 700,
+  cursor: 'pointer',
+})
+
+// Rows/tiles nested inside a panel sit one step up, on n-6, with square corners
+// — the same treatment the Statistics cards give their inner rows.
+const subPanel = { background: UI.n6, border: '1px solid rgba(255,255,255,0.1)' }
+// Progress/HP tracks: square, n-6, matching the mastery bars on Statistics.
+const track = { height: 8, background: UI.n6, overflow: 'hidden' }
+const scrim = 'rgba(14, 12, 21, 0.8)'
 
 const EXPANSION_DISTANCE = 10
 const TILE_SIZE = 1
@@ -589,7 +626,7 @@ function BattleScene() {
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <planeGeometry args={[16, 10]} />
-        <meshStandardMaterial color="#0f172a" roughness={0.95} metalness={0.1} />
+        <meshStandardMaterial color={UI.n7} roughness={0.95} metalness={0.1} />
       </mesh>
       <mesh position={[-3.5, 0.75, 0]} castShadow receiveShadow>
         <boxGeometry args={[1, 1.5, 1]} />
@@ -606,7 +643,7 @@ function BattleScene() {
   )
 }
 
-function PlaneScene({ capturedTiles, buildings, buildMode, selectedBuilding, hoveredTileKey, onTileHover, onTileClick, tutorialTileKey, showTutorialTileGuide }) { // NOSONAR
+function PlaneScene({ capturedTiles, buildings, buildMode, selectedBuilding, hoveredTileKey, onTileHover, onTileClick, tutorialTileKey, showTutorialTileGuide }) {
   const capturedSet = useMemo(() => new Set(capturedTiles), [capturedTiles])
   const hasGeneratorCore = useMemo(
     () => GENERATOR_CORE_TILES.every((tileKey) => buildings[tileKey] === 'generator-core'),
@@ -666,9 +703,11 @@ function PlaneScene({ capturedTiles, buildings, buildMode, selectedBuilding, hov
 
   return (
     <group>
+      {/* Ground sits on n-7, one step up from the n-8 sky, so the board reads
+          as a surface without going back to the old grass green. */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <planeGeometry args={[1000, 1000]} />
-        <meshStandardMaterial color="#16a34a" metalness={0.05} roughness={0.95} />
+        <meshStandardMaterial color={UI.n7} metalness={0.05} roughness={0.95} />
       </mesh>
 
       {fenceSegments.map((segment) => (
@@ -818,7 +857,7 @@ function PlaneScene({ capturedTiles, buildings, buildMode, selectedBuilding, hov
   )
 }
 
-export default function PracticeGame() { // NOSONAR
+export default function PracticeGame() {
   const [gameState, setGameState] = useState(() => {
     if (typeof globalThis.window === 'undefined') {
       return createInitialGameState()
@@ -1101,7 +1140,7 @@ export default function PracticeGame() { // NOSONAR
     recognitionRef.current.start()
   }
 
-  const handleTileClick = (tileKey) => { // NOSONAR
+  const handleTileClick = (tileKey) => {
     if (battleState) {
       return
     }
@@ -1299,7 +1338,7 @@ export default function PracticeGame() { // NOSONAR
     setStatusMessage('Battle started. Speak the target word to attack!')
   }
 
-  const handleBattleResolution = (spokenWord) => { // NOSONAR
+  const handleBattleResolution = (spokenWord) => {
     const battle = battleStateRef.current
     if (!battle) {
       return
@@ -1745,11 +1784,11 @@ export default function PracticeGame() { // NOSONAR
     <div style={{ position: 'fixed', inset: 0, margin: 0, padding: 0, overflow: 'hidden' }}>
       <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 20, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
         <div style={{ display: 'flex', gap: 10 }}>
-          <div ref={energyChipRef} style={{ padding: '10px 14px', borderRadius: 999, background: 'rgba(15, 23, 42, 0.85)', color: 'white', fontWeight: 700 }}>
+          <div ref={energyChipRef} className="cut-card" style={{ padding: '10px 14px', color: UI.n1, fontWeight: 700 }}>
             Energy: {gameState.energy}/{MAX_ENERGY}
             <div style={{ fontSize: 12, marginTop: 2, opacity: 0.8 }}>Refresh in {energyRefreshLabel}</div>
           </div>
-          <div ref={economyChipRef} style={{ padding: '10px 14px', borderRadius: 999, background: 'rgba(15, 23, 42, 0.85)', color: 'white', fontWeight: 700 }}>
+          <div ref={economyChipRef} className="cut-card" style={{ padding: '10px 14px', color: UI.n1, fontWeight: 700 }}>
             Coins: {gameState.coins}/{bankCapacity}
             <div style={{ fontSize: 12, marginTop: 2, opacity: 0.8 }}>Banks {totalBankCount} · Generators {totalGeneratorCount}</div>
           </div>
@@ -1761,12 +1800,13 @@ export default function PracticeGame() { // NOSONAR
           style={{ position: 'relative' }}
         >
           <button
-            style={{ padding: '10px 14px', borderRadius: 999, border: 'none', background: showStatsMenu ? '#1d4ed8' : '#2563eb', color: 'white', fontWeight: 700, cursor: 'pointer' }}
+            className="cut-chip"
+            style={button(showStatsMenu ? UI.warm : UI.accent)}
           >
             Stats
           </button>
           {showStatsMenu && (
-            <div style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, minWidth: 220, padding: 12, borderRadius: 16, background: 'rgba(15, 23, 42, 0.96)', color: 'white', boxShadow: '0 14px 40px rgba(0,0,0,0.3)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div className="cut-card" style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, minWidth: 220, padding: 12, color: UI.n1, display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ fontWeight: 700, marginBottom: 4 }}>City stats</div>
               <div style={{ fontSize: 13, opacity: 0.9 }}>Captured tiles: {gameState.capturedTiles.length}</div>
               <div style={{ fontSize: 13, opacity: 0.9 }}>Empty captured tiles: {emptyCapturedTiles.length}</div>
@@ -1778,11 +1818,12 @@ export default function PracticeGame() { // NOSONAR
               <div style={{ fontSize: 13, opacity: 0.9 }}>Party size: {gameState.party.length}/{MAX_PARTY_SIZE}</div>
               <button
                 onClick={resetProgress}
-                style={{ marginTop: 6, padding: '8px 10px', borderRadius: 10, border: '1px solid rgba(248,113,113,0.55)', background: 'rgba(127,29,29,0.35)', color: '#fecaca', fontWeight: 700, cursor: 'pointer' }}
+                className="cut-chip"
+                style={{ ...button('transparent', UI.danger), marginTop: 6, padding: '8px 10px', border: `1px solid ${UI.danger}` }}
               >
                 Reset progress
               </button>
-              <div style={{ fontSize: 12, color: '#bfdbfe', marginTop: 4 }}>{statusMessage}</div>
+              <div style={{ fontSize: 12, color: UI.n3, marginTop: 4 }}>{statusMessage}</div>
             </div>
           )}
         </div>
@@ -1791,14 +1832,16 @@ export default function PracticeGame() { // NOSONAR
           <button
             ref={buildButtonRef}
             onClick={toggleBuildMode}
-            style={{ padding: '10px 14px', borderRadius: 999, border: 'none', background: buildMode ? '#f59e0b' : '#2563eb', color: 'white', fontWeight: 700, cursor: 'pointer' }}
+            className="cut-chip"
+            style={button(buildMode ? UI.warm : UI.accent)}
           >
             {buildMode ? 'Exit Build Mode' : 'Build Mode'}
           </button>
           <button
             ref={partyButtonRef}
             onClick={() => setShowPartyEditor((current) => !current)}
-            style={{ padding: '10px 14px', borderRadius: 999, border: 'none', background: showPartyEditor ? '#f59e0b' : '#334155', color: 'white', fontWeight: 700, cursor: 'pointer' }}
+            className="cut-chip"
+            style={showPartyEditor ? button(UI.warm) : button(UI.n6, UI.n2)}
           >
             {showPartyEditor ? 'Close Party' : 'Add Party'}
           </button>
@@ -1806,7 +1849,8 @@ export default function PracticeGame() { // NOSONAR
             <button
               ref={missionsButtonRef}
               onClick={() => setShowMissions((current) => !current)}
-              style={{ width: '100%', padding: '10px 14px', borderRadius: 999, border: 'none', background: showMissions ? '#f59e0b' : '#1f2937', color: 'white', fontWeight: 700, cursor: 'pointer' }}
+              className="cut-chip"
+              style={{ ...(showMissions ? button(UI.warm) : button(UI.n6, UI.n2)), width: '100%' }}
             >
               Missions
             </button>
@@ -1818,31 +1862,30 @@ export default function PracticeGame() { // NOSONAR
                   right: 8,
                   width: 10,
                   height: 10,
-                  borderRadius: '50%',
-                  background: '#ef4444',
-                  boxShadow: '0 0 0 2px rgba(15, 23, 42, 0.9)',
+                  background: UI.danger,
+                  boxShadow: `0 0 0 2px ${UI.n8}`,
                 }}
               />
             )}
           </div>
 
           {showMissions && (
-            <div style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, width: 340, padding: 12, borderRadius: 16, background: 'rgba(15, 23, 42, 0.96)', color: 'white', boxShadow: '0 14px 40px rgba(0,0,0,0.3)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div className="cut-card" style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, width: 340, padding: 12, color: UI.n1, display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ fontWeight: 800 }}>Daily Missions</div>
               <div style={{ fontSize: 12, opacity: 0.85 }}>Day {missionsState.dayIndex} · Resets daily · {MISSION_REWARD_COINS} coins each</div>
               {missionsState.items.map((mission) => {
                 const canClaim = mission.completed && !mission.claimed
-                let missionStatusColor = '#cbd5e1'
+                let missionStatusColor = UI.n3
                 let missionStatusText = 'In progress'
                 if (mission.claimed) {
-                  missionStatusColor = '#86efac'
+                  missionStatusColor = UI.good
                   missionStatusText = 'Claimed'
                 } else if (mission.completed) {
-                  missionStatusColor = '#fca5a5'
+                  missionStatusColor = UI.warm
                   missionStatusText = 'Complete'
                 }
                 return (
-                  <div key={mission.id} style={{ background: 'rgba(255,255,255,0.08)', borderRadius: 12, padding: 10 }}>
+                  <div key={mission.id} style={{ ...subPanel, padding: 10 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                       <div style={{ fontWeight: 700 }}>{mission.title}</div>
                       <div style={{ fontSize: 12, color: missionStatusColor }}>
@@ -1851,13 +1894,14 @@ export default function PracticeGame() { // NOSONAR
                     </div>
                     <div style={{ fontSize: 12, opacity: 0.85, marginTop: 2 }}>{mission.description}</div>
                     <div style={{ fontSize: 12, marginTop: 8 }}>{mission.progress}/{mission.target}</div>
-                    <div style={{ height: 8, borderRadius: 999, background: 'rgba(148,163,184,0.35)', overflow: 'hidden', marginTop: 6 }}>
-                      <div style={{ width: `${Math.min(100, (mission.progress / mission.target) * 100)}%`, height: '100%', background: mission.completed ? '#22c55e' : '#38bdf8' }} />
+                    <div style={{ ...track, marginTop: 6 }}>
+                      <div style={{ width: `${Math.min(100, (mission.progress / mission.target) * 100)}%`, height: '100%', background: mission.completed ? UI.good : UI.accent }} />
                     </div>
                     <button
                       onClick={() => claimMissionReward(mission.id)}
                       disabled={!canClaim}
-                      style={{ marginTop: 10, padding: '7px 10px', borderRadius: 999, border: 'none', background: canClaim ? '#dc2626' : '#475569', color: 'white', fontWeight: 700, cursor: canClaim ? 'pointer' : 'not-allowed', opacity: canClaim ? 1 : 0.7 }}
+                      className="cut-chip"
+                      style={{ ...button(canClaim ? UI.good : UI.n6, canClaim ? UI.n8 : UI.n4), marginTop: 10, padding: '7px 10px', cursor: canClaim ? 'pointer' : 'not-allowed' }}
                     >
                       Claim {MISSION_REWARD_COINS}
                     </button>
@@ -1870,12 +1914,12 @@ export default function PracticeGame() { // NOSONAR
       </div>
 
       {showPartyEditor && (
-        <div style={{ position: 'absolute', top: 132, right: 16, zIndex: 25, width: 320, background: 'rgba(15, 23, 42, 0.95)', color: 'white', borderRadius: 18, padding: 16, boxShadow: '0 12px 40px rgba(0,0,0,0.25)' }}>
+        <div className="cut-card" style={{ position: 'absolute', top: 132, right: 16, zIndex: 25, width: 320, color: UI.n1, padding: 16 }}>
           <div style={{ fontWeight: 800, fontSize: 17, marginBottom: 10 }}>Party Manager</div>
           <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 10 }}>Manage your team (max {MAX_PARTY_SIZE}).</div>
           <div style={{ maxHeight: 160, overflowY: 'auto', marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
             {gameState.party.map((member) => (
-              <div key={member.id} style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 10, padding: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div key={member.id} style={{ ...subPanel, padding: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                   <div style={{ fontWeight: 700 }}>{member.name}</div>
                   <div style={{ fontSize: 12, opacity: 0.85 }}>{member.role} · ATK {member.attack} · HP {member.hp}/{member.maxHp}</div>
@@ -1883,7 +1927,12 @@ export default function PracticeGame() { // NOSONAR
                 <button
                   onClick={() => removePartyMember(member.id)}
                   disabled={gameState.party.length <= 1}
-                  style={{ padding: '6px 10px', borderRadius: 999, border: 'none', background: gameState.party.length <= 1 ? '#475569' : '#7f1d1d', color: '#fee2e2', fontWeight: 700, cursor: gameState.party.length <= 1 ? 'not-allowed' : 'pointer' }}
+                  className="cut-chip"
+                  style={{
+                    ...(gameState.party.length <= 1 ? button(UI.n6, UI.n4) : button(UI.danger)),
+                    padding: '6px 10px',
+                    cursor: gameState.party.length <= 1 ? 'not-allowed' : 'pointer',
+                  }}
                 >
                   Remove
                 </button>
@@ -1891,20 +1940,35 @@ export default function PracticeGame() { // NOSONAR
             ))}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <button onClick={() => addPartyMember('scout')} disabled={gameState.party.length >= MAX_PARTY_SIZE} style={{ padding: '8px 10px', borderRadius: 10, border: 'none', background: '#1d4ed8', color: 'white', fontWeight: 700, cursor: gameState.party.length >= MAX_PARTY_SIZE ? 'not-allowed' : 'pointer', opacity: gameState.party.length >= MAX_PARTY_SIZE ? 0.6 : 1 }}>Add Scout</button>
-            <button onClick={() => addPartyMember('villager')} disabled={gameState.party.length >= MAX_PARTY_SIZE} style={{ padding: '8px 10px', borderRadius: 10, border: 'none', background: '#1d4ed8', color: 'white', fontWeight: 700, cursor: gameState.party.length >= MAX_PARTY_SIZE ? 'not-allowed' : 'pointer', opacity: gameState.party.length >= MAX_PARTY_SIZE ? 0.6 : 1 }}>Add Villager</button>
-            <button onClick={() => addPartyMember('witch')} disabled={gameState.party.length >= MAX_PARTY_SIZE} style={{ padding: '8px 10px', borderRadius: 10, border: 'none', background: '#7c3aed', color: 'white', fontWeight: 700, cursor: gameState.party.length >= MAX_PARTY_SIZE ? 'not-allowed' : 'pointer', opacity: gameState.party.length >= MAX_PARTY_SIZE ? 0.6 : 1 }}>Add Witch</button>
-            <button onClick={() => addPartyMember('bard')} disabled={gameState.party.length >= MAX_PARTY_SIZE} style={{ padding: '8px 10px', borderRadius: 10, border: 'none', background: '#0f766e', color: 'white', fontWeight: 700, cursor: gameState.party.length >= MAX_PARTY_SIZE ? 'not-allowed' : 'pointer', opacity: gameState.party.length >= MAX_PARTY_SIZE ? 0.6 : 1 }}>Add Bard</button>
+            {[
+              { role: 'scout', label: 'Add Scout', fill: UI.accent },
+              { role: 'villager', label: 'Add Villager', fill: UI.accent },
+              { role: 'witch', label: 'Add Witch', fill: UI.indigo },
+              { role: 'bard', label: 'Add Bard', fill: UI.good },
+            ].map(({ role, label, fill }) => {
+              const full = gameState.party.length >= MAX_PARTY_SIZE
+              return (
+                <button
+                  key={role}
+                  onClick={() => addPartyMember(role)}
+                  disabled={full}
+                  className="cut-chip"
+                  style={{ ...button(fill), padding: '8px 10px', cursor: full ? 'not-allowed' : 'pointer', opacity: full ? 0.6 : 1 }}
+                >
+                  {label}
+                </button>
+              )
+            })}
           </div>
         </div>
       )}
 
       {selectedGeneratorTile && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 35, background: 'rgba(2, 6, 23, 0.76)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-          <div style={{ width: 'min(92vw, 520px)', background: 'linear-gradient(135deg, #1d4ed8 0%, #111827 100%)', borderRadius: 24, color: 'white', padding: 24, boxShadow: '0 22px 60px rgba(0,0,0,0.35)' }}>
+        <div style={{ position: 'absolute', inset: 0, zIndex: 35, background: scrim, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div className="cut-card" style={{ width: 'min(92vw, 520px)', color: UI.n1, padding: 24 }}>
             <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 8 }}>Generator</div>
             <div style={{ fontSize: 14, opacity: 0.9, marginBottom: 16 }}>Generators fill their own storage by 1 coin per minute each, then transfer to banks when collected.</div>
-            <div style={{ background: 'rgba(255,255,255,0.12)', borderRadius: 16, padding: 14, marginBottom: 16 }}>
+            <div style={{ ...subPanel, padding: 14, marginBottom: 16 }}>
               <div style={{ fontWeight: 700 }}>Generator storage</div>
               <div style={{ fontSize: 13, opacity: 0.9, marginTop: 4 }}>{gameState.generator?.coins || 0}/{generatorCapacity}</div>
               <div style={{ fontSize: 13, opacity: 0.9, marginTop: 8 }}>Output rate: {generatorPerMinute} coin/min</div>
@@ -1912,10 +1976,10 @@ export default function PracticeGame() { // NOSONAR
               <div style={{ fontSize: 13, opacity: 0.9, marginTop: 8 }}>{bankCountdownLabel}</div>
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={collectBankCoins} style={{ flex: 1, padding: '10px 12px', borderRadius: 999, border: 'none', background: '#f59e0b', color: 'white', fontWeight: 800, cursor: 'pointer' }}>
+              <button onClick={collectBankCoins} className="cut-chip" style={{ ...button(UI.warm), flex: 1, padding: '10px 12px' }}>
                 Collect coins
               </button>
-              <button onClick={() => setSelectedGeneratorTile(null)} style={{ flex: 1, padding: '10px 12px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.35)', background: 'transparent', color: 'white', fontWeight: 700, cursor: 'pointer' }}>
+              <button onClick={() => setSelectedGeneratorTile(null)} className="cut-chip" style={{ ...button(UI.n6, UI.n2), flex: 1, padding: '10px 12px' }}>
                 Close
               </button>
             </div>
@@ -1924,28 +1988,28 @@ export default function PracticeGame() { // NOSONAR
       )}
 
       {pendingBattle && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 35, background: 'rgba(2, 6, 23, 0.76)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-          <div style={{ width: 'min(92vw, 760px)', background: 'linear-gradient(135deg, #1d4ed8 0%, #111827 100%)', borderRadius: 24, color: 'white', padding: 24, boxShadow: '0 22px 60px rgba(0,0,0,0.35)' }}>
+        <div style={{ position: 'absolute', inset: 0, zIndex: 35, background: scrim, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div className="cut-card" style={{ width: 'min(92vw, 760px)', color: UI.n1, padding: 24 }}>
             <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 8 }}>Prepare for battle</div>
             <div style={{ fontSize: 14, opacity: 0.9, marginBottom: 16 }}>Your party will face this tile’s guardian. Review the setup before you commit.</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-              <div style={{ background: 'rgba(255,255,255,0.12)', borderRadius: 16, padding: 14 }}>
+              <div style={{ ...subPanel, padding: 14 }}>
                 <div style={{ fontWeight: 700, marginBottom: 8 }}>Party</div>
                 {pendingBattle.party.map((member) => (
-                  <div key={member.id} style={{ padding: '8px 10px', borderRadius: 10, background: 'rgba(255,255,255,0.12)', marginBottom: 8 }}>
+                  <div key={member.id} style={{ padding: '8px 10px', background: 'rgba(255,255,255,0.06)', marginBottom: 8 }}>
                     <div style={{ fontWeight: 700 }}>{member.name}</div>
                     <div style={{ fontSize: 13, opacity: 0.9 }}>{member.hp}/{member.maxHp} HP · Attack {member.attack} · {member.role}</div>
                   </div>
                 ))}
               </div>
-              <div style={{ background: 'rgba(255,255,255,0.12)', borderRadius: 16, padding: 14 }}>
+              <div style={{ ...subPanel, padding: 14 }}>
                 <div style={{ fontWeight: 700, marginBottom: 8 }}>Words in play</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   {pendingBattle.wordsInPlay.map((word) => (
-                    <div key={word} style={{ background: 'rgba(255,255,255,0.18)', borderRadius: 999, padding: '6px 10px', fontWeight: 700 }}>{word}</div>
+                    <div key={word} className="cut-chip" style={{ background: UI.accent, color: UI.n8, padding: '6px 10px', fontWeight: 700 }}>{word}</div>
                   ))}
                 </div>
-                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.18)' }}>
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                   <div style={{ fontWeight: 700 }}>Enemy</div>
                   <div style={{ fontSize: 13, opacity: 0.9 }}>{pendingBattle.encounterConfig.name} · {pendingBattle.encounterConfig.hp} HP · Attack {pendingBattle.encounterConfig.attack}</div>
                   <div style={{ fontWeight: 700, marginTop: 10 }}>Energy cost</div>
@@ -1954,10 +2018,10 @@ export default function PracticeGame() { // NOSONAR
               </div>
             </div>
             <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
-              <button onClick={beginBattle} style={{ flex: 1, padding: '10px 12px', borderRadius: 999, border: 'none', background: '#f59e0b', color: 'white', fontWeight: 800, cursor: 'pointer' }}>
+              <button onClick={beginBattle} className="cut-chip" style={{ ...button(UI.warm), flex: 1, padding: '10px 12px' }}>
                 Start battle
               </button>
-              <button onClick={() => setPendingBattle(null)} disabled={Boolean(pendingBattle.tutorialGuaranteed)} style={{ padding: '10px 12px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.35)', background: 'transparent', color: 'white', fontWeight: 700, cursor: pendingBattle.tutorialGuaranteed ? 'not-allowed' : 'pointer', opacity: pendingBattle.tutorialGuaranteed ? 0.65 : 1 }}>
+              <button onClick={() => setPendingBattle(null)} disabled={Boolean(pendingBattle.tutorialGuaranteed)} className="cut-chip" style={{ ...button(UI.n6, UI.n2), padding: '10px 12px', cursor: pendingBattle.tutorialGuaranteed ? 'not-allowed' : 'pointer', opacity: pendingBattle.tutorialGuaranteed ? 0.65 : 1 }}>
                 Cancel
               </button>
             </div>
@@ -1966,29 +2030,32 @@ export default function PracticeGame() { // NOSONAR
       )}
 
       {battleState && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 30, background: 'rgba(2, 6, 23, 0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-          <div style={{ position: 'relative', width: 'min(96vw, 1100px)', height: 'min(84vh, 760px)', background: 'linear-gradient(135deg, #111827 0%, #1d4ed8 100%)', borderRadius: 24, color: 'white', overflow: 'hidden', boxShadow: '0 22px 60px rgba(0,0,0,0.35)' }}>
+        <div style={{ position: 'absolute', inset: 0, zIndex: 30, background: scrim, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          {/* cut-clip as well as cut-card: the battle Canvas is a child, and
+              the card's edge layer sits behind content so it can't clip it. */}
+          <div className="cut-card cut-clip" style={{ position: 'relative', width: 'min(96vw, 1100px)', height: 'min(84vh, 760px)', color: UI.n1, overflow: 'hidden' }}>
             <Canvas style={{ width: '100%', height: '100%' }} camera={{ position: [0, 4, 8], fov: 50 }}>
+              <color attach="background" args={[UI.n8]} />
               <ambientLight intensity={0.7} />
               <directionalLight position={[4, 6, 4]} intensity={1.1} />
               <BattleScene />
               <OrbitControls enablePan={false} enableZoom={false} maxPolarAngle={Math.PI / 2.05} />
             </Canvas>
 
-            <div style={{ position: 'absolute', top: 20, left: 20, zIndex: 35, background: 'rgba(15, 23, 42, 0.82)', borderRadius: 16, padding: 14, minWidth: 280 }}>
+            <div className="cut-card" style={{ position: 'absolute', top: 20, left: 20, zIndex: 35, padding: 14, minWidth: 280 }}>
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Party</div>
               {battleState.party.map((member) => {
                 const hpPercent = Math.max(0, (member.hp / member.maxHp) * 100)
                 const isActive = activeBattleCharacter?.id === member.id
 
                 return (
-                  <div key={member.id} style={{ padding: '8px 10px', borderRadius: 10, background: isActive ? 'rgba(59, 130, 246, 0.34)' : 'rgba(255,255,255,0.12)', marginBottom: 8, border: isActive ? '1px solid rgba(147,197,253,0.8)' : '1px solid transparent' }}>
+                  <div key={member.id} style={{ padding: '8px 10px', background: UI.n6, marginBottom: 8, border: `1px solid ${isActive ? UI.accent : 'rgba(255,255,255,0.1)'}` }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                       <div style={{ fontWeight: 700 }}>{member.name}</div>
                       <div style={{ fontSize: 12, opacity: 0.9 }}>{member.hp}/{member.maxHp} HP</div>
                     </div>
-                    <div style={{ height: 8, background: 'rgba(255,255,255,0.16)', borderRadius: 999, overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${hpPercent}%`, background: member.hp > 0 ? '#22c55e' : '#64748b' }} />
+                    <div style={track}>
+                      <div style={{ height: '100%', width: `${hpPercent}%`, background: member.hp > 0 ? UI.good : UI.n4 }} />
                     </div>
                     <div style={{ fontSize: 12, opacity: 0.9, marginTop: 6 }}>Attack {member.attack} · {member.role}</div>
                   </div>
@@ -1996,44 +2063,44 @@ export default function PracticeGame() { // NOSONAR
               })}
             </div>
 
-            <div style={{ position: 'absolute', top: 20, right: 20, zIndex: 35, background: 'rgba(15, 23, 42, 0.82)', borderRadius: 16, padding: 14, minWidth: 280 }}>
+            <div className="cut-card" style={{ position: 'absolute', top: 20, right: 20, zIndex: 35, padding: 14, minWidth: 280 }}>
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Enemy</div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                 <div style={{ fontWeight: 700 }}>{battleState.enemyName}</div>
                 <div style={{ fontSize: 12, opacity: 0.9 }}>{battleState.enemyHp}/{battleState.enemyMaxHp} HP</div>
               </div>
-              <div style={{ height: 8, background: 'rgba(255,255,255,0.16)', borderRadius: 999, overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${battleEnemyHpPercent}%`, background: '#fbbf24' }} />
+              <div style={track}>
+                <div style={{ height: '100%', width: `${battleEnemyHpPercent}%`, background: UI.warm }} />
               </div>
               <div style={{ fontSize: 12, opacity: 0.9, marginTop: 6 }}>Attack {battleState.enemyAttack} · {battleState.enemyCount > 1 ? `${battleState.enemyCount} foes` : 'Single foe'}</div>
             </div>
 
-            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 35, background: 'rgba(15, 23, 42, 0.82)', borderRadius: 18, padding: '14px 20px', minWidth: 320, textAlign: 'center' }}>
+            <div className="cut-card" style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 35, padding: '14px 20px', minWidth: 320, textAlign: 'center' }}>
               <div style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.2em', opacity: 0.8 }}>Say this word</div>
               <div style={{ fontSize: 28, fontWeight: 800, marginTop: 4 }}>{battleState.targetWord}</div>
               <div style={{ fontSize: 13, marginTop: 6, opacity: 0.9 }}>Tile difficulty: {battleState.difficulty} · Active turn: {activeBattleCharacter?.name || 'None'}</div>
             </div>
 
             <div style={{ position: 'absolute', left: 20, bottom: 20, zIndex: 35, width: 'min(320px, 70vw)' }}>
-              <div style={{ background: 'rgba(15, 23, 42, 0.82)', borderRadius: 16, padding: 14, marginBottom: 10 }}>
+              <div className="cut-card" style={{ padding: 14, marginBottom: 10 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Battle log</div>
                 <div style={{ maxHeight: 140, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {battleState.log.slice(-5).map((entry, index) => (
-                    <div key={`${entry}-${index}`} style={{ fontSize: 13, background: 'rgba(255,255,255,0.12)', borderRadius: 8, padding: '8px 10px' }}>
+                    <div key={`${entry}-${index}`} style={{ fontSize: 13, background: UI.n6, padding: '8px 10px' }}>
                       {entry}
                     </div>
                   ))}
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 10 }}>
-                <button onClick={startListening} disabled={isListening} style={{ flex: 1, padding: '10px 12px', borderRadius: 999, border: 'none', background: '#eff6ff', color: '#1d4ed8', fontWeight: 800, cursor: 'pointer' }}>
+                <button onClick={startListening} disabled={isListening} className="cut-chip" style={{ ...button(UI.accent), flex: 1, padding: '10px 12px' }}>
                   {isListening ? 'Listening…' : 'Speak word'}
                 </button>
-                <button onClick={() => setBattleState(null)} disabled={Boolean(battleState.tutorialGuaranteed)} style={{ padding: '10px 12px', borderRadius: 999, border: 'none', background: 'rgba(255,255,255,0.18)', color: 'white', fontWeight: 700, cursor: battleState.tutorialGuaranteed ? 'not-allowed' : 'pointer', opacity: battleState.tutorialGuaranteed ? 0.65 : 1 }}>
+                <button onClick={() => setBattleState(null)} disabled={Boolean(battleState.tutorialGuaranteed)} className="cut-chip" style={{ ...button(UI.n6, UI.n2), padding: '10px 12px', cursor: battleState.tutorialGuaranteed ? 'not-allowed' : 'pointer', opacity: battleState.tutorialGuaranteed ? 0.65 : 1 }}>
                   Exit
                 </button>
               </div>
-              <div style={{ marginTop: 10, fontSize: 12, color: '#bfdbfe' }}>
+              <div style={{ marginTop: 10, fontSize: 12, color: UI.n3 }}>
                 Pronunciation-only mode: use the Speak word button each turn.
               </div>
             </div>
@@ -2042,7 +2109,7 @@ export default function PracticeGame() { // NOSONAR
       )}
 
       {buildMode && (
-        <div style={{ position: 'absolute', top: 90, right: 16, zIndex: 20, width: 300, maxHeight: '72vh', overflowY: 'auto', background: 'rgba(15, 23, 42, 0.95)', color: 'white', borderRadius: 18, padding: 16, boxShadow: '0 12px 40px rgba(0,0,0,0.25)' }}>
+        <div className="cut-card" style={{ position: 'absolute', top: 90, right: 16, zIndex: 20, width: 300, maxHeight: '72vh', overflowY: 'auto', color: UI.n1, padding: 16 }}>
           <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 10 }}>Buildings</div>
           {buildingDefinitions.map((building) => {
             const tutorialHouseOnly = tutorialStep === 4 && building.key !== 'house'
@@ -2051,7 +2118,6 @@ export default function PracticeGame() { // NOSONAR
             const lockReason = tutorialHouseOnly
               ? 'Tutorial: build a House first.'
               : (building.lockLabel || `Locked: requires ${building.unlock} extra captured tiles.`)
-            const backgroundColor = unlocked ? (active ? '#1d4ed8' : '#0f172a') : '#475569'
             return (
               <button
                 key={building.key}
@@ -2062,26 +2128,25 @@ export default function PracticeGame() { // NOSONAR
                   textAlign: 'left',
                   marginBottom: 8,
                   padding: 12,
-                  borderRadius: 12,
-                  border: active ? '2px solid #f59e0b' : '1px solid rgba(255,255,255,0.15)',
-                  background: backgroundColor,
-                  color: 'white',
+                  border: `1px solid ${active ? UI.accent : 'rgba(255,255,255,0.1)'}`,
+                  background: UI.n6,
+                  color: UI.n1,
                   cursor: unlocked ? 'pointer' : 'not-allowed',
-                  opacity: unlocked ? 1 : 0.75,
+                  opacity: unlocked ? 1 : 0.5,
                 }}
               >
                 <div style={{ fontWeight: 700 }}>{building.name}</div>
-                <div style={{ fontSize: 12, opacity: 0.85 }}>{building.description}</div>
-                <div style={{ fontSize: 12, marginTop: 4, color: '#bfdbfe' }}>{building.effect}</div>
-                <div style={{ fontSize: 12, marginTop: 4, color: '#fef3c7' }}>Cost: {building.cost} coins</div>
-                {!unlocked && <div style={{ fontSize: 12, marginTop: 4, color: '#fecaca' }}>{lockReason}</div>}
+                <div style={{ fontSize: 12, color: UI.n3 }}>{building.description}</div>
+                <div style={{ fontSize: 12, marginTop: 4, color: UI.accent }}>{building.effect}</div>
+                <div style={{ fontSize: 12, marginTop: 4, color: UI.warm }}>Cost: {building.cost} coins</div>
+                {!unlocked && <div style={{ fontSize: 12, marginTop: 4, color: UI.danger }}>{lockReason}</div>}
               </button>
             )
           })}
 
           <div style={{ marginTop: 10 }}>
             <label htmlFor="practice-game-target-character" style={{ display: 'block', fontWeight: 700, marginBottom: 6 }}>Target character</label>
-            <select id="practice-game-target-character" value={selectedCharacter || ''} onChange={(event) => setSelectedCharacter(event.target.value)} style={{ width: '100%', padding: '8px 10px', borderRadius: 10 }}>
+            <select id="practice-game-target-character" value={selectedCharacter || ''} onChange={(event) => setSelectedCharacter(event.target.value)} style={{ width: '100%', padding: '8px 10px', background: UI.n6, color: UI.n1, border: '1px solid rgba(255,255,255,0.1)' }}>
               {gameState.party.map((member) => (
                 <option key={member.id} value={member.id}>{member.name} ({member.role})</option>
               ))}
@@ -2091,6 +2156,9 @@ export default function PracticeGame() { // NOSONAR
       )}
 
       <Canvas style={{ width: '100%', height: '100%' }} camera={{ position: [0, 8, 12], fov: 60 }}>
+        {/* Without an explicit clear colour the canvas is transparent and the
+            white page shows through past the board's edge. */}
+        <color attach="background" args={[UI.n8]} />
         <ambientLight intensity={0.7} />
         <directionalLight position={[5, 10, 5]} intensity={1} />
         <PlaneScene
@@ -2110,17 +2178,17 @@ export default function PracticeGame() { // NOSONAR
       {tutorialStep !== null && (
         <>
           {tutorialStep !== 1 && tutorialStep !== 4 && (
-            <div style={{ position: 'absolute', inset: 0, background: 'rgba(2, 6, 23, 0.66)', zIndex: 40, pointerEvents: 'none' }} />
+            <div style={{ position: 'absolute', inset: 0, background: scrim, zIndex: 40, pointerEvents: 'none' }} />
           )}
 
           {tutorialStep === 0 && (
             <div style={{ position: 'absolute', inset: 0, zIndex: 45, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-              <div style={{ width: 'min(94vw, 680px)', background: 'linear-gradient(135deg, #1d4ed8 0%, #0f172a 100%)', color: 'white', borderRadius: 24, padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.35)' }}>
+              <div className="cut-card" style={{ width: 'min(94vw, 680px)', color: UI.n1, padding: 24 }}>
                 <div style={{ fontSize: 26, fontWeight: 900, marginBottom: 10 }}>Welcome to Practice Game</div>
                 <div style={{ fontSize: 15, opacity: 0.94, lineHeight: 1.5, marginBottom: 12 }}>
                   This is a game to practice your pronunciation. You will capture tiles by speaking words and improve your team over time.
                 </div>
-                <div style={{ fontSize: 14, color: '#bfdbfe', marginBottom: 18 }}>
+                <div style={{ fontSize: 14, color: UI.n3, marginBottom: 18 }}>
                   We will guide you through your first capture, then show the core UI elements.
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
@@ -2129,7 +2197,8 @@ export default function PracticeGame() { // NOSONAR
                       setTutorialStep(1)
                       setStatusMessage('Tutorial: capture the highlighted tile. You cannot fail this first one.')
                     }}
-                    style={{ padding: '10px 14px', borderRadius: 999, border: 'none', background: '#f59e0b', color: 'white', fontWeight: 800, cursor: 'pointer', pointerEvents: 'auto' }}
+                    className="cut-chip"
+                    style={{ ...button(UI.warm), pointerEvents: 'auto' }}
                   >
                     Start Tutorial
                   </button>
@@ -2139,13 +2208,13 @@ export default function PracticeGame() { // NOSONAR
           )}
 
           {tutorialStep === 1 && (
-            <div style={{ position: 'absolute', left: 24, bottom: 24, zIndex: 45, width: 'min(90vw, 460px)', background: 'rgba(15, 23, 42, 0.97)', color: 'white', borderRadius: 18, padding: 16, pointerEvents: 'auto', boxShadow: '0 14px 40px rgba(0,0,0,0.35)' }}>
+            <div className="cut-card" style={{ position: 'absolute', left: 24, bottom: 24, zIndex: 45, width: 'min(90vw, 460px)', color: UI.n1, padding: 16, pointerEvents: 'auto' }}>
               <div style={{ fontWeight: 800, marginBottom: 6 }}>Step 1: Capture your first tile</div>
               <div style={{ fontSize: 13, opacity: 0.9, lineHeight: 1.45 }}>
                 Click the highlighted tutorial tile, start the battle, and say/type the target word each turn.
                 If your party is defeated, their HP is magically regenerated so this first tutorial capture cannot fail.
               </div>
-              <div style={{ marginTop: 10, fontSize: 12, color: '#fef08a' }}>
+              <div style={{ marginTop: 10, fontSize: 12, color: UI.warm }}>
                 Look for the glowing ring labeled Tutorial Tile on the map.
               </div>
             </div>
@@ -2153,9 +2222,9 @@ export default function PracticeGame() { // NOSONAR
 
           {tutorialStep === 2 && (
             <>
-              <div style={{ position: 'absolute', top: clamp(energyAnchor?.centerY ?? 52, 12, viewportHeight - 24), left: clamp(energyAnchor?.centerX ?? 220, 12, viewportWidth - 12), transform: 'translate(-50%, -50%)', zIndex: 45, color: '#fef08a', fontWeight: 800, fontSize: 13, pointerEvents: 'none' }}>◀ Energy and refresh</div>
+              <div style={{ position: 'absolute', top: clamp(energyAnchor?.centerY ?? 52, 12, viewportHeight - 24), left: clamp(energyAnchor?.centerX ?? 220, 12, viewportWidth - 12), transform: 'translate(-50%, -50%)', zIndex: 45, color: UI.warm, fontWeight: 800, fontSize: 13, pointerEvents: 'none' }}>◀ Energy and refresh</div>
 
-              <div style={{ position: 'absolute', top: clamp((energyAnchor?.bottom ?? 96) + 10, 24, viewportHeight - 260), left: clamp(energyAnchor?.left ?? 24, 24, viewportWidth - 450), zIndex: 45, width: 'min(90vw, 420px)', background: 'rgba(15, 23, 42, 0.97)', color: 'white', borderRadius: 18, padding: 16, pointerEvents: 'auto', boxShadow: '0 14px 40px rgba(0,0,0,0.35)' }}>
+              <div className="cut-card" style={{ position: 'absolute', top: clamp((energyAnchor?.bottom ?? 96) + 10, 24, viewportHeight - 260), left: clamp(energyAnchor?.left ?? 24, 24, viewportWidth - 450), zIndex: 45, width: 'min(90vw, 420px)', color: UI.n1, padding: 16, pointerEvents: 'auto' }}>
                 <div style={{ fontWeight: 800, marginBottom: 8 }}>Step 2: Energy and refresh</div>
                 <div style={{ fontSize: 13, opacity: 0.9, lineHeight: 1.45 }}>
                   Battles use energy. Your energy refills automatically over time, and the timer shows when the next energy point arrives.
@@ -2166,7 +2235,8 @@ export default function PracticeGame() { // NOSONAR
                       setTutorialStep(3)
                       setStatusMessage('Energy understood. Next: coins, banks, and generators.')
                     }}
-                    style={{ padding: '10px 14px', borderRadius: 999, border: 'none', background: '#f59e0b', color: 'white', fontWeight: 800, cursor: 'pointer' }}
+                    className="cut-chip"
+                    style={button(UI.warm)}
                   >
                     Next
                   </button>
@@ -2177,9 +2247,9 @@ export default function PracticeGame() { // NOSONAR
 
           {tutorialStep === 3 && (
             <>
-              <div style={{ position: 'absolute', top: clamp(economyAnchor?.centerY ?? 52, 12, viewportHeight - 24), left: clamp(economyAnchor?.centerX ?? 320, 12, viewportWidth - 12), transform: 'translate(-50%, -50%)', zIndex: 45, color: '#fef08a', fontWeight: 800, fontSize: 13, pointerEvents: 'none' }}>◀ Coins, banks, generators</div>
+              <div style={{ position: 'absolute', top: clamp(economyAnchor?.centerY ?? 52, 12, viewportHeight - 24), left: clamp(economyAnchor?.centerX ?? 320, 12, viewportWidth - 12), transform: 'translate(-50%, -50%)', zIndex: 45, color: UI.warm, fontWeight: 800, fontSize: 13, pointerEvents: 'none' }}>◀ Coins, banks, generators</div>
 
-              <div style={{ position: 'absolute', top: clamp((economyAnchor?.bottom ?? 96) + 10, 24, viewportHeight - 260), left: clamp(economyAnchor?.left ?? 24, 24, viewportWidth - 460), zIndex: 45, width: 'min(90vw, 430px)', background: 'rgba(15, 23, 42, 0.97)', color: 'white', borderRadius: 18, padding: 16, pointerEvents: 'auto', boxShadow: '0 14px 40px rgba(0,0,0,0.35)' }}>
+              <div className="cut-card" style={{ position: 'absolute', top: clamp((economyAnchor?.bottom ?? 96) + 10, 24, viewportHeight - 260), left: clamp(economyAnchor?.left ?? 24, 24, viewportWidth - 460), zIndex: 45, width: 'min(90vw, 430px)', color: UI.n1, padding: 16, pointerEvents: 'auto' }}>
                 <div style={{ fontWeight: 800, marginBottom: 8 }}>Step 3: Coins, banks, generators</div>
                 <div style={{ fontSize: 13, opacity: 0.9, lineHeight: 1.45 }}>
                   Generators slowly create coins. Banks define your maximum storage capacity.
@@ -2191,7 +2261,8 @@ export default function PracticeGame() { // NOSONAR
                       setTutorialStep(4)
                       setStatusMessage('Now build your first House to recruit a villager.')
                     }}
-                    style={{ padding: '10px 14px', borderRadius: 999, border: 'none', background: '#f59e0b', color: 'white', fontWeight: 800, cursor: 'pointer' }}
+                    className="cut-chip"
+                    style={button(UI.warm)}
                   >
                     Next
                   </button>
@@ -2202,9 +2273,9 @@ export default function PracticeGame() { // NOSONAR
 
           {tutorialStep === 4 && (
             <>
-              <div style={{ position: 'absolute', top: clamp(buildAnchor?.centerY ?? 92, 12, viewportHeight - 24), left: clamp(buildAnchor?.centerX ?? (viewportWidth - 130), 12, viewportWidth - 12), transform: 'translate(-50%, -50%)', zIndex: 45, color: '#fef08a', fontWeight: 800, fontSize: 13, pointerEvents: 'none' }}>▲ Build Mode</div>
+              <div style={{ position: 'absolute', top: clamp(buildAnchor?.centerY ?? 92, 12, viewportHeight - 24), left: clamp(buildAnchor?.centerX ?? (viewportWidth - 130), 12, viewportWidth - 12), transform: 'translate(-50%, -50%)', zIndex: 45, color: UI.warm, fontWeight: 800, fontSize: 13, pointerEvents: 'none' }}>▲ Build Mode</div>
 
-              <div style={{ position: 'absolute', left: 24, bottom: 24, zIndex: 45, width: 'min(90vw, 460px)', background: 'rgba(15, 23, 42, 0.97)', color: 'white', borderRadius: 18, padding: 16, pointerEvents: 'auto', boxShadow: '0 14px 40px rgba(0,0,0,0.35)' }}>
+              <div className="cut-card" style={{ position: 'absolute', left: 24, bottom: 24, zIndex: 45, width: 'min(90vw, 460px)', color: UI.n1, padding: 16, pointerEvents: 'auto' }}>
                 <div style={{ fontWeight: 800, marginBottom: 6 }}>Step 4: Build your first house</div>
                 <div style={{ fontSize: 13, opacity: 0.9, lineHeight: 1.45 }}>
                   Open Build Mode, select House, then click a captured empty tile to place it.
@@ -2217,7 +2288,8 @@ export default function PracticeGame() { // NOSONAR
                       setSelectedBuilding('house')
                       setStatusMessage('Tutorial: place a House on a captured tile.')
                     }}
-                    style={{ padding: '10px 14px', borderRadius: 999, border: 'none', background: '#f59e0b', color: 'white', fontWeight: 800, cursor: 'pointer' }}
+                    className="cut-chip"
+                    style={button(UI.warm)}
                   >
                     Select House
                   </button>
@@ -2228,9 +2300,9 @@ export default function PracticeGame() { // NOSONAR
 
           {tutorialStep === 5 && (
             <>
-              <div style={{ position: 'absolute', top: clamp(partyAnchor?.centerY ?? 128, 12, viewportHeight - 24), left: clamp(partyAnchor?.centerX ?? (viewportWidth - 130), 12, viewportWidth - 12), transform: 'translate(-50%, -50%)', zIndex: 45, color: '#fef08a', fontWeight: 800, fontSize: 13, pointerEvents: 'none' }}>▲ Add Party</div>
+              <div style={{ position: 'absolute', top: clamp(partyAnchor?.centerY ?? 128, 12, viewportHeight - 24), left: clamp(partyAnchor?.centerX ?? (viewportWidth - 130), 12, viewportWidth - 12), transform: 'translate(-50%, -50%)', zIndex: 45, color: UI.warm, fontWeight: 800, fontSize: 13, pointerEvents: 'none' }}>▲ Add Party</div>
 
-              <div style={{ position: 'absolute', top: clamp((partyAnchor?.bottom ?? 164) + 10, 24, viewportHeight - 260), left: clamp((partyAnchor?.left ?? 24) - 300, 24, viewportWidth - 460), zIndex: 45, width: 'min(90vw, 430px)', background: 'rgba(15, 23, 42, 0.97)', color: 'white', borderRadius: 18, padding: 16, pointerEvents: 'auto', boxShadow: '0 14px 40px rgba(0,0,0,0.35)' }}>
+              <div className="cut-card" style={{ position: 'absolute', top: clamp((partyAnchor?.bottom ?? 164) + 10, 24, viewportHeight - 260), left: clamp((partyAnchor?.left ?? 24) - 300, 24, viewportWidth - 460), zIndex: 45, width: 'min(90vw, 430px)', color: UI.n1, padding: 16, pointerEvents: 'auto' }}>
                 <div style={{ fontWeight: 800, marginBottom: 8 }}>Step 5: Changing the party</div>
                 <div style={{ fontSize: 13, opacity: 0.9, lineHeight: 1.45 }}>
                   The Add Party menu is where you manage your team. There is nothing urgent to change right now,
@@ -2242,7 +2314,8 @@ export default function PracticeGame() { // NOSONAR
                       setTutorialStep(6)
                       setStatusMessage('Final step: missions for extra coins.')
                     }}
-                    style={{ padding: '10px 14px', borderRadius: 999, border: 'none', background: '#f59e0b', color: 'white', fontWeight: 800, cursor: 'pointer' }}
+                    className="cut-chip"
+                    style={button(UI.warm)}
                   >
                     Next
                   </button>
@@ -2253,9 +2326,9 @@ export default function PracticeGame() { // NOSONAR
 
           {tutorialStep === 6 && (
             <>
-              <div style={{ position: 'absolute', top: clamp(missionsAnchor?.centerY ?? 162, 12, viewportHeight - 24), left: clamp(missionsAnchor?.centerX ?? (viewportWidth - 130), 12, viewportWidth - 12), transform: 'translate(-50%, -50%)', zIndex: 45, color: '#fef08a', fontWeight: 800, fontSize: 13, pointerEvents: 'none' }}>▲ Missions</div>
+              <div style={{ position: 'absolute', top: clamp(missionsAnchor?.centerY ?? 162, 12, viewportHeight - 24), left: clamp(missionsAnchor?.centerX ?? (viewportWidth - 130), 12, viewportWidth - 12), transform: 'translate(-50%, -50%)', zIndex: 45, color: UI.warm, fontWeight: 800, fontSize: 13, pointerEvents: 'none' }}>▲ Missions</div>
 
-              <div style={{ position: 'absolute', top: clamp((missionsAnchor?.bottom ?? 196) + 10, 24, viewportHeight - 260), left: clamp((missionsAnchor?.left ?? 24) - 300, 24, viewportWidth - 460), zIndex: 45, width: 'min(90vw, 430px)', background: 'rgba(15, 23, 42, 0.97)', color: 'white', borderRadius: 18, padding: 16, pointerEvents: 'auto', boxShadow: '0 14px 40px rgba(0,0,0,0.35)' }}>
+              <div className="cut-card" style={{ position: 'absolute', top: clamp((missionsAnchor?.bottom ?? 196) + 10, 24, viewportHeight - 260), left: clamp((missionsAnchor?.left ?? 24) - 300, 24, viewportWidth - 460), zIndex: 45, width: 'min(90vw, 430px)', color: UI.n1, padding: 16, pointerEvents: 'auto' }}>
                 <div style={{ fontWeight: 800, marginBottom: 8 }}>Step 6: Missions</div>
                 <div style={{ fontSize: 13, opacity: 0.9, lineHeight: 1.45 }}>
                   Missions are daily objectives that reward extra coins when completed.
@@ -2267,7 +2340,8 @@ export default function PracticeGame() { // NOSONAR
                       setTutorialStep(7)
                       setStatusMessage('Tutorial complete. Great work!')
                     }}
-                    style={{ padding: '10px 14px', borderRadius: 999, border: 'none', background: '#f59e0b', color: 'white', fontWeight: 800, cursor: 'pointer' }}
+                    className="cut-chip"
+                    style={button(UI.warm)}
                   >
                     Finish
                   </button>
@@ -2278,7 +2352,7 @@ export default function PracticeGame() { // NOSONAR
 
           {tutorialStep === 7 && (
             <div style={{ position: 'absolute', inset: 0, zIndex: 45, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'auto', padding: 24 }}>
-              <div style={{ width: 'min(92vw, 560px)', background: 'rgba(15, 23, 42, 0.97)', color: 'white', borderRadius: 20, padding: 20, textAlign: 'center', boxShadow: '0 14px 40px rgba(0,0,0,0.35)' }}>
+              <div className="cut-card" style={{ width: 'min(92vw, 560px)', color: UI.n1, padding: 20, textAlign: 'center' }}>
                 <div style={{ fontSize: 22, fontWeight: 900, marginBottom: 8 }}>Tutorial Complete</div>
                 <div style={{ fontSize: 14, opacity: 0.9, marginBottom: 14 }}>
                   Capture more tiles, build your economy, and keep practicing pronunciation to strengthen your party.
@@ -2288,7 +2362,8 @@ export default function PracticeGame() { // NOSONAR
                     setTutorialStep(null)
                     setTutorialDismissedInStartState(true)
                   }}
-                  style={{ padding: '10px 14px', borderRadius: 999, border: 'none', background: '#22c55e', color: '#052e16', fontWeight: 800, cursor: 'pointer' }}
+                  className="cut-chip"
+                  style={button(UI.good)}
                 >
                   Continue Playing
                 </button>

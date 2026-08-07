@@ -46,7 +46,6 @@ export const BackgroundCircles = ({ parallaxRef }) => {
     <div className="absolute -top-[42.375rem] left-1/2 w-[78rem] aspect-square border border-n-2/5 rounded-full -translate-x-1/2 md:-top-[38.5rem] xl:-top-[32rem]">
       <Rings />
 
-      {/* Moving background colored circle balls */}
       <MouseParallax strength={0.07} parallaxContainerRef={parallaxRef}>
         <div className="absolute bottom-1/2 left-1/2 w-0.25 h-1/2 origin-bottom rotate-[46deg]">
           <div

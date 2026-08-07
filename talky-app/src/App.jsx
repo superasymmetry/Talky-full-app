@@ -1,4 +1,5 @@
 import './App.css'
+import './Statistics/Statistics.css'
 
 import React, { useEffect, useRef, useState } from 'react'
 
@@ -37,22 +38,32 @@ function App() {
   const scrollBy = (delta) => scroller.current?.scrollBy({ left: delta, behavior: 'smooth' })
 
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className="dashboard-shell">
       <Header />
-      <div className="max-w-6xl mx-auto px-4 flex-grow w-full">
-        <section aria-labelledby="lessons-heading" className="mb-5 mt-10">
-          <h2 id="lessons-heading" className="text-xl text-white font-semibold mb-4">Lessons</h2>
+      <div
+        className="dashboard-main max-w-7xl mx-auto px-4 w-full"
+        style={{ paddingTop: 'var(--header-height, 85px)' }}
+      >
+        <section aria-labelledby="lessons-heading" className="dashboard-lessons mb-4 mt-4">
+          <h2 id="lessons-heading" className="text-xl text-white font-semibold mb-2">Lessons</h2>
 
           <div className="slider-shell">
-            <button onClick={() => scrollBy(-300)} className="px-3 py-2 rounded bg-gray-200">‹</button>
+            <button
+              onClick={() => scrollBy(-300)}
+              aria-label="Scroll lessons left"
+              className="cut-chip px-3 py-2 bg-n-7 text-n-1 border border-n-1/10 hover:text-color-1"
+            >
+              ‹
+            </button>
             <div
               ref={scroller}
               className="slider-row no-scrollbar"
             >
               {lessons.map((card, index) => (
-                <div key={card.id} className="min-w-[240px] snap-center" style={{ position: 'relative' }}>
+                <div key={card.id} className="lesson-slide h-full snap-center" style={{ position: 'relative' }}>
                   <Card
                     {...card}
+                    className="lesson-card"
                     showRocket={true}
                     disabled={index === lessons.length - 1}
                     id={`${card.id}`}
@@ -73,12 +84,18 @@ function App() {
                 </div>
               ))}
             </div>
-            <button onClick={() => scrollBy(300)} className="px-3 py-2 rounded bg-gray-200">›</button>
+            <button
+              onClick={() => scrollBy(300)}
+              aria-label="Scroll lessons right"
+              className="cut-chip px-3 py-2 bg-n-7 text-n-1 border border-n-1/10 hover:text-color-1"
+            >
+              ›
+            </button>
           </div>
         </section>
 
-        <section aria-labelledby="soundbank-heading" className="mt-8 mb-12">
-          <h2 id="soundbank-heading" className="text-xl text-white font-semibold mb-4">Explore</h2>
+        <section aria-labelledby="soundbank-heading" className="dashboard-explore mt-2 mb-4">
+          <h2 id="soundbank-heading" className="text-xl text-white font-semibold mb-2">Explore</h2>
           <div className="flex justify-center gap-4 flex-wrap">
             <div className="w-full max-w-sm">
               <Card {...soundBankCard} data-testid="soundbank-card" />

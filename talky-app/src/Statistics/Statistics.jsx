@@ -1,8 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useAuth0 } from '@auth0/auth0-react';
-
-import Header from '../Header/Header.jsx';
-import { useStatsData } from './useStatsData.js';
+import {
+  Card,
+  Heatmap,
+  LevelTile,
+  PhonemeMastery,
+  ProgressChart,
+  StatTile,
+  WordTabs,
+} from './components.jsx';
 import {
   activityCells,
   computeStreak,
@@ -14,32 +18,27 @@ import {
   recentAttempts,
   totalAttempts,
 } from './derive.js';
-import {
-  Card,
-  Heatmap,
-  LevelTile,
-  PhonemeMastery,
-  ProgressChart,
-  StatTile,
-  WordTabs,
-} from './components.jsx';
+import { useEffect, useMemo, useState } from 'react';
+
+import Header from '../Header/Header.jsx';
+import { useAuth0 } from '@auth0/auth0-react';
+import { useStatsData } from './useStatsData.js';
 
 const Layout = ({ children }) => (
-  <div className="min-h-screen bg-n-8 text-n-1">
+  <div className="bg-n-8 text-n-1 flex flex-col" style={{ position: 'fixed', inset: 0, overflow: 'hidden' }}>
     <Header />
-    <main className="pt-32 pb-24 px-5 lg:px-10">
-      <div className="max-w-[87.5rem] mx-auto">{children}</div>
+    <main
+      className="flex-1 min-h-0 px-5 lg:px-10 pb-5"
+      style={{ paddingTop: 'calc(var(--header-height, 112px) + 1rem)' }}
+    >
+      <div className="max-w-[87.5rem] h-full mx-auto flex flex-col min-h-0 gap-3">{children}</div>
     </main>
   </div>
 );
 
 const PageHeading = () => (
-  <header className="mb-10">
-    <p className="tagline text-color-1">Statistics</p>
-    <h1 className="h2 mt-2 text-n-1">Your progress</h1>
-    <p className="body-2 mt-3 text-n-3 max-w-xl">
-      A snapshot of your streaks, sounds, and the words you’re mastering.
-    </p>
+  <header className="flex items-baseline gap-4 flex-wrap shrink-0">
+    <h1 className="h5 m-0 text-n-1">Progress</h1>
   </header>
 );
 
@@ -50,10 +49,6 @@ const streakSub = (streak) => {
 };
 
 export default function Statistics() {
-  // Auth0 (not localStorage) is the source of truth for who's logged in —
-  // every other page (App.jsx, Profile.jsx, main.jsx's UserCreator) keys
-  // off user.sub || user.email, so Statistics needs to match or it just
-  // silently shows a different account's data.
   const { user, isAuthenticated, isLoading: authLoading } = useAuth0();
   const userId = isAuthenticated && user ? (user.sub || user.email) : 'demo';
 
@@ -99,8 +94,8 @@ export default function Statistics() {
     <Layout>
       <PageHeading />
 
-      <div className="flex flex-col gap-6">
-        <div className="grid gap-6 grid-cols-2 lg:grid-cols-4">
+      <div className="flex-1 min-h-0 flex flex-col gap-3">
+        <div className="grid gap-3 grid-cols-2 lg:grid-cols-4 shrink-0">
           <LevelTile level={level} />
           <StatTile
             label="Day streak"
@@ -122,19 +117,22 @@ export default function Statistics() {
           />
         </div>
 
-        <Heatmap cells={cells} />
+        <div className="flex-1 min-h-0 grid gap-3 lg:grid-cols-[2fr_1fr]">
+          <div className="flex flex-col gap-3 min-h-0">
+            <ProgressChart
+              phonemes={playablePhonemes}
+              selected={selected}
+              onSelect={setSelected}
+              series={series}
+            />
+            <Heatmap cells={cells} />
+          </div>
 
-        <div className="grid gap-6 lg:grid-cols-[2fr_1fr] items-start">
-          <ProgressChart
-            phonemes={playablePhonemes}
-            selected={selected}
-            onSelect={setSelected}
-            series={series}
-          />
-          <PhonemeMastery bars={bars} />
+          <div className="flex flex-col gap-3 min-h-0">
+            <PhonemeMastery bars={bars} />
+            <WordTabs hardest={hardest} improved={improved} recent={recent} />
+          </div>
         </div>
-
-        <WordTabs hardest={hardest} improved={improved} recent={recent} />
       </div>
     </Layout>
   );
