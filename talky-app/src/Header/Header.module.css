@@ -1,6 +1,3 @@
-/* Header — mirrors the landing page navbar (src/components/Header.jsx):
-   transparent bar over the dark page background, blurred, with a hairline
-   bottom rule; logo left, links centered, auth action right. */
 .header {
   font-family: "JetBrains Mono", ui-monospace, monospace;
   width: 100%;
@@ -30,7 +27,6 @@
   }
 }
 
-/* Logo — same 150px block the landing header uses */
 .logoLink {
   display: block;
   width: 12rem;
@@ -44,7 +40,6 @@
   cursor: pointer;
 }
 
-/* Navigation — centered between the logo and the auth action */
 .nav {
   display: flex;
   margin: 0 auto;
@@ -92,8 +87,6 @@
   }
 }
 
-/* Tablet: the dashboard keeps all four links visible (no hamburger), so
-   tighten the spacing rather than let "Voice Settings" wrap. */
 @media (min-width: 769px) and (max-width: 1023px) {
   .logoLink,
   .actions {
@@ -113,7 +106,6 @@
   opacity: 0.75;
 }
 
-/* Auth action, right-aligned in a block matching the logo's width */
 .actions {
   display: flex;
   justify-content: flex-end;
@@ -121,7 +113,6 @@
   flex-shrink: 0;
 }
 
-/* Responsive */
 @media (max-width: 768px) {
   .header {
     flex-direction: column;

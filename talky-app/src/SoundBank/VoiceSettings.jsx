@@ -1,5 +1,3 @@
-// Same chamfered-corner utilities the Statistics dashboard uses, so this page
-// picks up its card fill, hairline edge and cut corners without redefining them.
 import '../Statistics/Statistics.css';
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -17,13 +15,10 @@ const defaultVoiceOptions = [
   { key: 'liam', name: 'Liam' }
 ];
 
-// One shared line for every voice, so the tiles only differ by the voice itself.
 const previewText = 'Let’s practice some sounds together.';
 
 const savedKey = 'ttsVoiceKey';
 
-// Voice tiles sit on the n-6 surface (a step up from the n-7 card they're in),
-// and the selected one just recolours its hairline edge to the accent.
 const tileVars = (active) => ({
   '--cut-fill': '#252134',
   '--cut-edge': active ? '#AC6AFF' : 'rgba(255,255,255,0.1)',
@@ -182,8 +177,6 @@ export default function VoiceSettings({ embed = false }) {
   }
 
   return (
-    // `position: fixed` is the same escape hatch Statistics uses — the global
-    // `body { padding-top: 70px }` would otherwise offset a full-height page.
     <div className="bg-n-8 text-n-1" style={{ position: 'fixed', inset: 0, overflowY: 'auto' }}>
       <Header />
       <main

@@ -1,15 +1,8 @@
-/* Chamfered ("cut") corners for the dashboard, in place of border radii.
-   A clip-path alone would also clip the element's 1px border away along the
-   diagonals, so the card edge is drawn as two stacked pseudo-elements: the
-   border colour underneath, the card fill inset by 1px on top. `isolation`
-   keeps them at z-index -1 *inside* the card's own stacking context, which
-   is what lets bare text children (e.g. "Loading statistics…") still paint
-   above them without every child needing a z-index of its own. */
 
 .cut-card {
   --cut: 0.875rem;
   --cut-edge: rgba(255, 255, 255, 0.1);
-  --cut-fill: #15131d; /* n-7 */
+  --cut-fill: #15131d;
 
   position: relative;
   isolation: isolate;
@@ -53,16 +46,13 @@
   );
 }
 
-/* Interactive cards (the lesson / sound-bank tiles) light their hairline edge
-   in the accent on hover — that replaces the old gradient-border + glow. */
 .cut-card-interactive:hover {
-  --cut-edge: rgba(172, 106, 255, 0.65); /* color-1 */
+  --cut-edge: rgba(172, 106, 255, 0.65);
 }
 
-/* Small controls (chips, tabs) take the chamfer directly — at this size the
-   hairline lost along the diagonal isn't perceptible. */
 .cut-chip,
-.cut-group {
+.cut-group,
+.cut-clip {
   clip-path: polygon(
     var(--cut) 0,
     calc(100% - var(--cut)) 0,
@@ -79,8 +69,13 @@
   --cut: 0.3125rem;
 }
 
-/* The tab group wraps chips, so it takes a slightly larger cut to sit
-   outside them cleanly. */
 .cut-group {
   --cut: 0.5rem;
+}
+
+/* For containers whose *children* also need cutting (a full-bleed canvas or
+   image). The `.cut-card` edge sits behind its content, so it can't clip it —
+   pair the two: `.cut-card` draws the edge, `.cut-clip` cuts the children. */
+.cut-clip {
+  --cut: 0.875rem;
 }

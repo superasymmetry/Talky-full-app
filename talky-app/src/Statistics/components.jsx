@@ -11,11 +11,6 @@ import './Statistics.css';
 
 const fmtPct = (v) => `${Math.round(v * 100)}%`;
 
-// The dashboard is laid out to fill exactly one viewport (see Statistics.jsx),
-// so every card is a flex column that can shrink: `min-h-0` is what lets a
-// card give up space instead of forcing the page to grow past 100vh.
-// `cut-card` supplies the fill, the hairline edge and the chamfered corners
-// together — see Statistics.css for why those aren't a border/border-radius.
 export const Card = ({ title, action, children, className = '', bodyClassName = '' }) => (
   <section
     className={`cut-card flex flex-col min-h-0 p-4 lg:p-5 ${className}`}
@@ -30,9 +25,6 @@ export const Card = ({ title, action, children, className = '', bodyClassName = 
   </section>
 );
 
-// reaviz's AreaChart needs a concrete pixel height — it won't size itself to a
-// flex parent. Measuring the container keeps the chart filling whatever height
-// the one-screen grid leaves over, at any window size.
 const useMeasuredHeight = () => {
   const ref = useRef(null);
   const [height, setHeight] = useState(0);
@@ -84,17 +76,10 @@ export const LevelTile = ({ level }) => {
   );
 };
 
-// Tailwind's opacity-slash modifier (bg-color-4/30) only compiles correctly
-// for custom color tokens if the theme config defines them a specific way
-// (CSS-variable RGB channels). Nothing else in this codebase exercises that
-// pattern, and in practice it wasn't generating any fill at all — cells
-// rendered (the border proved that) but every intensity level looked
-// identical to "no activity." Inline rgba() sidesteps Tailwind's color
-// pipeline entirely, so it can't silently fail to compile.
-const ACCENT_RGB = '122, 219, 120'; // color-4 (#7ADB78) as r,g,b
+const ACCENT_RGB = '122, 219, 120';
 
 const cellStyle = (count) => {
-  if (count === 0) return undefined; // covered by the bg-n-6 class instead
+  if (count === 0) return undefined;
   const alpha = count < 3 ? 0.35 : count < 6 ? 0.65 : 1;
   return { backgroundColor: `rgba(${ACCENT_RGB}, ${alpha})` };
 };
@@ -180,10 +165,6 @@ export const ProgressChart = ({ phonemes, selected, onSelect, series }) => {
               data={series}
               series={
                 <AreaSeries
-                  // Letting Area/Line keep their default gradient (rather than
-                  // gradient={null} mask={null}) is what gives the fill its
-                  // fade-to-transparent look. Forcing both to null was
-                  // stripping that out and leaving a flat, opaque fill instead.
                   area={<Area />}
                   line={<Line strokeWidth={2} />}
                   colorScheme="#AC6AFF"
@@ -198,10 +179,6 @@ export const ProgressChart = ({ phonemes, selected, onSelect, series }) => {
   );
 };
 
-// Same red → orange → green scale the phoneme chips elsewhere in the app use.
-// Row caps that keep the dashboard inside one viewport. They're deliberately
-// here rather than in derive.js so the derived data (and its tests) stay
-// complete — this is purely a presentation limit.
 const MASTERY_LIMIT = 8;
 const WORD_ROW_LIMIT = 6;
 
@@ -211,15 +188,6 @@ const masteryColor = (pct) => {
   return '#FF776F';
 };
 
-// Built with plain Tailwind instead of reaviz's BarList — same call the
-// Heatmap above already made. BarList depends on reaviz's own stylesheet
-// being applied, which isn't happening reliably in this build (that's what
-// was producing "undefined%" text and the collapsed, overlapping layout).
-// A hand-rolled bar avoids that dependency entirely and matches the rest
-// of the dashboard's look.
-// `bars` arrives sorted worst-first, so capping it keeps the sounds that
-// actually need practice. Without a cap a learner with every phoneme logged
-// produces ~40 rows, which is what pushed this card past one screen.
 export const PhonemeMastery = ({ bars, limit = MASTERY_LIMIT }) => {
   const shown = bars.slice(0, limit);
   const hidden = bars.length - shown.length;
@@ -265,8 +233,6 @@ export const WordTabs = ({ hardest, improved, recent }) => {
   const [tab, setTab] = useState('hardest');
   const data = { hardest, improved, recent };
   const active = TAB_DEFS.find((t) => t.id === tab);
-  // "Recent" returns up to RECENT_LIMIT (10) rows — twice what the other two
-  // tabs produce — so cap here to keep the card a fixed height as tabs change.
   const rows = data[tab].slice(0, WORD_ROW_LIMIT);
 
   return (

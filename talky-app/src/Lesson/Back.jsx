@@ -1,5 +1,4 @@
 import { useState } from 'react';
-// Chamfered corners + the shared card surface, same as the Statistics board.
 import '../Statistics/Statistics.css';
 
 export default function Back() {

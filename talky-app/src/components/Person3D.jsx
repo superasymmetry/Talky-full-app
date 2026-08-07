@@ -2,10 +2,10 @@ import { Suspense, useEffect } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { useGLTF, OrbitControls, Stage, CameraShake, useAnimations } from '@react-three/drei'
 
-useGLTF.preload('/robot-draco.glb') // Should match the file you're actually using
+useGLTF.preload('/robot-draco.glb')
 
 function PersonModel(props) {
-  const { scene, animations } = useGLTF('/robot-draco.glb') // Use the same file
+  const { scene, animations } = useGLTF('/robot-draco.glb')
   const { actions } = useAnimations(animations, scene)
   
   useEffect(() => {

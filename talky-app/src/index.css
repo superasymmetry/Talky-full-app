@@ -36,16 +36,15 @@
   margin: 0;
   min-height: 100vh;
   background-color: white;
-  background-attachment: fixed; /* makes gradient stay in place on scroll */
+  background-attachment: fixed;
   font-family: var(--font-jetbrains);
 }
 
-/* Hide scrollbars everywhere while keeping scrolling functional */
 html,
 body,
 * {
-  scrollbar-width: none;      /* Firefox */
-  -ms-overflow-style: none;   /* IE / old Edge */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
 html::-webkit-scrollbar,
@@ -53,7 +52,7 @@ body::-webkit-scrollbar,
 *::-webkit-scrollbar {
   width: 0;
   height: 0;
-  display: none;              /* Chrome / Safari / Edge */
+  display: none;
 }
 
 @keyframes borderGlow {

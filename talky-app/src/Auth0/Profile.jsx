@@ -113,11 +113,6 @@ const Profile = () => {
   const [nickname, setNickname] = useState('');
   const [age, setAge] = useState('16');
   const [role, setRole] = useState('Student');
-  // savedRole is the last value we actually confirmed from the server.
-  // The roster/search panel and search calls key off THIS, not the
-  // editable `role` dropdown — the dropdown can hold an unsaved change
-  // that the backend doesn't know about yet, and the backend is the one
-  // enforcing who's allowed to search/roster.
   const [savedRole, setSavedRole] = useState(null);
   const [connectCode, setConnectCode] = useState('');
   const [profileLoaded, setProfileLoaded] = useState(false);
@@ -125,23 +120,17 @@ const Profile = () => {
   const [saving, setSaving] = useState(false);
   const [imgError, setImgError] = useState(false);
 
-  // Teacher-side: roster + student search
   const [students, setStudents] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [addingId, setAddingId] = useState(null);
 
-  // Student-side: linked teacher
   const [myTeacher, setMyTeacher] = useState(null);
   const [teacherCode, setTeacherCode] = useState('');
   const [linking, setLinking] = useState(false);
   const [linkMessage, setLinkMessage] = useState('');
 
-  // Returns the profile on success, or throws on any failure — callers
-  // decide how to handle a failure. This intentionally never invents
-  // fallback field values; a caller that can't get real data should show
-  // an error state, not a form that looks like it loaded correctly.
   async function fetchProfile() {
     const profileRes = await authFetch(`${API_BASE}/api/getUserProfile`);
     if (!profileRes.ok) {
@@ -198,9 +187,6 @@ const Profile = () => {
   async function loadEverything() {
     setLoadError(false);
 
-    // Core profile fields (nickname/age/role/connectCode) are the part
-    // that must succeed, or nothing is shown at all — this is what
-    // guards against overwriting real data with blanks.
     let profile;
     try {
       profile = await fetchProfile();
@@ -211,10 +197,6 @@ const Profile = () => {
     }
     setProfileLoaded(true);
 
-    // Roster/teacher-link data is secondary: if it fails (e.g. a
-    // transient network/CORS hiccup), the profile itself still renders
-    // normally — the roster panel just stays empty until a retry, rather
-    // than blocking the whole page.
     const currentRole = profile.role ?? 'Student';
     try {
       await fetchLinkedData(currentRole);
@@ -232,9 +214,6 @@ const Profile = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, isLoading, user?.sub]);
 
-  // Re-run search as the teacher types (simple debounce). Gated on
-  // savedRole (server truth), not the editable role dropdown — searching
-  // before a role change is saved just gets a 403 from the backend.
   useEffect(() => {
     if (savedRole !== 'Teacher' || !profileLoaded) return;
     const handle = setTimeout(() => runSearch(searchQuery), 300);
@@ -289,8 +268,6 @@ const Profile = () => {
       const json = await res.json();
 
       if (res.ok) {
-        // Re-fetch so nickname/age/role, savedRole, and connectCode all
-        // reflect exactly what the server actually persisted.
         const profile = await fetchProfile();
         if (profile.role === 'Teacher') {
           await fetchRoster();
@@ -408,7 +385,6 @@ const Profile = () => {
           justifyContent: 'center',
           padding: '0 1rem',
         }}>
-          {/* Profile panel */}
           <div style={{ ...panelStyle, padding: '3rem 2rem 2.25rem', textAlign: 'center', position: 'relative' }}>
             <img
               src={talkyRocket}
@@ -528,8 +504,6 @@ const Profile = () => {
             </button>
           </div>
 
-          {/* Roster / linked-teacher panel — keyed off savedRole, the
-              server-confirmed role, not the (possibly unsaved) dropdown. */}
           <div style={{ ...panelStyle, textAlign: 'left' }}>
             {savedRole === 'Teacher' ? (
               <>

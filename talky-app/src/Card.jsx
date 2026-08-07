@@ -3,7 +3,6 @@ import PropTypes from 'prop-types';
 import VanillaTilt from 'vanilla-tilt';
 import talkyRocket from './assets/logo.png';
 import { useNavigate } from 'react-router-dom';
-// Chamfered corners + the n-7 card fill, shared with the Statistics dashboard.
 import './Statistics/Statistics.css';
 
 function Card(props) {
@@ -18,9 +17,6 @@ function Card(props) {
         noNavigate = false,
         showRocket = false,
         isLoading = false,
-        // Every card now uses the one Statistics surface (n-7 + hairline edge),
-        // so there's no light/dark split any more. Still destructured so it
-        // doesn't land in `rest` and get spread onto the DOM node.
         // eslint-disable-next-line no-unused-vars
         dark = false,
         name = '',
@@ -46,12 +42,6 @@ function Card(props) {
     const handleCardClick = () => {
         if (disabled) return;
 
-        // When a caller supplies onActivate, Card acts as a generic
-        // clickable/keyboard-activatable surface rather than a nav link -
-        // e.g. the sound bank tiles "activate" by speaking a word instead
-        // of navigating anywhere. This keeps Card as the single interactive
-        // element (one tab stop, one Enter/Space handler) instead of a
-        // parent wrapping it in its own role="button" div.
         if (typeof onActivate === 'function') {
             onActivate();
             return;
@@ -73,7 +63,6 @@ function Card(props) {
         }
     }
 
-    // helper to detect if content is a single emoji
     const isEmoji = (str) => /\p{Emoji}/u.test(str);
 
     return (
@@ -110,7 +99,6 @@ function Card(props) {
             </h3>
             <p className="text-sm text-center text-n-3">{description}</p>
 
-            {/* emoji content */}
             {content && (
                 <p className={`mt-2 text-center ${isEmoji(content) ? 'text-4xl' : 'text-xs'} select-none`}>
                     {content}

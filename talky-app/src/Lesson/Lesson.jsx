@@ -1,4 +1,5 @@
 import 'ldrs/react/Waveform.css'
+import '../Statistics/Statistics.css';
 
 import * as THREE from 'three'
 
@@ -9,8 +10,6 @@ import { speakText, stopSpeech } from '../tts.js';
 import toast, { Toaster } from 'react-hot-toast';
 
 import Back from './Back.jsx';
-// Chamfered corners + the shared card surface, same as the Statistics board.
-import '../Statistics/Statistics.css';
 import { Waveform } from 'ldrs/react'
 import { io } from 'socket.io-client';
 import { useAuth0 } from '@auth0/auth0-react';
@@ -19,18 +18,9 @@ import { useMatch } from 'react-router-dom';
 useGLTF.preload('/robot-draco.glb')
 useGLTF.preload('/seagull-2.glb')
 
-// Fallback used if the lesson's target phoneme has no mapped video yet
-// (e.g. new phoneme added before the backend map is regenerated).
 const DEFAULT_INTRO_VIDEO_ID = 'IwWw6Xe09O0';
 
-// --- Lesson-wide performance / "hearts" config -------------------------------
-// Duolingo-style early cutoff: this many strikes and the lesson ends early.
-// Tracked lesson-wide (across all sentences), not per-sentence, since each
-// sentence recording opens its own socket session on the backend.
 const LESSON_START_LIVES = 3;
-// How big an average delta (vs. historical baseline) counts as a real
-// improvement/regression for a phoneme, vs. noise. Mirrors PHONEME_DELTA_MARGIN
-// on the backend, used here only for summarizing the deltas the backend sends.
 const PHONEME_TREND_MARGIN = 0.05;
 
 function extractWordScores(res) {
@@ -43,9 +33,6 @@ function extractWordScores(res) {
   });
 }
 
-// Turns the lesson-wide phoneme stats (phoneme -> { scores: [], deltas: [] })
-// into "most improved" / "needs practice" lists for the end-of-lesson summary
-// and the early-failure screen.
 function summarizePhonemeDeltas(phonemeStats) {
   const entries = Object.entries(phonemeStats)
     .filter(([, v]) => v.deltas && v.deltas.length > 0)
@@ -76,14 +63,6 @@ async function resampleTo16k(float32Array, fromSampleRate) {
   return rendered.getChannelData(0);
 }
 
-// --- 3D scene error isolation ------------------------------------------------
-// The 3D scene (robot model, Draco-compressed GLTFs, clouds, etc.) is
-// decorative and shouldn't be able to take down the actual lesson UI if an
-// asset fails to load (missing file, no Draco decoder available, no network
-// in a given environment, etc.). Without this boundary, a rejected
-// useGLTF/Suspense load bubbles up and can unmount the whole component tree
-// — including the phoneme grid, record button, and score overlay that the
-// lesson actually depends on.
 class SceneErrorBoundary extends Component {
   constructor(props) {
     super(props);
@@ -101,14 +80,6 @@ class SceneErrorBoundary extends Component {
   }
 }
 
-// --- Background scenery -----------------------------------------------------
-// Purely decorative — none of this touches lesson state. Positions are
-// randomized once per mount (useMemo) so they don't reshuffle on re-render,
-// and everything sits far enough from the road/robot area to avoid
-// overlapping the parts of the scene that matter for the lesson.
-
-// A single low-poly pine: a trunk cylinder + 2-3 stacked cone tiers.
-// Scale/tint vary slightly per-tree so a whole cluster doesn't look stamped out.
 function Pine({ position, scale = 1, hue = 0 }) {
   const green = `hsl(${100 + hue}, 35%, ${28 + hue}%)`
   return (
@@ -133,7 +104,6 @@ function Pine({ position, scale = 1, hue = 0 }) {
   )
 }
 
-// A rounder, leafier tree for variety among the pines.
 function LeafyTree({ position, scale = 1, hue = 0 }) {
   const green = `hsl(${95 + hue}, 45%, ${32 + hue}%)`
   return (
@@ -150,14 +120,11 @@ function LeafyTree({ position, scale = 1, hue = 0 }) {
   )
 }
 
-// Scatters pines + leafy trees around the field, keeping clear of the road
-// strip (x > ~3 near z ~ 0) and the robot's walking lane.
 function Trees() {
   const trees = useMemo(() => {
     const items = []
     let seed = 1337
     const rand = () => {
-      // simple deterministic PRNG so the layout is stable across re-renders
       seed = (seed * 9301 + 49297) % 233280
       return seed / 233280
     }
@@ -166,7 +133,6 @@ function Trees() {
       const radius = 16 + rand() * 22
       const x = Math.cos(angle) * radius - 8
       const z = Math.sin(angle) * radius
-      // keep clear of the paved road area and the open lesson stage
       if (Math.abs(z) < 5 && x > -6) continue
       const scale = 0.8 + rand() * 0.9
       const hue = rand() * 20 - 10
@@ -185,8 +151,6 @@ function Trees() {
   )
 }
 
-// Layered low-poly mountains ringing the horizon, tinted progressively bluer
-// and lighter with distance for a simple atmospheric-perspective effect.
 function Mountains() {
   const ranges = useMemo(() => {
     const items = []
@@ -225,7 +189,6 @@ function Mountains() {
   )
 }
 
-// Drifting cloud puffs at a few heights/depths using drei's volumetric Cloud.
 function SkyClouds() {
   const groupRef = useRef(null)
   useFrame((_, delta) => {
@@ -262,9 +225,6 @@ const Model = forwardRef(function Model(props, ref) {
   return <primitive ref={ref} object={scene} {...props} />
 })
 
-// Catches WebGLRenderer construction failures (WebGL/hardware acceleration
-// disabled, GPU context exhausted, driver crash, etc.) — these throw inside
-// Canvas's mount effect, which would otherwise blank the whole page.
 class CanvasErrorBoundary extends Component {
   state = { failed: false };
   static getDerivedStateFromError() { return { failed: true }; }
@@ -287,14 +247,11 @@ class CanvasErrorBoundary extends Component {
   }
 }
 
-// One-time opening shot: swishes the camera in to the robot's face, triggers
-// its wave animation (speaking a greeting as it waves), then swishes back to
-// the original camera spot.
 function CameraIntro({ facePos, target, controlsRef, actions, greeting, onGreetingDone, canLeaveRef }) {
   const { camera } = useThree()
   const start = useRef(camera.position.clone())
   const startTarget = useRef(new THREE.Vector3())
-  const phase = useRef('in') // 'in' -> 'hold' -> 'out' -> 'done'
+  const phase = useRef('in')
   const t = useRef(0)
   const holdFor = useRef(1.5)
   const greetingSpokenRef = useRef(false)
@@ -309,7 +266,7 @@ function CameraIntro({ facePos, target, controlsRef, actions, greeting, onGreeti
       const [from, to] = phase.current === 'in' ? [start.current, facePos] : [facePos, start.current]
       const [fromT, toT] = phase.current === 'in' ? [startTarget.current, target] : [target, startTarget.current]
       t.current = Math.min(1, t.current + delta / 1.2)
-      const e = 1 - Math.pow(1 - t.current, 3) // ease-out
+      const e = 1 - Math.pow(1 - t.current, 3)
       camera.position.lerpVectors(from, to, e)
       controls?.target.lerpVectors(fromT, toT, e)
 
@@ -325,9 +282,6 @@ function CameraIntro({ facePos, target, controlsRef, actions, greeting, onGreeti
             wave.fadeIn(0.3).play()
             holdFor.current = wave.getClip().duration + 0.3
           }
-          // Speak the greeting as the wave plays. The next sentence isn't
-          // spoken until this callback fires (via TTS onEnd, not just the
-          // wave clip finishing) so the two never talk over each other.
           if (!greetingSpokenRef.current) {
             greetingSpokenRef.current = true
             if (greeting) {
@@ -347,16 +301,10 @@ function CameraIntro({ facePos, target, controlsRef, actions, greeting, onGreeti
       }
     } else if (phase.current === 'hold') {
       t.current += delta
-      // The wave clip itself is short, so resume idle once it's done even
-      // though the camera stays put — the robot shouldn't stay frozen
-      // mid-wave for the whole time it's talking.
       if (!idleResumedRef.current && t.current > holdFor.current) {
         idleResumedRef.current = true
         actions.Idle?.reset().fadeIn(0.3).play()
       }
-      // Don't swish the camera back out until the greeting + first sentence
-      // have actually finished being spoken (signaled via canLeaveRef), not
-      // just when the wave animation ends.
       if (t.current > holdFor.current && canLeaveRef?.current) {
         phase.current = 'out'
         t.current = 0
@@ -368,9 +316,6 @@ function CameraIntro({ facePos, target, controlsRef, actions, greeting, onGreeti
   return null
 }
 
-// Shared palette with the Statistics dashboard (see tailwind.config.cjs) —
-// spelled out as constants here because this page styles inline rather than
-// with Tailwind classes.
 const N8 = '#0E0C15';
 const N7 = '#15131D';
 const N6 = '#252134';
@@ -378,10 +323,10 @@ const N1 = '#FFFFFF';
 const N3 = '#ADA8C3';
 const N4 = '#757185';
 const EDGE = 'rgba(255,255,255,0.1)';
-const ACCENT = '#AC6AFF';   // color-1
-const GOOD = '#7ADB78';     // color-4
-const WARN = '#FFC876';     // color-2
-const BAD = '#FF776F';      // color-3
+const ACCENT = '#AC6AFF';
+const GOOD = '#7ADB78';
+const WARN = '#FFC876';
+const BAD = '#FF776F';
 
 const getPhonemeStyle = (score) => {
   if (score === null || score === undefined) {
@@ -398,7 +343,6 @@ const getPhonemeStyle = (score) => {
 
 const scoreColor = (score) => (score >= 0.8 ? GOOD : score >= 0.5 ? WARN : BAD);
 
-// The one button shape this page uses, chamfered like everything else.
 const buttonStyle = (variant = 'primary') => ({
   padding: '12px 24px',
   border: 'none',
@@ -410,7 +354,6 @@ const buttonStyle = (variant = 'primary') => ({
   cursor: 'pointer',
 });
 
-// Full-screen states (intro / failed / complete) all sit on the n-8 page fill.
 const screenStyle = {
   position: 'fixed',
   inset: 0,
@@ -422,10 +365,6 @@ const screenStyle = {
   textAlign: 'center',
 };
 
-// Always-visible-throughout-the-lesson performance HUD: running accuracy,
-// attempts remaining (the non-hearts "hearts" system), a live phoneme
-// breakdown (score + trend vs. this user's history), and a scroll of
-// recently-scored words. Collapsible so it doesn't have to stay in the way.
 function PerformanceTracker({ lives, maxLives, runningScore, phonemeStats, wordHistory }) {
   const [open, setOpen] = useState(true);
 
@@ -437,7 +376,7 @@ function PerformanceTracker({ lives, maxLives, runningScore, phonemeStats, wordH
       avgDelta: v.deltas.length ? v.deltas.reduce((a, b) => a + b, 0) / v.deltas.length : null,
       attempts: v.scores.length,
     }))
-    .sort((a, b) => a.avgScore - b.avgScore); // weakest first, so problem sounds surface first
+    .sort((a, b) => a.avgScore - b.avgScore);
 
   return (
     <div style={{
@@ -471,9 +410,6 @@ function PerformanceTracker({ lives, maxLives, runningScore, phonemeStats, wordH
         <span style={{ fontSize: 11, opacity: 0.75 }}>{open ? '▲ hide' : '▼ stats'}</span>
       </button>
 
-      {/* The scroll lives on an inner div: `cut-card` paints its fill and edge
-          with absolutely-positioned pseudo-elements, which would scroll away
-          from the content if the card itself were the scroll container. */}
       {open && (
         <div className="cut-card" style={{ width: 260, color: N1, padding: 16, textAlign: 'left' }}>
         <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
@@ -544,10 +480,6 @@ function PerformanceTracker({ lives, maxLives, runningScore, phonemeStats, wordH
   );
 }
 
-// Builds a YouTube embed URL from a bare video ID (+ optional start offset in seconds).
-// Kept separate from the lesson-fetch logic so the mapping itself can live entirely
-// on the backend (see /scripts/build_phoneme_video_map.py) and just get shipped down
-// as { intro_video_id, intro_video_start } on the lesson payload.
 const buildEmbedUrl = (videoId, startSeconds) => {
   if (!videoId) return null;
   const s = Number.isFinite(startSeconds) ? Math.max(0, Math.floor(startSeconds)) : 0;
@@ -558,11 +490,6 @@ const buildEmbedUrl = (videoId, startSeconds) => {
 
 export default function Lesson() {
   const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
-  // Auth0 is the source of truth for who's logged in — every other page
-  // (App.jsx, Profile.jsx, Statistics.jsx) keys off user.sub || user.email.
-  // This page used to read localStorage.getItem('user_id'/'userId'), which
-  // nothing ever wrote, so every lesson fetch AND every progress save was
-  // silently going to the 'demo' account instead of the real signed-in user.
   const { user, isAuthenticated, isLoading: authLoading } = useAuth0();
   const userId = isAuthenticated && user ? (user.sub || user.email) : 'demo';
 
@@ -582,26 +509,16 @@ export default function Lesson() {
   const match = useMatch("/lessons/:id");
   const lessonId = match?.params?.id;
   const [showIntro, setShowIntro] = useState(true);
-  // Which phoneme this lesson is drilling — comes back on the fast
-  // sentences/IPA fetch below, independent of the (slower) video lookup.
   const [targetPhoneme, setTargetPhoneme] = useState(null);
-  // Resolved server-side from the lesson's target phoneme, via the separate
-  // /api/lessons/intro-video call so a video cache-miss never blocks the
-  // sentences/IPA the player actually needs to start. Null while loading.
-  const [introVideo, setIntroVideo] = useState(null); // { videoId, start, usedFallback }
+  const [introVideo, setIntroVideo] = useState(null);
   const [videoLoading, setVideoLoading] = useState(true);
-  const [videoStarted, setVideoStarted] = useState(false); // click-to-play gate
+  const [videoStarted, setVideoStarted] = useState(false);
   const [score, setScore] = useState(0);
   const [wordsToIPA, setWordsToIPA] = useState(null);
-  // The two target words this lesson drills (e.g. ["rainbow", "racecar"]),
-  // used to build the robot's opening greeting.
   const [lessonWords, setLessonWords] = useState([]);
   const [currentWordsToIPA, setCurrentWordsToIPA] = useState(null);
-  // Mirrors currentWordsToIPA for the socket handlers below, which are wired
-  // up once on mount and would otherwise close over a stale null/empty value.
   const currentWordsToIPARef = useRef(null);
   const [wordResults, setWordResults] = useState([]);
-  // Utterance-level prosody scores from the server (null until a result arrives)
   const [prosody, setProsody] = useState(null);
   const wordScoresRef = useRef([]);
   const skipNextSentenceSpeechRef = useRef(false);
@@ -612,8 +529,6 @@ export default function Lesson() {
     });
   };
 
-  // Robot's opening greeting, spoken while it waves — names the two words
-  // this lesson drills so the learner knows what to listen for.
   const introGreeting = useMemo(() => {
     if (!lessonWords || lessonWords.length === 0) return null;
     const wordsPhrase = lessonWords.length >= 2
@@ -622,17 +537,10 @@ export default function Lesson() {
     return `Hi! Welcome to a new lesson, today you will practice speaking sentences including the words ${wordsPhrase}. Now, can you say this sentence?`;
   }, [lessonWords]);
 
-  // The intro camera stays locked on the robot's face until this flips to
-  // true — set once the first practice sentence has actually finished
-  // being spoken (see handleIntroGreetingDone), not just the greeting.
   const introCanLeaveRef = useRef(false);
 
-  // Gates the sentence/phoneme panel — hidden until the robot's spoken
-  // greeting finishes, so it doesn't appear while "Hi! Welcome to..." plays.
   const [greetingDone, setGreetingDone] = useState(false);
 
-  // Fired once the robot's wave greeting finishes speaking — only then is it
-  // safe to speak the first practice sentence without the two overlapping.
   const handleIntroGreetingDone = () => {
     setGreetingDone(true);
     const currentSentence = cardData?.[String(currentSentenceIndex)] || cardData?.[currentSentenceIndex] || '';
@@ -648,49 +556,38 @@ export default function Lesson() {
     });
   };
 
-  // --- Lesson-wide performance tracking (persists across all sentences) ---
   const [lives, setLives] = useState(LESSON_START_LIVES);
   const [runningScore, setRunningScore] = useState(0);
-  // phoneme -> { scores: [raw scores this lesson], deltas: [vs. historical baseline] }
   const [phonemeStats, setPhonemeStats] = useState({});
-  // Every word scored this lesson (not just ones in a passed sentence), in order.
   const [wordHistory, setWordHistory] = useState([]);
   const [lessonFailed, setLessonFailed] = useState(false);
-  const allWordScoresRef = useRef([]); // every word score across the whole lesson
+  const allWordScoresRef = useRef([]);
   const lessonFailedRef = useRef(false);
-  // Caps strikes to at most 1 per sentence attempt — without this, a sentence
-  // with several low-scoring words would burn through all lives at once
-  // instead of costing a single life per attempt. Reset in startRecording.
   const sentenceStrikeAppliedRef = useRef(false);
 
-  // Audio + socket refs
   const socketRef = useRef(null);
   const audioContextRef = useRef(null);
   const processorRef = useRef(null);
   const streamRef = useRef(null);
   const accumChunksRef = useRef([]);
   const chunkIntervalRef = useRef(null);
-  const pendingSessionRef = useRef(null); // holds { sentence, words_ipa, userId, mode } until connect fires
+  const pendingSessionRef = useRef(null);
   const sentencePassedRef = useRef(false);
 
-  // On-device wav2vec2 (transformers.js / WebGPU) — when ready, we stream
-  // logits to the backend instead of raw audio and the model never runs server-side.
   const workerRef = useRef(null);
   const workerReadyRef = useRef(false);
-  const workerDeviceRef = useRef(null);     // { device, dtype } the worker actually loaded, from 'ready'
-  const sessionModeRef = useRef('audio');   // 'logits' | 'audio', fixed per recording session
-  const pendingChunksRef = useRef(0);       // chunks handed to the worker, logits not yet emitted
-  const stopPendingRef = useRef(false);     // user stopped; waiting for worker to drain
-  const stopTimeoutRef = useRef(null);      // stall watchdog: reset on every chunk that finishes
-  const stopHardCapRef = useRef(null);      // absolute cap in case the worker never makes progress
-  const prosodyTimeoutRef = useRef(null);   // fallback disconnect if 'prosody' never arrives
+  const workerDeviceRef = useRef(null);
+  const sessionModeRef = useRef('audio');
+  const pendingChunksRef = useRef(0);
+  const stopPendingRef = useRef(false);
+  const stopTimeoutRef = useRef(null);
+  const stopHardCapRef = useRef(null);
+  const prosodyTimeoutRef = useRef(null);
 
-  // Initialize socket once — listeners are stable across renders
   useEffect(() => {
     const socket = io(API_BASE, { autoConnect: false, transports: ['websocket', 'polling'] });
     socketRef.current = socket;
 
-    // After the transport connects, emit 'start' with session metadata
     socket.on('connect', () => {
       if (pendingSessionRef.current) {
         socket.emit('start', pendingSessionRef.current);
@@ -705,8 +602,6 @@ export default function Lesson() {
         return next;
       });
 
-      // Live decoded-vs-target phoneme breakdown, printed as each word scores
-      // in so you can watch accuracy come in while the user is still talking.
       const targetPhonemes = currentWordsToIPARef.current?.[data.word_index]?.phonemes || [];
       const rows = (data.phonemes || []).map((p, i) => ({
         target: targetPhonemes[i] ?? '—',
@@ -717,9 +612,6 @@ export default function Lesson() {
       console.table(rows);
     });
 
-    // Lesson-wide performance tracking: lives + running accuracy + phoneme
-    // breakdown + word history, fed by the raw per-word score/deltas the
-    // backend streams on every scored word.
     socket.on('stats_update', (data) => {
       allWordScoresRef.current.push(data.score);
       const scores = allWordScoresRef.current;
@@ -742,17 +634,12 @@ export default function Lesson() {
         });
       }
 
-      // Only the first strike within a given sentence attempt actually costs
-      // a life — otherwise a sentence with several rough words would knock
-      // out multiple lives in one go instead of one per exercise attempt.
       if (data.is_strike && !sentenceStrikeAppliedRef.current) {
         sentenceStrikeAppliedRef.current = true;
         setLives(prev => {
           const next = Math.max(0, prev - 1);
           if (next === 0 && !lessonFailedRef.current) {
             lessonFailedRef.current = true;
-            // Duolingo-hearts-style early cutoff: stop the lesson right here
-            // instead of limping through the rest of the sentences.
             socketRef.current?.emit('stop');
             stopRecording();
             setLessonFailed(true);
@@ -764,14 +651,10 @@ export default function Lesson() {
     });
 
     socket.on('result', (data) => {
-      // Once the lesson has been failed out, ignore any trailing 'result'
-      // event from the sentence that was in flight when lives hit zero.
       if (lessonFailedRef.current) return;
       handleFinalResult(data);
     });
 
-    // Prosody arrives after 'result' (pyin is slow); it's the last event of a
-    // session, so the connection can be dropped once it lands.
     socket.on('prosody', (data) => {
       setProsody(data);
       if (prosodyTimeoutRef.current) {
@@ -791,9 +674,6 @@ export default function Lesson() {
     };
   }, [API_BASE]);
 
-  // Spin up the on-device wav2vec2 worker once. Model download + WebGPU init
-  // happen in the background; until 'ready' fires, sessions fall back to
-  // streaming raw audio (the server-side inference path).
   useEffect(() => {
     let worker;
     try {
@@ -813,10 +693,6 @@ export default function Lesson() {
         if (msg.device === 'webgpu') {
           console.info(`[wav2vec2] on-device inference ready: WebGPU/${msg.dtype}`);
         } else {
-          // Not necessarily a bug — small EC2 instances can't run this model
-          // server-side either — but it's the slowest, least accurate tier
-          // (WASM has no oneDNN/AVX-width SIMD, and int8 quantization adds
-          // GOP-score error), so it's worth knowing when a user lands here.
           console.warn(`[wav2vec2] WebGPU unavailable, running ${msg.device}/${msg.dtype} instead (slower, less accurate)`);
         }
       } else if (msg.type === 'error') {
@@ -841,10 +717,6 @@ export default function Lesson() {
     };
   }, []);
 
-  // Fast path: sentences + IPA only. Waits for Auth0 to resolve so we fetch
-  // with the real userId instead of firing once against 'demo' and never
-  // refetching. This no longer waits on the video lookup — see the separate
-  // effect below.
   useEffect(() => {
     if (authLoading || !lessonId) return;
     let cancelled = false;
@@ -873,20 +745,6 @@ export default function Lesson() {
     return () => { cancelled = true; };
   }, [authLoading, userId, lessonId, API_BASE]);
 
-  // Independent, slower path: video. Resolves in parallel and never blocks
-  // the lesson content above — the intro screen shows a thumbnail
-  // placeholder (click-to-play) until this comes back. The backend resolves
-  // the lesson's target phoneme to a curated Glossika Phonics video (see
-  // build_phoneme_video_map.py); if that lookup ever misses, fall back to a
-  // generic phonemes-overview video rather than showing nothing.
-  //
-  // Guarded against stale responses: if lessonId changes (user navigates to
-  // the next lesson) while this request is still in flight, a late-arriving
-  // response for the OLD lesson must not overwrite the video for the NEW
-  // one. This is what made it look like lessons were getting each other's
-  // videos even after the backend cache-key bug was fixed — a slow request
-  // for lesson N resolving after lesson N+1 had already mounted and started
-  // its own request.
   useEffect(() => {
     if (authLoading || !lessonId) return;
     let cancelled = false;
@@ -922,7 +780,6 @@ export default function Lesson() {
     }
   }, [wordsToIPA, currentSentenceIndex]);
 
-  // TTS for current sentence
   useEffect(() => {
     if (!cardData || showIntro) return;
     const currentSentence = cardData[String(currentSentenceIndex)] || cardData[currentSentenceIndex] || '';
@@ -957,12 +814,8 @@ export default function Lesson() {
 
   const handleFinalResult = (data) => {
     setWordResults(data.res || []);
-    // Older servers bundle prosody into the result instead of sending a
-    // separate 'prosody' event afterwards.
     if (data.prosody) setProsody(data.prosody);
     stopRecording();
-    // Stay connected for the trailing 'prosody' event; give up after 20 s so a
-    // dead server can't hold the socket open forever.
     if (prosodyTimeoutRef.current) clearTimeout(prosodyTimeoutRef.current);
     prosodyTimeoutRef.current = setTimeout(() => {
       prosodyTimeoutRef.current = null;
@@ -999,8 +852,6 @@ export default function Lesson() {
     let offset = 0;
     for (const c of chunks) { flat.set(c, offset); offset += c.length; }
     const resampled = await resampleTo16k(flat, sampleRate);
-    // Raw audio always goes to the server: in audio mode it drives alignment,
-    // in logits mode the server only buffers it to score prosody at the end.
     socketRef.current.emit('chunk', resampled.buffer);
     if (sessionModeRef.current === 'logits' && workerRef.current) {
       pendingChunksRef.current += 1;
@@ -1008,13 +859,7 @@ export default function Lesson() {
     }
   };
 
-  // No progress on the worker's logits queue for this long -> assume it's
-  // stuck (not just slow) and stop waiting. Comfortably above one WASM/int8
-  // chunk's worst-case latency, which can run several times slower than a
-  // native-CPU chunk (~250-450ms) with no GPU and no oneDNN.
   const STOP_DRAIN_STALL_MS = 8000;
-  // Absolute cap so a session can't hang indefinitely even if the worker
-  // keeps limping forward one chunk at a time.
   const STOP_DRAIN_HARD_CAP_MS = 30000;
 
   const clearStopTimers = () => {
@@ -1039,10 +884,6 @@ export default function Lesson() {
     }
   };
 
-  // Reset the stall watchdog whenever a chunk actually finishes (success or
-  // error) — a worker that's merely slow but still making progress should be
-  // allowed to keep going, up to the hard cap; only a worker that's stopped
-  // making progress entirely should trip the shorter stall timeout.
   const onWorkerProgress = () => {
     if (!stopPendingRef.current) return;
     if (pendingChunksRef.current <= 0) {
@@ -1053,8 +894,6 @@ export default function Lesson() {
     stopTimeoutRef.current = setTimeout(emitStop, STOP_DRAIN_STALL_MS);
   };
 
-  // In logits mode chunks may still be inside the worker when the user stops;
-  // wait for them to drain so the tail of the utterance is scored too.
   const requestStop = () => {
     if (sessionModeRef.current === 'logits' && pendingChunksRef.current > 0) {
       stopPendingRef.current = true;
@@ -1079,12 +918,9 @@ export default function Lesson() {
 
     setIsRecording(true);
     setWordResults([]);
-    // Fresh attempt: allow (at most) one more strike to count against lives.
     sentenceStrikeAppliedRef.current = false;
     setProsody(null);
 
-    // Lock the pipeline for this session: on-device inference if the worker
-    // finished loading, otherwise stream raw audio for server-side inference.
     sessionModeRef.current = workerReadyRef.current ? 'logits' : 'audio';
     pendingChunksRef.current = 0;
     stopPendingRef.current = false;
@@ -1094,9 +930,6 @@ export default function Lesson() {
       prosodyTimeoutRef.current = null;
     }
 
-    // Store session metadata so the 'connect' listener can emit 'start'.
-    // userId is sent so the backend can look up this user's historical
-    // phoneme averages for the live improved/worse deltas.
     const socket = socketRef.current;
     if (socket.connected) socket.disconnect();
     pendingSessionRef.current = { sentence, words_ipa, userId, mode: sessionModeRef.current, target_phoneme: targetPhoneme };
@@ -1121,7 +954,6 @@ export default function Lesson() {
     const BUFFER_SIZE = 2048;
     const CHUNK_INTERVAL_MS = 500;
 
-    // ScriptProcessorNode is deprecated but avoids needing a separate worklet file
     const processor = ctx.createScriptProcessor(BUFFER_SIZE, 1, 1);
     processorRef.current = processor;
     accumChunksRef.current = [];
@@ -1141,7 +973,7 @@ export default function Lesson() {
 
   const toggleRecording = () => {
     if (isRecording) {
-      requestStop(); // ask server to finalize (after worker drains, in logits mode); disconnect happens in handleFinalResult
+      requestStop();
       stopRecording();
     } else {
       startRecording();
@@ -1172,8 +1004,6 @@ export default function Lesson() {
         body: JSON.stringify({
           userId: userId,
           lessonId: currentLessonId,
-          // Real lesson-wide accuracy, tracked from the per-word scores the
-          // backend streams — replaces the old (score / 700) || 0.1 guess.
           addScore: runningScore || 0.1,
           wordScores: wordScoresRef.current
         })
@@ -1225,9 +1055,6 @@ export default function Lesson() {
               allowFullScreen
             />
           ) : (
-            // Click-to-play thumbnail instead of an always-live iframe — the
-            // YouTube player's JS only loads once someone actually wants to
-            // watch, instead of on every visit to this screen.
             <button
               onClick={() => setVideoStarted(true)}
               style={{
@@ -1251,9 +1078,6 @@ export default function Lesson() {
 
         <button
           onClick={() => {
-            // The first sentence is spoken once the robot's wave greeting
-            // finishes (see handleIntroGreetingDone), not immediately here —
-            // otherwise the two would talk over each other.
             skipNextSentenceSpeechRef.current = true;
             setShowIntro(false);
           }}
@@ -1458,7 +1282,6 @@ export default function Lesson() {
           </div>
         )}
 
-        {/* next button - only show when finished*/}
         {true && (
           <button
             aria-label="Next lesson"
@@ -1490,7 +1313,6 @@ export default function Lesson() {
         )}
       </div>
 
-      {/* Record toggle button */}
       <div style={{ position: 'absolute', left: 24, bottom: 24, zIndex: 30 }}>
         <button
           onClick={toggleRecording}
@@ -1515,7 +1337,6 @@ export default function Lesson() {
         `}</style>
       </div>
 
-      {/* Current sentence + live phoneme display — hidden until the robot's intro greeting finishes */}
       {greetingDone && (
       <div
         className="cut-card"
@@ -1554,7 +1375,6 @@ export default function Lesson() {
                         if (returnedWord && returnedWord.phonemes[i] && returnedWord.phonemes[i].phoneme === ph) {
                           score = returnedWord.phonemes[i].score;
                         }
-                        // Lesson-wide trend for this phoneme, from stats_update deltas.
                         const stats = phonemeStats[ph];
                         const trendAvg = stats && stats.deltas.length
                           ? stats.deltas.reduce((a, b) => a + b, 0) / stats.deltas.length

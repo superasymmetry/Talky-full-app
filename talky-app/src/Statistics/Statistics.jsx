@@ -24,10 +24,6 @@ import Header from '../Header/Header.jsx';
 import { useAuth0 } from '@auth0/auth0-react';
 import { useStatsData } from './useStatsData.js';
 
-// The dashboard fits one screen with no page scrolling. `position: fixed`
-// (the same escape hatch SoundBank and Lesson use) is needed because the
-// global `body { padding-top: 70px }` in index.css would otherwise push a
-// 100vh child past the bottom of the viewport and reintroduce a scrollbar.
 const Layout = ({ children }) => (
   <div className="bg-n-8 text-n-1 flex flex-col" style={{ position: 'fixed', inset: 0, overflow: 'hidden' }}>
     <Header />
@@ -40,8 +36,6 @@ const Layout = ({ children }) => (
   </div>
 );
 
-// Collapsed to a single row — the stacked eyebrow/title/subtitle version cost
-// ~160px of vertical space, which is the chart's whole height budget.
 const PageHeading = () => (
   <header className="flex items-baseline gap-4 flex-wrap shrink-0">
     <h1 className="h5 m-0 text-n-1">Progress</h1>
@@ -55,10 +49,6 @@ const streakSub = (streak) => {
 };
 
 export default function Statistics() {
-  // Auth0 (not localStorage) is the source of truth for who's logged in —
-  // every other page (App.jsx, Profile.jsx, main.jsx's UserCreator) keys
-  // off user.sub || user.email, so Statistics needs to match or it just
-  // silently shows a different account's data.
   const { user, isAuthenticated, isLoading: authLoading } = useAuth0();
   const userId = isAuthenticated && user ? (user.sub || user.email) : 'demo';
 
@@ -127,9 +117,6 @@ export default function Statistics() {
           />
         </div>
 
-        {/* Two columns share the leftover height: the chart and the mastery
-            list stretch, while the heatmap and word list keep their natural
-            size. That's what absorbs viewport differences without scrolling. */}
         <div className="flex-1 min-h-0 grid gap-3 lg:grid-cols-[2fr_1fr]">
           <div className="flex flex-col gap-3 min-h-0">
             <ProgressChart
