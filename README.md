@@ -39,7 +39,7 @@ Here are the current features of Talky.
 
 Talky's lessons unlock iteratively based on the user's global performance on all phonemes, where weaker phonemes are prioritized to be selected for the next lesson.
 
-<img width="3164" height="1648" alt="image" src="https://github.com/user-attachments/assets/21293384-b979-4439-92fa-b3f4e31626ea" />
+<img width="3200" height="1726" alt="image" src="https://github.com/user-attachments/assets/fb49e283-08bf-4d00-a431-95543bea0eec" />
 
 This is an example of our 3D terrain on which the our robot mascot, Rocky, walks.
 
@@ -54,15 +54,21 @@ Talky will use the Goodness of Pronounciation algorithm to provide a detailed ph
 
 <img width="3200" height="1656" alt="image" src="https://github.com/user-attachments/assets/f4cac665-4119-403a-a3f2-f67ce5ed74cb" />
 
+### Progress Statistics
+
+Talky also keeps track of your score progression for each phoneme over time and displays them in a statistics page.
+
+<img width="3198" height="1720" alt="image" src="https://github.com/user-attachments/assets/ef853c34-644d-4f2a-b42d-6574a43bf0f4" />
+
 ### Super Sound Bank
 
 The user can also choose to target-practice individual phonemes in the word bank. For each commonly-mispronounced phoneme, there is an interactice page which contains cards with words for that specific phoneme.
 
-<img width="3164" height="1644" alt="image" src="https://github.com/user-attachments/assets/3221b500-ef8b-4ee4-8dab-59e77c4de77c" />
+<img width="3200" height="1716" alt="image" src="https://github.com/user-attachments/assets/4605d891-ae4a-4c79-95a5-0e8be631a4d9" />
 
 For fun, a card will be randomly selected for the user to practice, and a standard pronounciation will be generated according to the user's selected voice accent. 
 
-<img width="3170" height="1666" alt="image" src="https://github.com/user-attachments/assets/e17b66be-f879-40bd-8196-dbc1fa2084ed" />
+<img width="3200" height="1692" alt="image" src="https://github.com/user-attachments/assets/d1c527e9-05d0-4bab-bc90-c0908c1da04d" />
 
 <a id="getting-started"></a>
 
@@ -70,7 +76,7 @@ For fun, a card will be randomly selected for the user to practice, and a standa
 
 We also have a pokemon + city builder style game for users to practice individual words. The user gains points by attacking game enemies, where attacks are fired through speaking the target words correctly. These points could be in turn used to play the long-term city builder game.
 
-<img width="3200" height="1648" alt="image" src="https://github.com/user-attachments/assets/c0514665-9e4f-4006-9330-4a1895ee97de" />
+<img width="3200" height="1726" alt="image" src="https://github.com/user-attachments/assets/db6d9972-e3e8-4c63-89aa-48905ecca057" />
 
 ## Getting Started
 
