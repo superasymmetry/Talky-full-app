@@ -10,6 +10,7 @@ import { speakText, stopSpeech } from '../tts.js';
 import toast, { Toaster } from 'react-hot-toast';
 
 import Back from './Back.jsx';
+import LessonSummary from './LessonSummary.jsx';
 import { Waveform } from 'ldrs/react'
 import { io } from 'socket.io-client';
 import { useAuth0 } from '@auth0/auth0-react';
@@ -31,22 +32,6 @@ function extractWordScores(res) {
     const avg = valid.length ? valid.reduce((a, b) => a + b, 0) / valid.length : 0;
     return { word, score: avg, timestamp: now };
   });
-}
-
-function summarizePhonemeDeltas(phonemeStats) {
-  const entries = Object.entries(phonemeStats)
-    .filter(([, v]) => v.deltas && v.deltas.length > 0)
-    .map(([phoneme, v]) => ({
-      phoneme,
-      avgDelta: v.deltas.reduce((a, b) => a + b, 0) / v.deltas.length,
-    }));
-  const improved = entries
-    .filter(e => e.avgDelta > PHONEME_TREND_MARGIN)
-    .sort((a, b) => b.avgDelta - a.avgDelta);
-  const needsWork = entries
-    .filter(e => e.avgDelta < -PHONEME_TREND_MARGIN)
-    .sort((a, b) => a.avgDelta - b.avgDelta);
-  return { improved, needsWork };
 }
 
 async function resampleTo16k(float32Array, fromSampleRate) {
@@ -565,6 +550,86 @@ export default function Lesson() {
   const lessonFailedRef = useRef(false);
   const sentenceStrikeAppliedRef = useRef(false);
 
+  const phonemeStatsRef = useRef({});
+  const wordHistoryRef = useRef([]);
+  const wordResultsRef = useRef([]);
+  const sentenceResultsRef = useRef([]);
+  const prosodyHistoryRef = useRef([]);
+  const currentSentenceIndexRef = useRef(1);
+  const attemptSavedRef = useRef(false);
+  const liveSnapshotRef = useRef(null);
+  const targetPhonemeRef = useRef(null);
+  const cardDataRef = useRef(null);
+  const livesRef = useRef(LESSON_START_LIVES);
+  const [thisAttempt, setThisAttempt] = useState(null);
+  const [comparisonAttempts, setComparisonAttempts] = useState({ first: null, previous: null });
+
+  useEffect(() => { targetPhonemeRef.current = targetPhoneme; }, [targetPhoneme]);
+  useEffect(() => { cardDataRef.current = cardData; }, [cardData]);
+  useEffect(() => { livesRef.current = lives; }, [lives]);
+
+  const buildAttemptPayload = (status, livesOverride) => {
+    const scores = allWordScoresRef.current;
+    const overallScore = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+    const phonemeStatsArr = Object.entries(phonemeStatsRef.current).map(([phoneme, v]) => ({
+      phoneme,
+      scores: v.scores,
+      deltas: v.deltas,
+    }));
+
+    let sentenceResults = sentenceResultsRef.current;
+    const idx = currentSentenceIndexRef.current;
+    if (status === 'failed' && wordResultsRef.current.some(Boolean)
+        && !sentenceResults.some(s => s.sentenceIndex === idx)) {
+      sentenceResults = [
+        ...sentenceResults,
+        {
+          sentenceIndex: idx,
+          sentence: cardDataRef.current?.[idx.toString()] || '',
+          partial: true,
+          words: wordResultsRef.current.filter(Boolean),
+        },
+      ];
+    }
+
+    return {
+      userId,
+      lessonId,
+      phoneme: targetPhonemeRef.current,
+      status,
+      overallScore,
+      livesRemaining: livesOverride ?? livesRef.current,
+      maxLives: LESSON_START_LIVES,
+      wordHistory: wordHistoryRef.current,
+      phonemeStats: phonemeStatsArr,
+      sentenceResults,
+      prosody: prosodyHistoryRef.current,
+    };
+  };
+
+  const saveLessonAttempt = async (status, livesOverride) => {
+    if (attemptSavedRef.current) return;
+    attemptSavedRef.current = true;
+    const payload = buildAttemptPayload(status, livesOverride);
+    liveSnapshotRef.current = payload;
+    try {
+      const res = await fetch(`${API_BASE}/api/user/lessonAttempts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const saved = await res.json();
+      setThisAttempt(saved);
+      if (saved.attemptNumber > 1) {
+        const q = new URLSearchParams({ userId, lessonId, before: String(saved.attemptNumber) });
+        const cmp = await fetch(`${API_BASE}/api/user/lessonAttempts?${q}`).then(r => r.json());
+        setComparisonAttempts(cmp);
+      }
+    } catch (err) {
+      console.error('Failed to save lesson attempt:', err);
+    }
+  };
+
   const socketRef = useRef(null);
   const audioContextRef = useRef(null);
   const processorRef = useRef(null);
@@ -599,6 +664,7 @@ export default function Lesson() {
       setWordResults(prev => {
         const next = [...prev];
         next[data.word_index] = { word: data.word, phonemes: data.phonemes };
+        wordResultsRef.current = next;
         return next;
       });
 
@@ -617,7 +683,11 @@ export default function Lesson() {
       const scores = allWordScoresRef.current;
       setRunningScore(scores.reduce((a, b) => a + b, 0) / scores.length);
 
-      setWordHistory(prev => [...prev, { word: data.word, score: data.score }]);
+      setWordHistory(prev => {
+        const next = [...prev, { word: data.word, score: data.score, timestamp: new Date().toISOString() }];
+        wordHistoryRef.current = next;
+        return next;
+      });
 
       if (data.phoneme_deltas && data.phoneme_deltas.length) {
         setPhonemeStats(prev => {
@@ -630,6 +700,7 @@ export default function Lesson() {
               : [...existing.deltas, pd.delta];
             next[pd.phoneme] = { scores: scores2, deltas: deltas2 };
           });
+          phonemeStatsRef.current = next;
           return next;
         });
       }
@@ -643,6 +714,7 @@ export default function Lesson() {
             socketRef.current?.emit('stop');
             stopRecording();
             setLessonFailed(true);
+            saveLessonAttempt('failed', next);
             setTimeout(() => socketRef.current?.disconnect(), 150);
           }
           return next;
@@ -657,6 +729,10 @@ export default function Lesson() {
 
     socket.on('prosody', (data) => {
       setProsody(data);
+      prosodyHistoryRef.current = [
+        ...prosodyHistoryRef.current,
+        { sentenceIndex: currentSentenceIndexRef.current, ...data },
+      ];
       if (prosodyTimeoutRef.current) {
         clearTimeout(prosodyTimeoutRef.current);
         prosodyTimeoutRef.current = null;
@@ -772,6 +848,10 @@ export default function Lesson() {
   }, [authLoading, userId, lessonId, API_BASE]);
 
   useEffect(() => {
+    currentSentenceIndexRef.current = currentSentenceIndex;
+  }, [currentSentenceIndex]);
+
+  useEffect(() => {
     if (wordsToIPA && currentSentenceIndex > 0) {
       const words = wordsToIPA[currentSentenceIndex - 1] || null;
       setCurrentWordsToIPA(words);
@@ -826,6 +906,15 @@ export default function Lesson() {
       if (sentencePassedRef.current) return;
       sentencePassedRef.current = true;
       wordScoresRef.current.push(...extractWordScores(data.res));
+      sentenceResultsRef.current = [
+        ...sentenceResultsRef.current,
+        {
+          sentenceIndex: currentSentenceIndexRef.current,
+          sentence: cardData?.[currentSentenceIndexRef.current.toString()] || '',
+          partial: false,
+          words: data.res || [],
+        },
+      ];
       actions?.ThumbsUp?.play?.();
       speakSentence("Great job!");
       setScore(s => (s ?? 0) + data.score);
@@ -997,6 +1086,7 @@ export default function Lesson() {
       }
       setIsFinished(true);
       const currentLessonId = parseInt(window.location.pathname.split('/').pop());
+      saveLessonAttempt('completed');
 
       fetch(`${API_BASE}/api/user/updateUserProgress`, {
         method: 'POST',
@@ -1090,69 +1180,15 @@ export default function Lesson() {
     );
   }
 
-  if (lessonFailed) {
-    const { needsWork } = summarizePhonemeDeltas(phonemeStats);
+  if (lessonFailed || isFinished) {
     return (
-      <div style={screenStyle}>
-        <div>
-          <h1 style={{ fontSize: '3rem', marginBottom: '1rem', color: BAD }}>Out of Attempts</h1>
-          <p style={{ fontSize: '1.2rem', marginBottom: '0.5rem' }}>
-            You ran out of tries for this lesson — accuracy was {Math.round((runningScore || 0) * 100)}%.
-          </p>
-          {needsWork.length > 0 && (
-            <p style={{ fontSize: '1rem', marginBottom: '2rem', color: N3 }}>
-              Sounds to practice: {needsWork.map(n => n.phoneme).join(', ')}
-            </p>
-          )}
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
-            <button
-              onClick={() => window.location.reload()}
-              className="cut-chip"
-              style={buttonStyle()}
-            >
-              Try Lesson Again
-            </button>
-            <button
-              onClick={() => window.location.href = '/app'}
-              className="cut-chip"
-              style={buttonStyle('ghost')}
-            >
-              Back to Home
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (isFinished) {
-    const { improved, needsWork } = summarizePhonemeDeltas(phonemeStats);
-    return (
-      <div style={screenStyle}>
-        <div>
-          <h1 style={{ fontSize: '3rem', marginBottom: '1rem' }}>🎉 Lesson Complete!</h1>
-          <p style={{ fontSize: '1.2rem', marginBottom: '0.5rem' }}>
-            Overall accuracy: {Math.round((runningScore || 0) * 100)}%
-          </p>
-          {improved.length > 0 && (
-            <p style={{ fontSize: '1rem', marginBottom: '0.25rem', color: GOOD }}>
-              Most improved: {improved.map(i => i.phoneme).join(', ')}
-            </p>
-          )}
-          {needsWork.length > 0 && (
-            <p style={{ fontSize: '1rem', marginBottom: '1.5rem', color: N3 }}>
-              Keep practicing: {needsWork.map(i => i.phoneme).join(', ')}
-            </p>
-          )}
-          <button
-            onClick={() => window.location.href = '/app'}
-            className="cut-chip"
-            style={buttonStyle()}
-          >
-            Back to Home
-          </button>
-        </div>
-      </div>
+      <LessonSummary
+        status={lessonFailed ? 'failed' : 'completed'}
+        currentAttempt={thisAttempt || liveSnapshotRef.current}
+        comparisonAttempts={comparisonAttempts}
+        onRetry={() => window.location.reload()}
+        onHome={() => window.location.href = '/app'}
+      />
     );
   }
 
