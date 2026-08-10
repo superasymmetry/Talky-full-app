@@ -719,7 +719,11 @@ def _stamp_word_scores(word_scores, now_iso):
 def update_user_progress():
     data = request.get_json() or {}
     user_id = data.get("userId")
-    lesson_id = data.get("lessonId")
+    # lessons[].id is stored as a string ("1", "2", ...), but the frontend
+    # sends lessonId parsed as an int — normalize here so both the dict
+    # lookup below and the "lessons.id" Mongo query match instead of
+    # silently finding nothing.
+    lesson_id = str(data.get("lessonId"))
     add_score = data.get("addScore", 0)
     incoming_word_scores = data.get("wordScores", [])
 
