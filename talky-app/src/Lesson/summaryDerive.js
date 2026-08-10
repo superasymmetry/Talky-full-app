@@ -74,6 +74,23 @@ export function scoreDeltaPct(current, comparison) {
   return Math.round((current.overallScore - comparison.overallScore) * 100);
 }
 
+export const FEEDBACK_LIMIT = 3;
+
+export function topFeedback(feedbackHistory, limit = FEEDBACK_LIMIT) {
+  const list = (feedbackHistory || []).filter((f) => f?.text);
+  const byPhoneme = new Map();
+  for (const item of list) {
+    const key = item.phoneme || item.text;
+    const existing = byPhoneme.get(key);
+    if (!existing || (item.score ?? 1) < (existing.score ?? 1)) {
+      byPhoneme.set(key, item);
+    }
+  }
+  return [...byPhoneme.values()]
+    .sort((a, b) => (a.score ?? 1) - (b.score ?? 1))
+    .slice(0, limit);
+}
+
 export function scoreToStars(score) {
   if (score == null) return 0;
   if (score >= 0.9) return 3;

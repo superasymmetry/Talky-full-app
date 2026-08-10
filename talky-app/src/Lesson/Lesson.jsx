@@ -558,6 +558,7 @@ export default function Lesson() {
   const wordResultsRef = useRef([]);
   const sentenceResultsRef = useRef([]);
   const prosodyHistoryRef = useRef([]);
+  const feedbackHistoryRef = useRef([]);
   const currentSentenceIndexRef = useRef(1);
   const attemptSavedRef = useRef(false);
   const liveSnapshotRef = useRef(null);
@@ -607,6 +608,7 @@ export default function Lesson() {
       phonemeStats: phonemeStatsArr,
       sentenceResults,
       prosody: prosodyHistoryRef.current,
+      feedbackHistory: feedbackHistoryRef.current,
     };
   };
 
@@ -934,6 +936,17 @@ export default function Lesson() {
       const feedbackMsg = String(data.feedback || 'No, try again.');
       setFeedbackText(feedbackMsg);
       speakSentence(feedbackMsg);
+      if (data.feedback_detail?.phoneme) {
+        feedbackHistoryRef.current = [
+          ...feedbackHistoryRef.current,
+          {
+            ...data.feedback_detail,
+            sentenceIndex: currentSentenceIndexRef.current,
+            sentence: cardDataRef.current?.[currentSentenceIndexRef.current.toString()] || '',
+            timestamp: new Date().toISOString(),
+          },
+        ];
+      }
     }
   };
 

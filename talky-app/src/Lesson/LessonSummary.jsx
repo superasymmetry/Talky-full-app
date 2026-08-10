@@ -1,5 +1,5 @@
 import { Line, LineChart, LineSeries } from 'reaviz';
-import { attemptWordRows, phonemeMasteryBars, prosodySeries, scoreDeltaPct, scoreToStars } from './summaryDerive.js';
+import { attemptWordRows, phonemeMasteryBars, prosodySeries, scoreDeltaPct, scoreToStars, topFeedback } from './summaryDerive.js';
 
 import { Card, PhonemeMastery, StatTile } from '../Statistics/components.jsx';
 import '../Statistics/Statistics.css';
@@ -112,6 +112,36 @@ const AttemptWordTabs = ({ wordHistory }) => {
 
 const TAB_LABELS = { current: 'This attempt', first: 'First attempt', previous: 'Previous attempt' };
 
+const KidFeedbackList = ({ items }) => (
+  <div className="flex flex-col gap-3 w-full max-w-lg">
+    {items.map((item, i) => (
+      <div
+        key={`${item.phoneme}-${i}`}
+        className="cut-card"
+        style={{ padding: '14px 18px', display: 'flex', gap: 12, alignItems: 'flex-start', textAlign: 'left' }}
+      >
+        <span style={{ fontSize: 22, lineHeight: 1 }}>💡</span>
+        <span className="body-2 text-n-1">{item.text}</span>
+      </div>
+    ))}
+  </div>
+);
+
+const TeacherFeedbackCard = ({ items }) => (
+  <Card title="Key feedback from this lesson" className="shrink-0">
+    <ul className="flex flex-col gap-3">
+      {items.map((item, i) => (
+        <li key={`${item.phoneme}-${i}`} className="flex items-start gap-3">
+          {item.phoneme && (
+            <span className="cut-chip px-2 py-0.5 font-mono text-sm bg-n-6 text-color-3 shrink-0">/{item.phoneme}/</span>
+          )}
+          <span className="body-2 text-n-2">{item.text}</span>
+        </li>
+      ))}
+    </ul>
+  </Card>
+);
+
 const StarRating = ({ stars }) => (
   <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
     {[1, 2, 3].map((i) => (
@@ -141,6 +171,7 @@ export default function LessonSummary({ status, currentAttempt, comparisonAttemp
   const passed = status === 'completed';
   const delta = scoreDeltaPct(currentAttempt, first);
   const bars = phonemeMasteryBars(activeAttempt.phonemeStats);
+  const feedbackItems = topFeedback(activeAttempt.feedbackHistory);
 
   return (
     <div className="bg-n-8 text-n-1" style={{ position: 'fixed', inset: 0, overflowY: 'auto' }}>
@@ -157,11 +188,12 @@ export default function LessonSummary({ status, currentAttempt, comparisonAttemp
         </header>
 
         {isKidView ? (
-          <div className="flex flex-col items-center gap-3 py-6">
+          <div className="flex flex-col items-center gap-4 py-6">
             <StarRating stars={scoreToStars(currentAttempt.overallScore)} />
             <p className="body-2 text-n-3">
               {passed ? "You did a great job! ⭐" : "Nice try — let's practice some more! 💪"}
             </p>
+            {feedbackItems.length > 0 && <KidFeedbackList items={feedbackItems} />}
           </div>
         ) : (
           <>
@@ -206,6 +238,8 @@ export default function LessonSummary({ status, currentAttempt, comparisonAttemp
                 ))}
               </div>
             )}
+
+            {feedbackItems.length > 0 && <TeacherFeedbackCard items={feedbackItems} />}
 
             <div className="grid gap-3 lg:grid-cols-2">
               <div className="flex flex-col gap-3 min-h-0">

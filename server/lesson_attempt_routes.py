@@ -40,6 +40,7 @@ def save_lesson_attempt():
         "phonemeStats": data.get("phonemeStats", []),
         "sentenceResults": data.get("sentenceResults", []),
         "prosody": data.get("prosody", []),
+        "feedbackHistory": data.get("feedbackHistory", []),
         "createdAt": _utc_now_iso(),
     }
 
