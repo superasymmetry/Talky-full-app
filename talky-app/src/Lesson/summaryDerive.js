@@ -73,3 +73,10 @@ export function scoreDeltaPct(current, comparison) {
   if (!current || !comparison) return null;
   return Math.round((current.overallScore - comparison.overallScore) * 100);
 }
+
+export function scoreToStars(score) {
+  if (score == null) return 0;
+  if (score >= 0.9) return 3;
+  if (score >= 0.7) return 2;
+  return 1;
+}

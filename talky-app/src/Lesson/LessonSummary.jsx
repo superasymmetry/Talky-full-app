@@ -1,9 +1,10 @@
 import { Line, LineChart, LineSeries } from 'reaviz';
-import { attemptWordRows, phonemeMasteryBars, prosodySeries, scoreDeltaPct } from './summaryDerive.js';
+import { attemptWordRows, phonemeMasteryBars, prosodySeries, scoreDeltaPct, scoreToStars } from './summaryDerive.js';
 
 import { Card, PhonemeMastery, StatTile } from '../Statistics/components.jsx';
 import '../Statistics/Statistics.css';
 import { useState } from 'react';
+import { VIEW_MODES } from '../viewMode/viewMode.js';
 
 const fmtPct = (v) => (v == null ? '—' : `${Math.round(v * 100)}%`);
 const fmtDelta = (v) => (v == null ? null : `${v > 0 ? '+' : ''}${v}%`);
@@ -111,7 +112,16 @@ const AttemptWordTabs = ({ wordHistory }) => {
 
 const TAB_LABELS = { current: 'This attempt', first: 'First attempt', previous: 'Previous attempt' };
 
-export default function LessonSummary({ status, currentAttempt, comparisonAttempts, onRetry, onHome }) {
+const StarRating = ({ stars }) => (
+  <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+    {[1, 2, 3].map((i) => (
+      <span key={i} style={{ fontSize: 56, opacity: i <= stars ? 1 : 0.25 }}>⭐</span>
+    ))}
+  </div>
+);
+
+export default function LessonSummary({ status, currentAttempt, comparisonAttempts, viewMode, onRetry, onHome }) {
+  const isKidView = viewMode === VIEW_MODES.STUDENT;
   const { first, previous } = comparisonAttempts || {};
   const showPrevious = previous && previous.attemptNumber !== first?.attemptNumber;
 
@@ -146,57 +156,68 @@ export default function LessonSummary({ status, currentAttempt, comparisonAttemp
           </p>
         </header>
 
-        <div className="grid gap-3 grid-cols-2 lg:grid-cols-4 shrink-0">
-          <StatTile
-            label="Overall accuracy"
-            value={fmtPct(currentAttempt.overallScore)}
-            sub={delta == null ? 'First time trying this lesson' : `${fmtDelta(delta)} vs your first attempt`}
-            accent={passed ? 'text-color-4' : 'text-color-3'}
-          />
-          <StatTile
-            label="Lives remaining"
-            value={`${currentAttempt.livesRemaining ?? 0} / ${currentAttempt.maxLives ?? 3}`}
-            sub={passed ? 'Lesson passed' : 'Lesson failed'}
-            accent={passed ? 'text-color-4' : 'text-color-3'}
-          />
-          <StatTile
-            label="Words practiced"
-            value={(currentAttempt.wordHistory || []).length}
-            sub="Attempts logged this lesson"
-            accent="text-color-1"
-          />
-          <StatTile
-            label="Sounds tracked"
-            value={(currentAttempt.phonemeStats || []).length}
-            sub="Phonemes scored this lesson"
-            accent="text-color-2"
-          />
-        </div>
-
-        {tabs.length > 1 && (
-          <div className="cut-group flex gap-1 p-1 bg-n-6 border border-n-1/10 self-start">
-            {tabs.map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setActiveTab(t)}
-                className={`cut-chip px-3 py-1.5 text-sm transition-colors ${activeTab === t ? 'bg-n-8 text-n-1' : 'text-n-3 hover:text-n-1'}`}
-              >
-                {TAB_LABELS[t]}
-              </button>
-            ))}
+        {isKidView ? (
+          <div className="flex flex-col items-center gap-3 py-6">
+            <StarRating stars={scoreToStars(currentAttempt.overallScore)} />
+            <p className="body-2 text-n-3">
+              {passed ? "You did a great job! ⭐" : "Nice try — let's practice some more! 💪"}
+            </p>
           </div>
+        ) : (
+          <>
+            <div className="grid gap-3 grid-cols-2 lg:grid-cols-4 shrink-0">
+              <StatTile
+                label="Overall accuracy"
+                value={fmtPct(currentAttempt.overallScore)}
+                sub={delta == null ? 'First time trying this lesson' : `${fmtDelta(delta)} vs your first attempt`}
+                accent={passed ? 'text-color-4' : 'text-color-3'}
+              />
+              <StatTile
+                label="Lives remaining"
+                value={`${currentAttempt.livesRemaining ?? 0} / ${currentAttempt.maxLives ?? 3}`}
+                sub={passed ? 'Lesson passed' : 'Lesson failed'}
+                accent={passed ? 'text-color-4' : 'text-color-3'}
+              />
+              <StatTile
+                label="Words practiced"
+                value={(currentAttempt.wordHistory || []).length}
+                sub="Attempts logged this lesson"
+                accent="text-color-1"
+              />
+              <StatTile
+                label="Sounds tracked"
+                value={(currentAttempt.phonemeStats || []).length}
+                sub="Phonemes scored this lesson"
+                accent="text-color-2"
+              />
+            </div>
+
+            {tabs.length > 1 && (
+              <div className="cut-group flex gap-1 p-1 bg-n-6 border border-n-1/10 self-start">
+                {tabs.map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setActiveTab(t)}
+                    className={`cut-chip px-3 py-1.5 text-sm transition-colors ${activeTab === t ? 'bg-n-8 text-n-1' : 'text-n-3 hover:text-n-1'}`}
+                  >
+                    {TAB_LABELS[t]}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="grid gap-3 lg:grid-cols-2">
+              <div className="flex flex-col gap-3 min-h-0">
+                <PhonemeMastery bars={bars} />
+                <AttemptWordTabs wordHistory={activeAttempt.wordHistory} />
+              </div>
+              <div className="flex flex-col gap-3 min-h-0">
+                <ProsodyTrend prosody={activeAttempt.prosody || []} />
+              </div>
+            </div>
+          </>
         )}
-
-        <div className="grid gap-3 lg:grid-cols-2">
-          <div className="flex flex-col gap-3 min-h-0">
-            <PhonemeMastery bars={bars} />
-            <AttemptWordTabs wordHistory={activeAttempt.wordHistory} />
-          </div>
-          <div className="flex flex-col gap-3 min-h-0">
-            <ProsodyTrend prosody={activeAttempt.prosody || []} />
-          </div>
-        </div>
 
         <div className="flex gap-3 justify-center pt-4 pb-8">
           {!passed && (

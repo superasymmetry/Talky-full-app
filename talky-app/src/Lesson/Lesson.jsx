@@ -10,7 +10,9 @@ import { speakText, stopSpeech } from '../tts.js';
 import toast, { Toaster } from 'react-hot-toast';
 
 import Back from './Back.jsx';
+import LessonKidOverlay from './LessonKidOverlay.jsx';
 import LessonSummary from './LessonSummary.jsx';
+import { VIEW_MODES, useViewMode } from '../viewMode/viewMode.js';
 import { Waveform } from 'ldrs/react'
 import { io } from 'socket.io-client';
 import { useAuth0 } from '@auth0/auth0-react';
@@ -477,6 +479,7 @@ export default function Lesson() {
   const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
   const { user, isAuthenticated, isLoading: authLoading } = useAuth0();
   const userId = isAuthenticated && user ? (user.sub || user.email) : 'demo';
+  const [viewMode] = useViewMode();
 
   const [nextHover, setNextHover] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
@@ -1186,6 +1189,7 @@ export default function Lesson() {
         status={lessonFailed ? 'failed' : 'completed'}
         currentAttempt={thisAttempt || liveSnapshotRef.current}
         comparisonAttempts={comparisonAttempts}
+        viewMode={viewMode}
         onRetry={() => window.location.reload()}
         onHome={() => window.location.href = '/app'}
       />
@@ -1263,13 +1267,15 @@ export default function Lesson() {
       </CanvasErrorBoundary>
 
       <Back />
-      <PerformanceTracker
-        lives={lives}
-        maxLives={LESSON_START_LIVES}
-        runningScore={runningScore}
-        phonemeStats={phonemeStats}
-        wordHistory={wordHistory}
-      />
+      {viewMode === VIEW_MODES.TEACHER && (
+        <PerformanceTracker
+          lives={lives}
+          maxLives={LESSON_START_LIVES}
+          runningScore={runningScore}
+          phonemeStats={phonemeStats}
+          wordHistory={wordHistory}
+        />
+      )}
       <div
         style={{
           position: 'absolute',
@@ -1373,7 +1379,18 @@ export default function Lesson() {
         `}</style>
       </div>
 
-      {greetingDone && (
+      {greetingDone && viewMode === VIEW_MODES.STUDENT && (
+        <LessonKidOverlay
+          lives={lives}
+          maxLives={LESSON_START_LIVES}
+          wordHistory={wordHistory}
+          currentWordsToIPA={currentWordsToIPA}
+          wordResults={wordResults}
+          sentenceText={cardData ? cardData[currentSentenceIndex.toString()] : null}
+        />
+      )}
+
+      {greetingDone && viewMode === VIEW_MODES.TEACHER && (
       <div
         className="cut-card"
         style={{
