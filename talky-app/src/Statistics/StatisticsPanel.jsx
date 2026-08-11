@@ -47,10 +47,15 @@ export default function StatisticsPanel({ userId }) {
   const { status, user: userDoc, level, error } = useStatsData(userId, authFetch);
   const [selected, setSelected] = useState('');
 
-  const phonemes = userDoc?.progress?.phonemeScores ?? [];
-  const wordScores = userDoc?.progress?.wordScores ?? [];
-  const history = userDoc?.history ?? [];
-  const playablePhonemes = phonemes.filter((p) => p.attempts > 0);
+  // Memoised so the '?? []' fallbacks don't allocate a fresh array each
+  // render and invalidate every downstream useMemo/useEffect.
+  const phonemes = useMemo(() => userDoc?.progress?.phonemeScores ?? [], [userDoc]);
+  const wordScores = useMemo(() => userDoc?.progress?.wordScores ?? [], [userDoc]);
+  const history = useMemo(() => userDoc?.history ?? [], [userDoc]);
+  const playablePhonemes = useMemo(
+    () => phonemes.filter((p) => p.attempts > 0),
+    [phonemes],
+  );
 
   useEffect(() => {
     if (playablePhonemes.length && !selected) {

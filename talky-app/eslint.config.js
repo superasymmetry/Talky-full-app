@@ -23,7 +23,22 @@ export default defineConfig([
       },
     },
     rules: {
-      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+      // No eslint-plugin-react here, so nothing marks JSX references as uses.
+      // Ignore capitalised identifiers (components) in both positions.
+      'no-unused-vars': [
+        'error',
+        { varsIgnorePattern: '^[A-Z_]', argsIgnorePattern: '^[A-Z_]' },
+      ],
+    },
+  },
+  {
+    // These modules deliberately co-locate helpers/constants with their
+    // components. That only costs full reloads instead of hot swaps in dev,
+    // so the rule is off here rather than globally -- new violations in
+    // other files are still caught.
+    files: ['src/Lesson/PracticeGame.jsx', 'src/SoundBank/SoundBank.jsx'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
     },
   },
   {

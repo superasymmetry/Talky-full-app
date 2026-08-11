@@ -43,6 +43,7 @@ const setMasteredWords = (id, words) => {
   try {
     localStorage.setItem(`talky:mastered:${id}`, JSON.stringify(words));
   } catch {
+    // localStorage unavailable or over quota; mastery is best-effort
   }
 };
 

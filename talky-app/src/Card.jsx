@@ -28,13 +28,12 @@ function Card(props) {
     } = props;
 
     useEffect(() => {
-        if (disabled || !tilt.current) return;
-        if (tilt.current) VanillaTilt.init(tilt.current, options)
-        
+        const el = tilt.current;
+        if (disabled || !el) return;
+        VanillaTilt.init(el, options)
+
         return () => {
-            if (tilt.current) {
-                tilt.current.vanillaTilt?.destroy();
-            }
+            el.vanillaTilt?.destroy();
         }
     }, [options, disabled]);
 
