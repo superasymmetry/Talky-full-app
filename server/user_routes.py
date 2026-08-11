@@ -5,6 +5,7 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 from groq import Groq
 from auth import requires_auth
+from access import _require_role, _authorize_student_access, _require_teacher_of
 import os
 import random
 import secrets
@@ -148,6 +149,8 @@ def _default_user_doc(user_id, name=""):
         "level": {"current": 1, "subpoints": 20, "maxval": 100},
         "maxLessonId": 4,
         "gameState": _build_default_game_state(),
+        "activeGoal": None,
+        "pendingAssignedLesson": None,
     }
 
 
@@ -171,6 +174,10 @@ def _missing_field_patch(user_id, user_doc):
         patch["age"] = None
     if "role" not in user_doc:
         patch["role"] = "Student"
+    if "activeGoal" not in user_doc:
+        patch["activeGoal"] = None
+    if "pendingAssignedLesson" not in user_doc:
+        patch["pendingAssignedLesson"] = None
     return patch
 
 
@@ -214,35 +221,47 @@ def adduser():
     return jsonify(user_doc)
 
 @user_bp.route("/api/user/get_level", methods=["GET", "POST"])
+@requires_auth
 def get_user_level():
     user_id = request.args.get("user_id")
     if not user_id:
         return jsonify({"error": USER_ID_REQUIRED}), 400
+    _student, err = _authorize_student_access(g.current_user.get("sub"), user_id)
+    if err:
+        return err
     user = users_collection.find_one({"userId": user_id}, {"level": 1})
     if not user or "level" not in user:
         return jsonify({"error": "User not found or level data missing"}), 404
     return jsonify({"level": user["level"]})
 
 @user_bp.route("/api/user/progress", methods=["GET", "POST"])
+@requires_auth
 def get_user_progress_weakness():
     user_id = request.args.get("user_id")
     if not user_id:
         return jsonify({"error": USER_ID_REQUIRED}), 400
-    
+    _student, err = _authorize_student_access(g.current_user.get("sub"), user_id)
+    if err:
+        return err
+
     user = users_collection.find_one({"userId": user_id}, {"progress.phonemeScores": 1})
-    
+
     if not user or "progress" not in user:
         return jsonify({"error": "User not found or progress data missing"}), 404
-    
+
     return jsonify({"phonemeScores": user["progress"].get("phonemeScores", [])})
 
 
 @user_bp.route("/api/user/history", methods=["GET", "POST"])
+@requires_auth
 def get_user_history():
     user_id = request.args.get("user_id")
     if not user_id:
         return jsonify({"error": USER_ID_REQUIRED}), 400
-    
+    _student, err = _authorize_student_access(g.current_user.get("sub"), user_id)
+    if err:
+        return err
+
     user = users_collection.find_one({"userId": user_id}, {"history": 1})
     if not user or "history" not in user:
         return jsonify({"error": "User not found or history data missing"}), 404
@@ -250,28 +269,29 @@ def get_user_history():
 
 
 @user_bp.route("/api/user/lessons", methods=["GET", "POST"])
+@requires_auth
 def get_user_lessons():
     user_id = request.args.get("user_id")
-    print(f"[LESSONS] Received request for user_id: {user_id}")
     if not user_id:
-        print("[LESSONS] ERROR: user_id parameter is missing")
         return jsonify({"error": USER_ID_REQUIRED}), 400
-    
-    print(f"[LESSONS] Querying MongoDB for user: {user_id}")
+    _student, err = _authorize_student_access(g.current_user.get("sub"), user_id)
+    if err:
+        return err
+
     user = users_collection.find_one({"userId": user_id}, {"lessons": 1, "_id": 0})
-    print(f"[LESSONS] MongoDB query result: {user}")
     if not user or "lessons" not in user:
-        print(f"[LESSONS] ERROR: User not found or lessons data missing. User doc: {user}")
         return jsonify({"error": "User not found or lessons data missing"}), 404
-    print(f"[LESSONS] SUCCESS: Returning {len(user['lessons'])} lessons for user {user_id}")
     return jsonify({"lessons": user["lessons"]})
 
 
 @user_bp.route('/api/user/game-state', methods=['GET', 'POST'])
+@requires_auth
 def game_state():
     user_id = request.args.get("user_id") or (request.get_json(silent=True) or {}).get("userId")
     if not user_id:
         return jsonify({"error": USER_ID_REQUIRED}), 400
+    if g.current_user.get("sub") != user_id:
+        return jsonify({"message": "Not authorized for this user"}), 403
 
     now = datetime.now(timezone.utc)
     user = users_collection.find_one({"userId": user_id}, {"gameState": 1, "_id": 0})
@@ -318,41 +338,66 @@ def game_state():
 
 
 @user_bp.route('/api/user/generatenextlesson', methods=['GET', 'POST'])
+@requires_auth
 def generatenextlesson():
     data = request.get_json(silent=True) or {}
     user_id = data.get("user_id")
     currentLessonId = data.get("currentLessonId")
     if not user_id:
         return jsonify({"error": USER_ID_REQUIRED}), 400
+    if g.current_user.get("sub") != user_id:
+        return jsonify({"message": "Not authorized for this user"}), 403
 
     user = users_collection.find_one({"userId": user_id})
     if not user:
         return jsonify({"error": "User not found"}), 404
     maxLessonId = user.get("maxLessonId", 0)
-    
+
     if not (currentLessonId == maxLessonId - 1):
         return jsonify({"message": "Not eligible for new lesson yet"}), 400
     else:
         next_lesson_id = str(maxLessonId + 1)
-        ps = user['progress']['phonemeScores']
-        lowest = float('inf')
-        weakest_phoneme = 'r'
-        for phoneme_object in ps:
-            if not phoneme_object['avgScore']:
-                weakest_phoneme = phoneme_object['phoneme']
-                break
-            if phoneme_object['avgScore'] < lowest:
-                lowest = phoneme_object['avgScore']
-                weakest_phoneme = phoneme_object['phoneme']
 
-        words = random.sample(phoneme_word_bank.get(weakest_phoneme, ["practice", "word"]), k=2)
+        pending = user.get("pendingAssignedLesson")
+        active_goal = user.get("activeGoal")
+        consumed_assignment = False
+
+        if pending:
+            # Teacher hand-picked the exact phoneme + words for this one lesson.
+            phoneme = pending["phoneme"]
+            words = pending["words"]
+            consumed_assignment = True
+        elif active_goal:
+            # Standing teacher-set focus phoneme overrides auto weakest-phoneme
+            # selection until the teacher clears/changes it.
+            phoneme = active_goal["phoneme"]
+            words = random.sample(phoneme_word_bank.get(phoneme, ["practice", "word"]), k=2)
+        else:
+            ps = user['progress']['phonemeScores']
+            lowest = float('inf')
+            phoneme = 'r'
+            for phoneme_object in ps:
+                if not phoneme_object['avgScore']:
+                    phoneme = phoneme_object['phoneme']
+                    break
+                if phoneme_object['avgScore'] < lowest:
+                    lowest = phoneme_object['avgScore']
+                    phoneme = phoneme_object['phoneme']
+            words = random.sample(phoneme_word_bank.get(phoneme, ["practice", "word"]), k=2)
 
         new_lesson = {
             "id": next_lesson_id,
-            "phoneme": weakest_phoneme,
+            "phoneme": phoneme,
             "words": words,
             "score": 0,
         }
+
+        update = {
+            "$push": {"lessons": new_lesson},
+            "$set": {"maxLessonId": maxLessonId + 1},
+        }
+        if consumed_assignment:
+            update["$unset"] = {"pendingAssignedLesson": ""}
 
         # Append with $push instead of writing to a computed
         # `lessons.{next_lesson_id}` path. That path treated the lesson's id
@@ -364,13 +409,7 @@ def generatenextlesson():
         # the same lookup) resolve to the WRONG lesson's content. $push
         # always appends at the true next position, so id and position stay
         # in sync (id = position + 1) going forward.
-        users_collection.update_one(
-            {"userId": user_id},
-            {
-                "$push": {"lessons": new_lesson},
-                "$set": {"maxLessonId": maxLessonId + 1},
-            }
-        )
+        users_collection.update_one({"userId": user_id}, update)
         return jsonify({f"lessons.{next_lesson_id}": new_lesson}), 200
 
 @user_bp.route("/api/getUserProfile", methods=["GET"])
@@ -461,15 +500,6 @@ def update_user_profile():
             )
 
     return jsonify({"message": "Profile updated successfully", "updated": update_fields}), 200
-
-
-def _require_role(caller_id, expected_role):
-    caller = users_collection.find_one({"userId": caller_id})
-    if not caller:
-        return None, (jsonify({"message": "User not found"}), 404)
-    if caller.get("role") != expected_role:
-        return None, (jsonify({"message": f"Only a {expected_role} can do this"}), 403)
-    return caller, None
 
 
 @user_bp.route("/api/user/linkByCode", methods=["POST"])
@@ -671,11 +701,136 @@ def get_my_teacher():
     return jsonify({"teacher": teacher}), 200
 
 
+@user_bp.route("/api/user/student/<student_id>/detail", methods=["GET"])
+@requires_auth
+def get_student_detail(student_id):
+    student, err = _authorize_student_access(g.current_user.get("sub"), student_id)
+    if err:
+        return err
+
+    return jsonify({
+        "userId": student["userId"],
+        "name": student.get("name", ""),
+        "nickname": student.get("nickname", ""),
+        "age": student.get("age"),
+        "progress": student.get("progress", {}),
+        "history": student.get("history", []),
+        "level": student.get("level"),
+        "activeGoal": student.get("activeGoal"),
+        "pendingAssignedLesson": student.get("pendingAssignedLesson"),
+    }), 200
+
+
+@user_bp.route("/api/user/student/<student_id>/goal", methods=["GET"])
+@requires_auth
+def get_student_goal(student_id):
+    student, err = _authorize_student_access(g.current_user.get("sub"), student_id)
+    if err:
+        return err
+    return jsonify({"activeGoal": student.get("activeGoal")}), 200
+
+
+@user_bp.route("/api/user/student/<student_id>/goal", methods=["POST"])
+@requires_auth
+def set_student_goal(student_id):
+    caller_id = g.current_user.get("sub")
+    _caller, _student, err = _require_teacher_of(caller_id, student_id)
+    if err:
+        return err
+
+    data = request.get_json(silent=True) or {}
+    phoneme = data.get("phoneme")
+    if not phoneme or phoneme not in phoneme_word_bank:
+        return jsonify({"message": f"phoneme must be one of {sorted(phoneme_word_bank.keys())}"}), 400
+    note = data.get("note") or ""
+    if not isinstance(note, str):
+        return jsonify({"message": "note must be a string"}), 400
+
+    goal = {
+        "phoneme": phoneme,
+        "note": note.strip(),
+        "setAt": _utc_now_iso(),
+        "setBy": caller_id,
+    }
+    users_collection.update_one(
+        {"userId": student_id},
+        {"$set": {"activeGoal": goal}}
+    )
+    return jsonify({"activeGoal": goal}), 200
+
+
+@user_bp.route("/api/user/student/<student_id>/goal", methods=["DELETE"])
+@requires_auth
+def clear_student_goal(student_id):
+    caller_id = g.current_user.get("sub")
+    _caller, _student, err = _require_teacher_of(caller_id, student_id)
+    if err:
+        return err
+
+    users_collection.update_one(
+        {"userId": student_id},
+        {"$set": {"activeGoal": None}}
+    )
+    return jsonify({"message": "Goal cleared"}), 200
+
+
+@user_bp.route("/api/user/student/<student_id>/assign-lesson", methods=["POST"])
+@requires_auth
+def assign_student_lesson(student_id):
+    caller_id = g.current_user.get("sub")
+    _caller, _student, err = _require_teacher_of(caller_id, student_id)
+    if err:
+        return err
+
+    data = request.get_json(silent=True) or {}
+    phoneme = data.get("phoneme")
+    if not phoneme or phoneme not in phoneme_word_bank:
+        return jsonify({"message": f"phoneme must be one of {sorted(phoneme_word_bank.keys())}"}), 400
+    words = data.get("words")
+    if not isinstance(words, list) or not (1 <= len(words) <= 4) or not all(isinstance(w, str) and w.strip() for w in words):
+        return jsonify({"message": "words must be a list of 1-4 non-empty strings"}), 400
+    note = data.get("note") or ""
+    if not isinstance(note, str):
+        return jsonify({"message": "note must be a string"}), 400
+
+    assignment = {
+        "phoneme": phoneme,
+        "words": [w.strip() for w in words],
+        "note": note.strip(),
+        "assignedAt": _utc_now_iso(),
+        "assignedBy": caller_id,
+    }
+    users_collection.update_one(
+        {"userId": student_id},
+        {"$set": {"pendingAssignedLesson": assignment}}
+    )
+    return jsonify({"pendingAssignedLesson": assignment}), 200
+
+
+@user_bp.route("/api/user/student/<student_id>/assign-lesson", methods=["DELETE"])
+@requires_auth
+def cancel_student_assignment(student_id):
+    caller_id = g.current_user.get("sub")
+    _caller, _student, err = _require_teacher_of(caller_id, student_id)
+    if err:
+        return err
+
+    users_collection.update_one(
+        {"userId": student_id},
+        {"$set": {"pendingAssignedLesson": None}}
+    )
+    return jsonify({"message": "Assignment cancelled"}), 200
+
+
 @user_bp.route("/api/getUserProgress", methods=["GET"])
+@requires_auth
 def get_user_progress():
     user_id = request.args.get("userId")
     if not user_id:
         return jsonify({"message": "Missing userId parameter"}), 400
+    _student, err = _authorize_student_access(g.current_user.get("sub"), user_id)
+    if err:
+        return err
 
     user = users_collection.find_one({"userId": user_id}, {"_id": 0})
     if not user:
@@ -716,9 +871,12 @@ def _stamp_word_scores(word_scores, now_iso):
 
 
 @user_bp.route("/api/user/updateUserProgress", methods=["POST"])
+@requires_auth
 def update_user_progress():
     data = request.get_json() or {}
     user_id = data.get("userId")
+    if g.current_user.get("sub") != user_id:
+        return jsonify({"message": "Not authorized for this user"}), 403
     # lessons[].id is stored as a string ("1", "2", ...), but the frontend
     # sends lessonId parsed as an int — normalize here so both the dict
     # lookup below and the "lessons.id" Mongo query match instead of

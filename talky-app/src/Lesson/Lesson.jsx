@@ -17,6 +17,7 @@ import { Waveform } from 'ldrs/react'
 import { io } from 'socket.io-client';
 import { useAuth0 } from '@auth0/auth0-react';
 import { useMatch } from 'react-router-dom';
+import { makeAuthFetch } from '../utils/authFetch.js';
 
 useGLTF.preload('/robot-draco.glb')
 useGLTF.preload('/seagull-2.glb')
@@ -477,8 +478,9 @@ const buildEmbedUrl = (videoId, startSeconds) => {
 
 export default function Lesson() {
   const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
-  const { user, isAuthenticated, isLoading: authLoading } = useAuth0();
+  const { user, isAuthenticated, isLoading: authLoading, getAccessTokenSilently } = useAuth0();
   const userId = isAuthenticated && user ? (user.sub || user.email) : 'demo';
+  const authFetch = useMemo(() => makeAuthFetch(getAccessTokenSilently), [getAccessTokenSilently]);
   const [viewMode] = useViewMode();
 
   const [nextHover, setNextHover] = useState(false)
@@ -618,16 +620,15 @@ export default function Lesson() {
     const payload = buildAttemptPayload(status, livesOverride);
     liveSnapshotRef.current = payload;
     try {
-      const res = await fetch(`${API_BASE}/api/user/lessonAttempts`, {
+      const res = await authFetch(`${API_BASE}/api/user/lessonAttempts`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
       const saved = await res.json();
       setThisAttempt(saved);
       if (saved.attemptNumber > 1) {
         const q = new URLSearchParams({ userId, lessonId, before: String(saved.attemptNumber) });
-        const cmp = await fetch(`${API_BASE}/api/user/lessonAttempts?${q}`).then(r => r.json());
+        const cmp = await authFetch(`${API_BASE}/api/user/lessonAttempts?${q}`).then(r => r.json());
         setComparisonAttempts(cmp);
       }
     } catch (err) {
@@ -1104,9 +1105,8 @@ export default function Lesson() {
       const currentLessonId = parseInt(window.location.pathname.split('/').pop());
       saveLessonAttempt('completed');
 
-      fetch(`${API_BASE}/api/user/updateUserProgress`, {
+      authFetch(`${API_BASE}/api/user/updateUserProgress`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId: userId,
           lessonId: currentLessonId,
@@ -1116,9 +1116,8 @@ export default function Lesson() {
       }).catch(err => console.error('Failed to update user progress:', err));
 
       try {
-        await fetch(`${API_BASE}/api/user/generatenextlesson`, {
+        await authFetch(`${API_BASE}/api/user/generatenextlesson`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ user_id: userId, currentLessonId: currentLessonId }),
         });
       } catch (err) {

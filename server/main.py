@@ -12,6 +12,7 @@ from find_video import get_video_for_phoneme
 from user_routes import user_bp
 from score_routes import score_bp
 from lesson_attempt_routes import lesson_attempt_bp
+from teacher_notes_routes import teacher_notes_bp
 import threading
 import re
 import json
@@ -66,6 +67,7 @@ def _handle_cors_preflight():
 app.register_blueprint(user_bp)
 app.register_blueprint(score_bp)
 app.register_blueprint(lesson_attempt_bp)
+app.register_blueprint(teacher_notes_bp)
 
 from tts.tts import tts_bp
 app.register_blueprint(tts_bp)

@@ -10,6 +10,7 @@ import VoiceSettings from './SoundBank/VoiceSettings.jsx'
 import Profile from './Auth0/Profile.jsx'
 import PracticeGame from './Lesson/PracticeGame.jsx'
 import Statistics from './Statistics/Statistics.jsx';
+import StudentDetail from './Students/StudentDetail.jsx';
 
 import { Auth0Provider, useAuth0 } from '@auth0/auth0-react'
 import LandingPage from './LandingPage/LandingPage.jsx'
@@ -86,6 +87,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="/voice-settings" element={<VoiceSettings/>}/>
             <Route path="/profile" element={<Profile/>}/>
             <Route path="/statistics" element={<Statistics/>}/>
+            <Route path="/students/:studentId" element={<StudentDetail/>}/>
             <Route path="/" element={<LandingPage/>}/>
           </Routes>
         </UserCreator>
