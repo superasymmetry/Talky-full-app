@@ -407,16 +407,6 @@ def generatenextlesson():
     if consumed_assignment:
         update["$unset"] = {"pendingAssignedLesson": ""}
 
-    # Append with $push instead of writing to a computed
-    # `lessons.{next_lesson_id}` path. That path treated the lesson's id
-    # (1-based: "5", "6", ...) as a raw array index into a 0-based list,
-    # so it wrote the new lesson one slot past where it needed to be —
-    # e.g. with 4 existing lessons at positions 0-3, `lessons.5` set
-    # position 5 and left position 4 as a null gap. That gap is exactly
-    # what made every later lesson (and its intro video, which shares
-    # the same lookup) resolve to the WRONG lesson's content. $push
-    # always appends at the true next position, so id and position stay
-    # in sync (id = position + 1) going forward.
     users_collection.update_one({"userId": user_id}, update)
     return jsonify({f"lessons.{next_lesson_id}": new_lesson}), 200
 
