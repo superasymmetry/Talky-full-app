@@ -2,17 +2,8 @@ import numpy as np
 
 from prosody_eval import evaluate_prosody
 
-# Pairs of phonemes treated as equivalent during matching (source → target).
-# ɔ→ɑ: the TIMIT vocab has no ɔ (cot–caught merger); ʒ→ʃ: voicing pair,
-# like v→f, and the vocab has no ʒ; ɚ→ɝ: the same r-colored vowel, differing
-# only in stress.
 _NORM_MAP = [("ɹ", "r"), ("ʌ", "ə"), ("v", "f"), ("ɔ", "ɑ"), ("ʒ", "ʃ"), ("ɚ", "ɝ")]
 
-# The r-colored vowel is a single phoneme that a vowel+"r" split can
-# represent on either side of the match (reference or decoded) — e.g.
-# "color" = k ə l ə r may be decoded as k ə l ɝ. Without treating these as
-# equivalent, whichever side has the split vowel+r leaves the "r" half as a
-# stray insertion/omission instead of being credited.
 R_COLORED_VOWEL = "ɝ"
 
 
