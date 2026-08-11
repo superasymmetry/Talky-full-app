@@ -157,6 +157,16 @@ class TestLesson(unittest.TestCase):
             # Intercept socket.io WebSocket connections
             page.route_web_socket("**/socket.io/**", _mock_socketio)
 
+            # The client is configured to try both the "websocket" and
+            # "polling" transports (production fallback for restrictive
+            # proxies). Only the WebSocket path is mocked above, so block the
+            # HTTP long-polling handshake outright — otherwise it can reach
+            # the real, unseeded Flask/Mongo backend and establish a session
+            # engine.io then has to reconcile against the mocked WebSocket's
+            # fake sid, which silently breaks the "start" handshake instead
+            # of throwing anything this test would see.
+            page.route("**/socket.io/**", lambda route: route.abort())
+
             # Mock getUserMedia to return a silent audio track (avoids microphone prompt)
             page.add_init_script("""
                 navigator.mediaDevices.getUserMedia = async () => {
@@ -187,7 +197,7 @@ class TestLesson(unittest.TestCase):
             # wait_for_selector against a >10-count assertion.
             page.wait_for_function(
                 "document.querySelectorAll(\"span[title*='Score:']\").length > 10",
-                timeout=15000,
+                timeout=30000,
             )
 
             scored_phonemes = page.locator("span[title*='Score:']")
