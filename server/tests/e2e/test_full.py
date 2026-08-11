@@ -131,7 +131,24 @@ def _mock_socketio(ws_route):
 class TestLesson(unittest.TestCase):
     def test_phoneme_colors_and_tooltip(self):
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=os.getenv("CI") == "true")
+            # CI's headless Linux runner has no real GPU, so WebGL falls back
+            # to software rendering (SwiftShader). The 3D robot scene's
+            # Canvas gets recreated repeatedly here (glb 404 -> ErrorBoundary
+            # catch -> recreate -> fail again -> SceneErrorBoundary catch ->
+            # recreate again), and each recreation opens a new software WebGL
+            # context. On constrained CI hardware that churn is enough to
+            # lose the context entirely ("THREE.WebGLRenderer: Context
+            # Lost."), which crashes the renderer process — Chrome recovers
+            # by reloading the page, wiping all React state (including the
+            # phoneme scores this test is waiting for) out from under us.
+            # Disabling WebGL outright makes the very first Canvas mount fail
+            # fast and cleanly, so CanvasErrorBoundary catches it once and
+            # stays caught, instead of retrying into instability. The scene
+            # is decorative and irrelevant to what this test verifies.
+            browser = p.chromium.launch(
+                headless=os.getenv("CI") == "true",
+                args=["--disable-webgl", "--disable-webgl2", "--disable-gpu"],
+            )
             context = browser.new_context(permissions=["microphone"])
             page = context.new_page()
 
