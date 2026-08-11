@@ -1,6 +1,7 @@
 import unittest
 import sys
 import os
+from unittest.mock import patch
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 from main import app
@@ -11,8 +12,24 @@ from pymongo.server_api import ServerApi
 
 dotenv.load_dotenv()
 
+# All these routes are behind @requires_auth, so every request in this suite
+# needs a Bearer token and the JWKS/JWT verification underneath it mocked
+# out — there's no real Auth0 domain to hand out a token in tests.
+AUTH_HEADERS = {"Authorization": "Bearer test-token"}
+
+
 class TestMongoDB(unittest.TestCase):
     def setUp(self):
+        self._auth_patches = [
+            patch("auth.get_jwks", return_value={
+                "keys": [{"kty": "RSA", "kid": "test-kid", "use": "sig", "n": "n", "e": "AQAB"}]
+            }),
+            patch("auth.jwt.get_unverified_header", return_value={"kid": "test-kid"}),
+            patch("auth.jwt.decode", return_value={"sub": "test_user"}),
+        ]
+        for p in self._auth_patches:
+            p.start()
+
         MONGO_URI = os.getenv("MONGO_URI")
         self.client = MongoClient(MONGO_URI, server_api=ServerApi('1'))
         db = self.client["talky"]
@@ -47,6 +64,8 @@ class TestMongoDB(unittest.TestCase):
     def tearDown(self):
         self.users_collection.delete_one({"userId": self.test_user_id})
         self.client.close()
+        for p in self._auth_patches:
+            p.stop()
 
     def test_user_creation_and_retrieval(self):
         user = self.users_collection.find_one({"userId": self.test_user_id})
@@ -59,13 +78,13 @@ class TestMongoDB(unittest.TestCase):
         self.assertEqual(user['progress']['phonemeScores'][0]['avgScore'], 85)
 
     def test_get_user_progress(self):
-        response = self.flask_client.get('/api/user/progress', query_string={'user_id': self.test_user_id})
+        response = self.flask_client.get('/api/user/progress', query_string={'user_id': self.test_user_id}, headers=AUTH_HEADERS)
         self.assertEqual(response.status_code, 200)
         data = response.get_json()
         self.assertIsNotNone(data['phonemeScores'])
-    
+
     def test_get_user_level(self):
-        response = self.flask_client.get('/api/user/get_level', query_string={'user_id': self.test_user_id})
+        response = self.flask_client.get('/api/user/get_level', query_string={'user_id': self.test_user_id}, headers=AUTH_HEADERS)
         self.assertEqual(response.status_code, 200)
         data = response.get_json()
         self.assertIsNotNone(data['level'])
@@ -74,7 +93,7 @@ class TestMongoDB(unittest.TestCase):
         self.assertIsNotNone(data['level']['maxval'])
 
     def test_get_lessons(self):
-        response = self.flask_client.get('/api/user/lessons', query_string={'user_id': self.test_user_id, 'lesson_id': '1'})
+        response = self.flask_client.get('/api/user/lessons', query_string={'user_id': self.test_user_id, 'lesson_id': '1'}, headers=AUTH_HEADERS)
         self.assertEqual(response.status_code, 200)
         data = response.get_json()
         self.assertIsNotNone(data['lessons'])
@@ -85,7 +104,8 @@ class TestMongoDB(unittest.TestCase):
         
         response = self.flask_client.post('/api/user/generatenextlesson',
             json={'user_id': self.test_user_id, 'currentLessonId': max_lesson_before - 1},
-            content_type='application/json'
+            content_type='application/json',
+            headers=AUTH_HEADERS,
         )
         self.assertEqual(response.status_code, 200)
         
@@ -94,20 +114,20 @@ class TestMongoDB(unittest.TestCase):
         self.assertEqual(user_after['maxLessonId'], max_lesson_before + 1)
 
     def test_get_user_history(self):
-        response = self.flask_client.get('/api/user/history', query_string={'user_id': self.test_user_id, 'currentLessonId': '5'})
+        response = self.flask_client.get('/api/user/history', query_string={'user_id': self.test_user_id, 'currentLessonId': '5'}, headers=AUTH_HEADERS)
         data = response.get_json()
         self.assertIsNotNone(data['history'])
 
     def test_without_userid(self):
-        response = self.flask_client.get('/api/user/progress')
+        response = self.flask_client.get('/api/user/progress', headers=AUTH_HEADERS)
         self.assertEqual(response.status_code, 400)
-        response = self.flask_client.get('/api/user/get_level')
+        response = self.flask_client.get('/api/user/get_level', headers=AUTH_HEADERS)
         self.assertEqual(response.status_code, 400)
-        response = self.flask_client.get('/api/user/lessons')
+        response = self.flask_client.get('/api/user/lessons', headers=AUTH_HEADERS)
         self.assertEqual(response.status_code, 400)
-        response = self.flask_client.get('/api/user/generatenextlesson')
+        response = self.flask_client.get('/api/user/generatenextlesson', headers=AUTH_HEADERS)
         self.assertEqual(response.status_code, 400)
-    
+
     def test_update_user_progress(self):
         def r_score_entry(doc):
             return next(e for e in doc['progress']['phonemeScores'] if e['phoneme'] == 'r')
@@ -119,7 +139,7 @@ class TestMongoDB(unittest.TestCase):
             'userId': self.test_user_id,
             'addScore': 90,
             'lessonId': '2'
-        })
+        }, headers=AUTH_HEADERS)
         self.assertEqual(response.status_code, 200)
         user = self.users_collection.find_one({"userId": self.test_user_id})
         self.assertEqual(r_score_entry(user)['avgScore'], 90)

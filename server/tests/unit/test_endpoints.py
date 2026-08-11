@@ -18,6 +18,25 @@ def _mock_groq_completion(content_dict):
     return groq_client
 
 
+def _auth_patches(sub=TEST_USER_ID):
+    """Patch the JWKS fetch + JWT verification that @requires_auth relies on,
+    so protected endpoints can be exercised without a real Auth0 domain/token.
+    """
+    return (
+        patch("auth.get_jwks", return_value={
+            "keys": [{"kty": "RSA", "kid": "test-kid", "use": "sig", "n": "n", "e": "AQAB"}]
+        }),
+        patch("auth.jwt.get_unverified_header", return_value={"kid": "test-kid"}),
+        patch("auth.jwt.decode", return_value={"sub": sub}),
+    )
+
+
+def _authed_get(client, path, query_string=None):
+    p1, p2, p3 = _auth_patches()
+    with p1, p2, p3:
+        return client.get(path, query_string=query_string, headers={"Authorization": "Bearer test-token"})
+
+
 class EndpointTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -74,13 +93,13 @@ class EndpointTest(unittest.TestCase):
     def test_user_getlevel(self):
         import main
         client = main.app.test_client()
-        response = client.get('/api/user/get_level', query_string={'user_id': TEST_USER_ID})
+        response = _authed_get(client, '/api/user/get_level', query_string={'user_id': TEST_USER_ID})
         self.assertEqual(response.status_code, 200)
 
     def test_user_getprogress(self):
         import main
         client = main.app.test_client()
-        response = client.get('/api/user/progress', query_string={'user_id': TEST_USER_ID})
+        response = _authed_get(client, '/api/user/progress', query_string={'user_id': TEST_USER_ID})
         self.assertEqual(response.status_code, 200)
 
 

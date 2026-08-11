@@ -9,6 +9,10 @@ const N7 = '#15131D';
 const ACCENT = '#AC6AFF';
 const GOOD = '#7ADB78';
 
+// Precomputed once so the hearts' keys are stable slot ids, not the .map
+// index of a freshly-built array every render.
+const LIFE_SLOTS = Array.from({ length: 10 }, (_, i) => i);
+
 function wordAverageScore(returnedWord) {
   const scores = (returnedWord?.phonemes || []).map((p) => p.score).filter((s) => s != null);
   if (!scores.length) return null;
@@ -32,8 +36,8 @@ export default function LessonKidOverlay({ lives, maxLives, wordHistory, current
         position: 'absolute', top: 24, right: 24, zIndex: 30,
         display: 'flex', alignItems: 'center', gap: 6,
       }}>
-        {Array.from({ length: maxLives }).map((_, i) => (
-          <span key={i} style={{ fontSize: 26, opacity: i < lives ? 1 : 0.25 }}>❤️</span>
+        {LIFE_SLOTS.slice(0, maxLives).map((slot) => (
+          <span key={slot} style={{ fontSize: 26, opacity: slot < lives ? 1 : 0.25 }}>❤️</span>
         ))}
       </div>
 

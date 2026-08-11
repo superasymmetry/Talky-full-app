@@ -530,8 +530,11 @@ export default function Lesson() {
   const introCanLeaveRef = useRef(false);
 
   const [greetingDone, setGreetingDone] = useState(false);
+  const greetingDoneRef = useRef(false);
 
   const handleIntroGreetingDone = () => {
+    if (greetingDoneRef.current) return;
+    greetingDoneRef.current = true;
     setGreetingDone(true);
     const currentSentence = cardData?.[String(currentSentenceIndex)] || cardData?.[currentSentenceIndex] || '';
     if (!currentSentence) {
@@ -545,6 +548,20 @@ export default function Lesson() {
       introCanLeaveRef.current = true;
     });
   };
+
+  // The camera/greeting sequence above only advances once the robot's GLTF
+  // model has loaded and its animations are ready (see CameraIntro's
+  // `!actions` guard). If the model fails to load — missing asset, no WebGL,
+  // SceneErrorBoundary catching a render error — that never happens, and the
+  // lesson would otherwise be stuck showing only the intro screen forever.
+  // Fall back to unlocking the lesson UI after a short grace period so the
+  // 3D scene stays decorative, not load-bearing.
+  useEffect(() => {
+    if (showIntro) return undefined;
+    const fallback = setTimeout(() => handleIntroGreetingDone(), 4000);
+    return () => clearTimeout(fallback);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showIntro]);
 
   const [lives, setLives] = useState(LESSON_START_LIVES);
   const [runningScore, setRunningScore] = useState(0);

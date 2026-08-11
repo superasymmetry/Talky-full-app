@@ -7,7 +7,11 @@ import { useState } from 'react';
 import { VIEW_MODES } from '../viewMode/viewMode.js';
 
 const fmtPct = (v) => (v == null ? '—' : `${Math.round(v * 100)}%`);
-const fmtDelta = (v) => (v == null ? null : `${v > 0 ? '+' : ''}${v}%`);
+const fmtDelta = (v) => {
+  if (v == null) return null;
+  const sign = v > 0 ? '+' : '';
+  return `${sign}${v}%`;
+};
 
 const PROSODY_METRICS = [
   { key: 'monotony', label: 'Expression', hint: 'Pitch variation this sentence — higher is livelier, less monotone', color: '#AC6AFF' },
@@ -150,6 +154,105 @@ const StarRating = ({ stars }) => (
   </div>
 );
 
+const SummaryHeader = ({ passed, currentAttempt }) => (
+  <header className="flex flex-col gap-1">
+    <h1 className="h4 m-0">
+      {passed ? '🎉 Lesson Complete!' : '💪 Out of Attempts'}
+    </h1>
+    <p className="body-2 text-n-3">
+      {passed ? 'Nice work — here' : "You ran out of tries this time — here"}
+      {"'"}s the full breakdown of attempt #{currentAttempt.attemptNumber ?? 1}
+      {currentAttempt.phoneme ? ` for the /${currentAttempt.phoneme}/ sound` : ''}.
+    </p>
+  </header>
+);
+
+const KidSummaryView = ({ passed, currentAttempt, feedbackItems }) => (
+  <div className="flex flex-col items-center gap-4 py-6">
+    <StarRating stars={scoreToStars(currentAttempt.overallScore)} />
+    <p className="body-2 text-n-3">
+      {passed ? "You did a great job! ⭐" : "Nice try — let's practice some more! 💪"}
+    </p>
+    {feedbackItems.length > 0 && <KidFeedbackList items={feedbackItems} />}
+  </div>
+);
+
+const AttemptTabs = ({ tabs, activeTab, setActiveTab }) => {
+  if (tabs.length <= 1) return null;
+  return (
+    <div className="cut-group flex gap-1 p-1 bg-n-6 border border-n-1/10 self-start">
+      {tabs.map((t) => (
+        <button
+          key={t}
+          type="button"
+          onClick={() => setActiveTab(t)}
+          className={`cut-chip px-3 py-1.5 text-sm transition-colors ${activeTab === t ? 'bg-n-8 text-n-1' : 'text-n-3 hover:text-n-1'}`}
+        >
+          {TAB_LABELS[t]}
+        </button>
+      ))}
+    </div>
+  );
+};
+
+const TeacherSummaryView = ({ passed, currentAttempt, delta, tabs, activeTab, setActiveTab, feedbackItems, bars, activeAttempt }) => (
+  <>
+    <div className="grid gap-3 grid-cols-2 lg:grid-cols-4 shrink-0">
+      <StatTile
+        label="Overall accuracy"
+        value={fmtPct(currentAttempt.overallScore)}
+        sub={delta == null ? 'First time trying this lesson' : `${fmtDelta(delta)} vs your first attempt`}
+        accent={passed ? 'text-color-4' : 'text-color-3'}
+      />
+      <StatTile
+        label="Lives remaining"
+        value={`${currentAttempt.livesRemaining ?? 0} / ${currentAttempt.maxLives ?? 3}`}
+        sub={passed ? 'Lesson passed' : 'Lesson failed'}
+        accent={passed ? 'text-color-4' : 'text-color-3'}
+      />
+      <StatTile
+        label="Words practiced"
+        value={(currentAttempt.wordHistory || []).length}
+        sub="Attempts logged this lesson"
+        accent="text-color-1"
+      />
+      <StatTile
+        label="Sounds tracked"
+        value={(currentAttempt.phonemeStats || []).length}
+        sub="Phonemes scored this lesson"
+        accent="text-color-2"
+      />
+    </div>
+
+    <AttemptTabs tabs={tabs} activeTab={activeTab} setActiveTab={setActiveTab} />
+
+    {feedbackItems.length > 0 && <TeacherFeedbackCard items={feedbackItems} />}
+
+    <div className="grid gap-3 lg:grid-cols-2">
+      <div className="flex flex-col gap-3 min-h-0">
+        <PhonemeMastery bars={bars} />
+        <AttemptWordTabs wordHistory={activeAttempt.wordHistory} />
+      </div>
+      <div className="flex flex-col gap-3 min-h-0">
+        <ProsodyTrend prosody={activeAttempt.prosody || []} />
+      </div>
+    </div>
+  </>
+);
+
+const SummaryActions = ({ passed, onRetry, onHome }) => (
+  <div className="flex gap-3 justify-center pt-4 pb-8">
+    {!passed && (
+      <button type="button" onClick={onRetry} className="cut-chip" style={{ padding: '12px 24px', border: 'none', background: '#AC6AFF', color: '#0E0C15', fontSize: '1.1rem', fontWeight: 700, cursor: 'pointer' }}>
+        Try Lesson Again
+      </button>
+    )}
+    <button type="button" onClick={onHome} className="cut-chip" style={{ padding: '12px 24px', border: 'none', background: passed ? '#AC6AFF' : '#15131D', color: passed ? '#0E0C15' : '#FFFFFF', boxShadow: passed ? 'none' : 'inset 0 0 0 1px rgba(255,255,255,0.1)', fontSize: '1.1rem', fontWeight: 700, cursor: 'pointer' }}>
+      Back to Home
+    </button>
+  </div>
+);
+
 export default function LessonSummary({ status, currentAttempt, comparisonAttempts, viewMode, onRetry, onHome }) {
   const isKidView = viewMode === VIEW_MODES.STUDENT;
   const { first, previous } = comparisonAttempts || {};
@@ -176,93 +279,25 @@ export default function LessonSummary({ status, currentAttempt, comparisonAttemp
   return (
     <div className="bg-n-8 text-n-1" style={{ position: 'fixed', inset: 0, overflowY: 'auto' }}>
       <div className="max-w-[70rem] mx-auto px-5 lg:px-10 py-10 flex flex-col gap-4">
-        <header className="flex flex-col gap-1">
-          <h1 className="h4 m-0">
-            {passed ? '🎉 Lesson Complete!' : '💪 Out of Attempts'}
-          </h1>
-          <p className="body-2 text-n-3">
-            {passed ? 'Nice work — here' : "You ran out of tries this time — here"}
-            {"'"}s the full breakdown of attempt #{currentAttempt.attemptNumber ?? 1}
-            {currentAttempt.phoneme ? ` for the /${currentAttempt.phoneme}/ sound` : ''}.
-          </p>
-        </header>
+        <SummaryHeader passed={passed} currentAttempt={currentAttempt} />
 
         {isKidView ? (
-          <div className="flex flex-col items-center gap-4 py-6">
-            <StarRating stars={scoreToStars(currentAttempt.overallScore)} />
-            <p className="body-2 text-n-3">
-              {passed ? "You did a great job! ⭐" : "Nice try — let's practice some more! 💪"}
-            </p>
-            {feedbackItems.length > 0 && <KidFeedbackList items={feedbackItems} />}
-          </div>
+          <KidSummaryView passed={passed} currentAttempt={currentAttempt} feedbackItems={feedbackItems} />
         ) : (
-          <>
-            <div className="grid gap-3 grid-cols-2 lg:grid-cols-4 shrink-0">
-              <StatTile
-                label="Overall accuracy"
-                value={fmtPct(currentAttempt.overallScore)}
-                sub={delta == null ? 'First time trying this lesson' : `${fmtDelta(delta)} vs your first attempt`}
-                accent={passed ? 'text-color-4' : 'text-color-3'}
-              />
-              <StatTile
-                label="Lives remaining"
-                value={`${currentAttempt.livesRemaining ?? 0} / ${currentAttempt.maxLives ?? 3}`}
-                sub={passed ? 'Lesson passed' : 'Lesson failed'}
-                accent={passed ? 'text-color-4' : 'text-color-3'}
-              />
-              <StatTile
-                label="Words practiced"
-                value={(currentAttempt.wordHistory || []).length}
-                sub="Attempts logged this lesson"
-                accent="text-color-1"
-              />
-              <StatTile
-                label="Sounds tracked"
-                value={(currentAttempt.phonemeStats || []).length}
-                sub="Phonemes scored this lesson"
-                accent="text-color-2"
-              />
-            </div>
-
-            {tabs.length > 1 && (
-              <div className="cut-group flex gap-1 p-1 bg-n-6 border border-n-1/10 self-start">
-                {tabs.map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => setActiveTab(t)}
-                    className={`cut-chip px-3 py-1.5 text-sm transition-colors ${activeTab === t ? 'bg-n-8 text-n-1' : 'text-n-3 hover:text-n-1'}`}
-                  >
-                    {TAB_LABELS[t]}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {feedbackItems.length > 0 && <TeacherFeedbackCard items={feedbackItems} />}
-
-            <div className="grid gap-3 lg:grid-cols-2">
-              <div className="flex flex-col gap-3 min-h-0">
-                <PhonemeMastery bars={bars} />
-                <AttemptWordTabs wordHistory={activeAttempt.wordHistory} />
-              </div>
-              <div className="flex flex-col gap-3 min-h-0">
-                <ProsodyTrend prosody={activeAttempt.prosody || []} />
-              </div>
-            </div>
-          </>
+          <TeacherSummaryView
+            passed={passed}
+            currentAttempt={currentAttempt}
+            delta={delta}
+            tabs={tabs}
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            feedbackItems={feedbackItems}
+            bars={bars}
+            activeAttempt={activeAttempt}
+          />
         )}
 
-        <div className="flex gap-3 justify-center pt-4 pb-8">
-          {!passed && (
-            <button onClick={onRetry} className="cut-chip" style={{ padding: '12px 24px', border: 'none', background: '#AC6AFF', color: '#0E0C15', fontSize: '1.1rem', fontWeight: 700, cursor: 'pointer' }}>
-              Try Lesson Again
-            </button>
-          )}
-          <button onClick={onHome} className="cut-chip" style={{ padding: '12px 24px', border: 'none', background: passed ? '#AC6AFF' : '#15131D', color: passed ? '#0E0C15' : '#FFFFFF', boxShadow: passed ? 'none' : 'inset 0 0 0 1px rgba(255,255,255,0.1)', fontSize: '1.1rem', fontWeight: 700, cursor: 'pointer' }}>
-            Back to Home
-          </button>
-        </div>
+        <SummaryActions passed={passed} onRetry={onRetry} onHome={onHome} />
       </div>
     </div>
   );

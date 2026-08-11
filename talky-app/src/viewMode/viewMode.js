@@ -22,12 +22,12 @@ export function setViewMode(mode) {
 }
 
 export function useViewMode() {
-  const [viewMode, setViewModeState] = useState(getViewMode);
+  const [mode, setMode] = useState(getViewMode);
 
   useEffect(() => {
-    const onSameTabChange = (e) => setViewModeState(e.detail);
+    const onSameTabChange = (e) => setMode(e.detail);
     const onCrossTabChange = (e) => {
-      if (e.key === STORAGE_KEY) setViewModeState(getViewMode());
+      if (e.key === STORAGE_KEY) setMode(getViewMode());
     };
 
     window.addEventListener(VIEW_MODE_EVENT, onSameTabChange);
@@ -38,5 +38,5 @@ export function useViewMode() {
     };
   }, []);
 
-  return [viewMode, setViewMode];
+  return [mode, setViewMode];
 }

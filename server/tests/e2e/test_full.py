@@ -166,13 +166,18 @@ class TestLesson(unittest.TestCase):
                 };
             """)
 
+            # This test asserts on the numeric phoneme score tooltips, which
+            # only render in teacher view — kid view (the default, see
+            # viewMode.js) shows star ratings instead. Force teacher view via
+            # the same localStorage key the view-mode toggle writes to.
+            page.add_init_script("""
+                localStorage.setItem('talkyViewMode', 'teacher');
+            """)
+
             page.goto("http://localhost:5173/lessons/1")
             page.click("text=Start Lesson")
-            # sleep for 10 seconds
-            page.wait_for_timeout(10000)
-            # page.wait_for_selector("text=Say this sentence:")
             # Phoneme grid rendering proves the lesson data has loaded
-            # page.wait_for_selector("span[title='No score']")
+            page.wait_for_selector("text=Record", timeout=30000)
 
             page.click("text=Record")
 

@@ -8,11 +8,26 @@ import SoundBank from '../src/SoundBank/SoundBank';
 // ----------------------
 // Auth mock (stable)
 // ----------------------
+// App.jsx only fetches lessons for an authenticated user (the dashboard
+// requires login, matching the backend's requires_auth endpoints), so the
+// mock needs to look logged-in for the data-fetching tests below to see
+// any lessons at all.
+//
+// `user` and `getAccessTokenSilently` must be stable references across
+// renders — the real Auth0 SDK memoizes both, and App.jsx's data-fetching
+// effect depends on them. Returning a fresh object/function from useAuth0()
+// on every render makes those dependencies "change" every time, re-running
+// the effect after every setState it triggers and spinning into an infinite
+// render loop.
+const mockUser = { sub: 'test-user', email: 'test@example.com' };
+const getAccessTokenSilently = async () => 'test-token';
+
 vi.mock('@auth0/auth0-react', () => ({
   useAuth0: () => ({
     isLoading: false,
-    isAuthenticated: false,
-    user: null,
+    isAuthenticated: true,
+    user: mockUser,
+    getAccessTokenSilently,
   }),
 }));
 

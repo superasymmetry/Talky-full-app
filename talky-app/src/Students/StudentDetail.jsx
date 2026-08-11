@@ -94,9 +94,10 @@ function GoalPanel({ studentId, activeGoal, onChanged, authFetch }) {
       )}
 
       <div className="flex flex-col gap-2 pt-3 border-t border-n-1/10">
-        <label className="caption text-n-3">Set a new focus sound</label>
+        <label className="caption text-n-3" htmlFor="goal-phoneme-select">Set a new focus sound</label>
         <div className="flex gap-2 flex-wrap">
           <select
+            id="goal-phoneme-select"
             value={phoneme}
             onChange={(e) => setPhoneme(e.target.value)}
             className="cut-chip px-2.5 py-1.5 bg-n-6 text-n-1 border border-n-1/10 font-mono"
@@ -197,9 +198,10 @@ function AssignmentPanel({ studentId, pendingAssignedLesson, onChanged, authFetc
       )}
 
       <div className="flex flex-col gap-2 pt-3 border-t border-n-1/10">
-        <label className="caption text-n-3">Hand-pick the next lesson</label>
+        <label className="caption text-n-3" htmlFor="assignment-phoneme-select">Hand-pick the next lesson</label>
         <div className="flex gap-2 flex-wrap">
           <select
+            id="assignment-phoneme-select"
             value={phoneme}
             onChange={(e) => setPhoneme(e.target.value)}
             className="cut-chip px-2.5 py-1.5 bg-n-6 text-n-1 border border-n-1/10 font-mono"
@@ -266,7 +268,7 @@ function AttemptsPanel({ attempts, loading }) {
               {cues.length > 0 && (
                 <ul className="mt-2 flex flex-col gap-1">
                   {cues.map((c, ci) => (
-                    <li key={ci} className="caption text-n-3">
+                    <li key={`${c.word}-${ci}`} className="caption text-n-3">
                       <span className="font-mono text-n-2">{c.word}</span> — {c.tip || c.text}
                     </li>
                   ))}
@@ -277,6 +279,32 @@ function AttemptsPanel({ attempts, loading }) {
         })}
       </ul>
     </Card>
+  );
+}
+
+function NotesList({ loading, notes, onDelete }) {
+  if (loading) return <p className="body-2 text-n-3">Loading notes…</p>;
+  if (notes.length === 0) return <p className="body-2 text-n-3">No notes yet.</p>;
+
+  return (
+    <ul className="flex flex-col gap-2 divide-y divide-n-6">
+      {notes.map((n, i) => (
+        <li key={n.id} className={`flex items-start justify-between gap-3 ${i === 0 ? '' : 'pt-2'}`}>
+          <div>
+            <p className="body-2 text-n-1">{n.text}</p>
+            <p className="caption text-n-4">{fmtDateTime(n.createdAt)}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onDelete(n.id)}
+            aria-label="Delete note"
+            className="text-n-4 hover:text-color-3 shrink-0"
+          >
+            ×
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -359,30 +387,7 @@ function NotesPanel({ studentId, authFetch }) {
         </button>
       </div>
 
-      {loading ? (
-        <p className="body-2 text-n-3">Loading notes…</p>
-      ) : notes.length === 0 ? (
-        <p className="body-2 text-n-3">No notes yet.</p>
-      ) : (
-        <ul className="flex flex-col gap-2 divide-y divide-n-6">
-          {notes.map((n, i) => (
-            <li key={n.id} className={`flex items-start justify-between gap-3 ${i === 0 ? '' : 'pt-2'}`}>
-              <div>
-                <p className="body-2 text-n-1">{n.text}</p>
-                <p className="caption text-n-4">{fmtDateTime(n.createdAt)}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => handleDelete(n.id)}
-                aria-label="Delete note"
-                className="text-n-4 hover:text-color-3 shrink-0"
-              >
-                ×
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      <NotesList loading={loading} notes={notes} onDelete={handleDelete} />
     </Card>
   );
 }

@@ -4,7 +4,7 @@ export function makeAuthFetch(getAccessTokenSilently) {
     const headers = {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
-      ...(options.headers || {}),
+      ...options.headers,
     };
     return fetch(url, { ...options, headers });
   };

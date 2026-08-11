@@ -140,11 +140,11 @@ export const Heatmap = ({ columns }) => {
           </div>
 
           <div className="grid gap-1" style={gridColumns}>
-            {columns.map((week, w) => (
-              <div key={w} className="grid grid-rows-7 gap-1">
+            {columns.map((week) => (
+              <div key={week.find((cell) => cell)?.date ?? `empty-week-${columns.indexOf(week)}`} className="grid grid-rows-7 gap-1">
                 {week.map((cell, d) =>
                   cell === null ? (
-                    <div key={`pad-${w}-${d}`} className="aspect-square" aria-hidden />
+                    <div key={`pad-${d}`} className="aspect-square" aria-hidden />
                   ) : (
                     <div
                       key={cell.date}

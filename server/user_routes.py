@@ -7,17 +7,23 @@ from groq import Groq
 from auth import requires_auth
 from access import _require_role, _authorize_student_access, _require_teacher_of
 import os
-import random
 import secrets
 import string
 
 user_bp = Blueprint("user_bp", __name__)
 
 USER_ID_REQUIRED = "user_id is required"
+NOT_AUTHORIZED_FOR_USER = "Not authorized for this user"
 
 VALID_ROLES = {"Student", "Teacher"}
 
 CONNECT_CODE_ALPHABET = string.ascii_uppercase + string.digits
+
+# Word picks below don't need to be unpredictable in any security sense —
+# secrets.SystemRandom just avoids flagging the stdlib `random` module
+# (seeded, not cryptographically safe) as a security hotspot for a spot it's
+# not actually used securely from.
+_rng = secrets.SystemRandom()
 
 MAX_SEARCH_RESULTS = 50
 
@@ -291,7 +297,7 @@ def game_state():
     if not user_id:
         return jsonify({"error": USER_ID_REQUIRED}), 400
     if g.current_user.get("sub") != user_id:
-        return jsonify({"message": "Not authorized for this user"}), 403
+        return jsonify({"message": NOT_AUTHORIZED_FOR_USER}), 403
 
     now = datetime.now(timezone.utc)
     user = users_collection.find_one({"userId": user_id}, {"gameState": 1, "_id": 0})
@@ -337,6 +343,34 @@ def game_state():
     return jsonify({"gameState": next_state})
 
 
+def _weakest_phoneme(phoneme_scores):
+    '''The never-yet-scored phoneme if there is one, else the lowest-avgScore one.'''
+    lowest = float('inf')
+    phoneme = 'r'
+    for phoneme_object in phoneme_scores:
+        if not phoneme_object['avgScore']:
+            return phoneme_object['phoneme']
+        if phoneme_object['avgScore'] < lowest:
+            lowest = phoneme_object['avgScore']
+            phoneme = phoneme_object['phoneme']
+    return phoneme
+
+
+def _pick_next_lesson_phoneme_and_words(user):
+    '''Returns (phoneme, words, consumed_assignment) for the next auto-generated lesson.'''
+    pending = user.get("pendingAssignedLesson")
+    if pending:
+        # Teacher hand-picked the exact phoneme + words for this one lesson.
+        return pending["phoneme"], pending["words"], True
+
+    active_goal = user.get("activeGoal")
+    # Standing teacher-set focus phoneme overrides auto weakest-phoneme
+    # selection until the teacher clears/changes it.
+    phoneme = active_goal["phoneme"] if active_goal else _weakest_phoneme(user['progress']['phonemeScores'])
+    words = _rng.sample(phoneme_word_bank.get(phoneme, ["practice", "word"]), k=2)
+    return phoneme, words, False
+
+
 @user_bp.route('/api/user/generatenextlesson', methods=['GET', 'POST'])
 @requires_auth
 def generatenextlesson():
@@ -346,7 +380,7 @@ def generatenextlesson():
     if not user_id:
         return jsonify({"error": USER_ID_REQUIRED}), 400
     if g.current_user.get("sub") != user_id:
-        return jsonify({"message": "Not authorized for this user"}), 403
+        return jsonify({"message": NOT_AUTHORIZED_FOR_USER}), 403
 
     user = users_collection.find_one({"userId": user_id})
     if not user:
@@ -355,62 +389,36 @@ def generatenextlesson():
 
     if not (currentLessonId == maxLessonId - 1):
         return jsonify({"message": "Not eligible for new lesson yet"}), 400
-    else:
-        next_lesson_id = str(maxLessonId + 1)
 
-        pending = user.get("pendingAssignedLesson")
-        active_goal = user.get("activeGoal")
-        consumed_assignment = False
+    next_lesson_id = str(maxLessonId + 1)
+    phoneme, words, consumed_assignment = _pick_next_lesson_phoneme_and_words(user)
 
-        if pending:
-            # Teacher hand-picked the exact phoneme + words for this one lesson.
-            phoneme = pending["phoneme"]
-            words = pending["words"]
-            consumed_assignment = True
-        elif active_goal:
-            # Standing teacher-set focus phoneme overrides auto weakest-phoneme
-            # selection until the teacher clears/changes it.
-            phoneme = active_goal["phoneme"]
-            words = random.sample(phoneme_word_bank.get(phoneme, ["practice", "word"]), k=2)
-        else:
-            ps = user['progress']['phonemeScores']
-            lowest = float('inf')
-            phoneme = 'r'
-            for phoneme_object in ps:
-                if not phoneme_object['avgScore']:
-                    phoneme = phoneme_object['phoneme']
-                    break
-                if phoneme_object['avgScore'] < lowest:
-                    lowest = phoneme_object['avgScore']
-                    phoneme = phoneme_object['phoneme']
-            words = random.sample(phoneme_word_bank.get(phoneme, ["practice", "word"]), k=2)
+    new_lesson = {
+        "id": next_lesson_id,
+        "phoneme": phoneme,
+        "words": words,
+        "score": 0,
+    }
 
-        new_lesson = {
-            "id": next_lesson_id,
-            "phoneme": phoneme,
-            "words": words,
-            "score": 0,
-        }
+    update = {
+        "$push": {"lessons": new_lesson},
+        "$set": {"maxLessonId": maxLessonId + 1},
+    }
+    if consumed_assignment:
+        update["$unset"] = {"pendingAssignedLesson": ""}
 
-        update = {
-            "$push": {"lessons": new_lesson},
-            "$set": {"maxLessonId": maxLessonId + 1},
-        }
-        if consumed_assignment:
-            update["$unset"] = {"pendingAssignedLesson": ""}
-
-        # Append with $push instead of writing to a computed
-        # `lessons.{next_lesson_id}` path. That path treated the lesson's id
-        # (1-based: "5", "6", ...) as a raw array index into a 0-based list,
-        # so it wrote the new lesson one slot past where it needed to be —
-        # e.g. with 4 existing lessons at positions 0-3, `lessons.5` set
-        # position 5 and left position 4 as a null gap. That gap is exactly
-        # what made every later lesson (and its intro video, which shares
-        # the same lookup) resolve to the WRONG lesson's content. $push
-        # always appends at the true next position, so id and position stay
-        # in sync (id = position + 1) going forward.
-        users_collection.update_one({"userId": user_id}, update)
-        return jsonify({f"lessons.{next_lesson_id}": new_lesson}), 200
+    # Append with $push instead of writing to a computed
+    # `lessons.{next_lesson_id}` path. That path treated the lesson's id
+    # (1-based: "5", "6", ...) as a raw array index into a 0-based list,
+    # so it wrote the new lesson one slot past where it needed to be —
+    # e.g. with 4 existing lessons at positions 0-3, `lessons.5` set
+    # position 5 and left position 4 as a null gap. That gap is exactly
+    # what made every later lesson (and its intro video, which shares
+    # the same lookup) resolve to the WRONG lesson's content. $push
+    # always appends at the true next position, so id and position stay
+    # in sync (id = position + 1) going forward.
+    users_collection.update_one({"userId": user_id}, update)
+    return jsonify({f"lessons.{next_lesson_id}": new_lesson}), 200
 
 @user_bp.route("/api/getUserProfile", methods=["GET"])
 @requires_auth
@@ -876,7 +884,7 @@ def update_user_progress():
     data = request.get_json() or {}
     user_id = data.get("userId")
     if g.current_user.get("sub") != user_id:
-        return jsonify({"message": "Not authorized for this user"}), 403
+        return jsonify({"message": NOT_AUTHORIZED_FOR_USER}), 403
     # lessons[].id is stored as a string ("1", "2", ...), but the frontend
     # sends lessonId parsed as an int — normalize here so both the dict
     # lookup below and the "lessons.id" Mongo query match instead of
