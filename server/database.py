@@ -10,10 +10,19 @@ client = MongoClient(MONGO_URI, server_api=ServerApi('1'))
 db = client["talky"]
 users_collection = db["users"]
 phoneme_video_cache = db["phoneme_video_cache"]
+lesson_attempts_collection = db["lesson_attempts"]
+teacher_notes_collection = db["teacher_notes"]
 
 users_collection.create_index("userId", unique=True)
 
 phoneme_video_cache.create_index("phoneme", unique=True)
+
+lesson_attempts_collection.create_index(
+    [("userId", 1), ("lessonId", 1), ("attemptNumber", 1)], unique=True
+)
+lesson_attempts_collection.create_index([("userId", 1), ("createdAt", -1)])
+
+teacher_notes_collection.create_index([("studentId", 1), ("createdAt", -1)])
 
 try:
     client.admin.command('ping')

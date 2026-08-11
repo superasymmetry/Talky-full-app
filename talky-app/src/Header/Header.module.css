@@ -108,9 +108,31 @@
 
 .actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 0.75rem;
   width: 12rem;
   flex-shrink: 0;
+}
+
+.viewToggle {
+  color: #fff;
+  text-transform: uppercase;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  line-height: 1;
+  white-space: nowrap;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid #fff;
+  background: transparent;
+  cursor: pointer;
+  transition: opacity 200ms linear, background 200ms linear;
+}
+
+.viewToggle:hover {
+  opacity: 0.75;
 }
 
 @media (max-width: 768px) {

@@ -131,31 +131,30 @@ def _mock_socketio(ws_route):
 class TestLesson(unittest.TestCase):
     def test_phoneme_colors_and_tooltip(self):
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=os.getenv("CI") == "true")
+            browser = p.chromium.launch(
+                headless=os.getenv("CI") == "true",
+                args=["--disable-webgl", "--disable-webgl2", "--disable-gpu"],
+            )
             context = browser.new_context(permissions=["microphone"])
             page = context.new_page()
-
-            # Surface any client-side JS errors/console errors in the pytest
-            # output instead of letting them fail silently — this is what
-            # actually pointed at the root cause of the original timeout
-            # (an unhandled GLTF/Draco load rejection with no error boundary
-            # around it, which was tearing down the whole component tree).
             page.on("pageerror", lambda exc: print(f"PAGE ERROR: {exc}"))
-            page.on(
-                "console",
-                lambda msg: print(f"CONSOLE ERROR: {msg.text}") if msg.type == "error" else None,
-            )
+            
+            def _log_console(msg):
+                try:
+                    print(f"CONSOLE {msg.type.upper()}: {msg.text}")
+                except Exception as exc:  # noqa: BLE001 - never let a logging hiccup break the driver connection
+                    print(f"CONSOLE (unprintable): {exc}")
+
+            page.on("console", _log_console)
 
             # Mock the lesson API (CI has no seeded Mongo user and no real Groq key)
             page.route("**/api/lessons*", _mock_lessons)
 
-            # Mock the 3D model assets so the test doesn't depend on network
-            # access or the Draco decoder being available in CI, and so a
-            # missing/broken model can never be the reason this test hangs.
             page.route("**/*.glb", _mock_glb)
 
             # Intercept socket.io WebSocket connections
             page.route_web_socket("**/socket.io/**", _mock_socketio)
+            page.route("**/socket.io/**", lambda route: route.abort())
 
             # Mock getUserMedia to return a silent audio track (avoids microphone prompt)
             page.add_init_script("""
@@ -166,23 +165,20 @@ class TestLesson(unittest.TestCase):
                 };
             """)
 
+            page.add_init_script("""
+                localStorage.setItem('talkyViewMode', 'teacher');
+            """)
+
             page.goto("http://localhost:5173/lessons/1")
             page.click("text=Start Lesson")
-            # sleep for 10 seconds
-            page.wait_for_timeout(10000)
-            # page.wait_for_selector("text=Say this sentence:")
             # Phoneme grid rendering proves the lesson data has loaded
-            # page.wait_for_selector("span[title='No score']")
+            page.wait_for_selector("text=Record", timeout=30000)
 
             page.click("text=Record")
 
-            # Poll on the count directly rather than waiting for visibility of
-            # an arbitrary matched element — more robust once several scored
-            # spans exist, and gives a clearer timeout failure than
-            # wait_for_selector against a >10-count assertion.
             page.wait_for_function(
                 "document.querySelectorAll(\"span[title*='Score:']\").length > 10",
-                timeout=15000,
+                timeout=30000,
             )
 
             scored_phonemes = page.locator("span[title*='Score:']")

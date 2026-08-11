@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react'
 import Header from '../Header/Header';
 import talkyRocket from '../assets/logo.png';
 import { useAuth0 } from '@auth0/auth0-react';
+import { Link } from 'react-router-dom';
 
 const styleId = 'talky-profile-styles';
 if (typeof document !== 'undefined' && !document.getElementById(styleId)) {
@@ -517,11 +518,16 @@ const Profile = () => {
                       No students yet — search below to add some.
                     </p>
                   ) : students.map((s) => (
-                    <div key={s.userId} style={{
-                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                      padding: '0.75rem 0.9rem', borderRadius: '0.6rem',
-                      backgroundColor: '#171c3a', border: '1px solid rgba(255,255,255,0.06)',
-                    }}>
+                    <Link
+                      key={s.userId}
+                      to={`/students/${s.userId}`}
+                      style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: '0.75rem 0.9rem', borderRadius: '0.6rem', textDecoration: 'none',
+                        backgroundColor: '#171c3a', border: '1px solid rgba(255,255,255,0.06)',
+                        cursor: 'pointer',
+                      }}
+                    >
                       <div>
                         <div style={{ color: '#f1f5f9', fontWeight: 600, fontSize: '0.95rem' }}>
                           {s.nickname || s.name || 'Unnamed'}
@@ -533,7 +539,7 @@ const Profile = () => {
                         </div>
                       </div>
                       <button
-                        onClick={() => handleRemoveStudent(s.userId)}
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleRemoveStudent(s.userId); }}
                         className="talky-remove-btn"
                         style={{
                           background: 'none', border: 'none', color: '#6b7194',
@@ -543,7 +549,7 @@ const Profile = () => {
                       >
                         ×
                       </button>
-                    </div>
+                    </Link>
                   ))}
                 </div>
 

@@ -2,10 +2,9 @@ import numpy as np
 
 from prosody_eval import evaluate_prosody
 
-# Pairs of phonemes treated as equivalent during matching (source → target).
-# ɔ→ɑ: the TIMIT vocab has no ɔ (cot–caught merger); ʒ→ʃ: voicing pair,
-# like v→f, and the vocab has no ʒ.
-_NORM_MAP = [("ɹ", "r"), ("ʌ", "ə"), ("v", "f"), ("ɔ", "ɑ"), ("ʒ", "ʃ")]
+_NORM_MAP = [("ɹ", "r"), ("ʌ", "ə"), ("v", "f"), ("ɔ", "ɑ"), ("ʒ", "ʃ"), ("ɚ", "ɝ")]
+
+R_COLORED_VOWEL = "ɝ"
 
 
 def normalize(phoneme):
@@ -135,9 +134,12 @@ def stream_decode_logits(logits_chunks, reference_phonemes, tokenizer):
                             }
                     pointer += best_skip
 
-        for j, (fi, p, lv) in enumerate(zip(chunk_frames, chunk_phonemes, phoneme_logits)):
+        j = 0
+        while j < len(chunk_phonemes):
+            fi, p, lv = chunk_frames[j], chunk_phonemes[j], phoneme_logits[j]
             if pointer >= len(reference_phonemes):
                 # print(f"  [insertion] {p!r}: {lv:.4f}", flush=True)
+                j += 1
                 continue
             target_p = normalize(reference_phonemes[pointer])
             target_ids = norm2ids.get(target_p, [])
@@ -145,6 +147,48 @@ def stream_decode_logits(logits_chunks, reference_phonemes, tokenizer):
                             default=float("nan"))
             top3_ids = set(logits_np[fi].argsort()[-3:].tolist())
             target_in_top3 = any(t in top3_ids for t in target_ids)
+
+            # Decoded ɝ standing in for a reference vowel immediately
+            # followed by "r" — credit both reference positions from this
+            # one frame instead of leaving the "r" as an omission.
+            if (p == R_COLORED_VOWEL and target_p != R_COLORED_VOWEL
+                    and pointer + 1 < len(reference_phonemes)
+                    and normalize(reference_phonemes[pointer + 1]) == "r"):
+                for ref_pos in (pointer, pointer + 1):
+                    yield {
+                        "phoneme": reference_phonemes[ref_pos],
+                        "position": ref_pos,
+                        "label": "correct",
+                        "decoded": p,
+                        "target_logit": target_lv,
+                        "decoded_logit": float(lv),
+                        "gop": 1.0,
+                        "score": 1.0,
+                    }
+                pointer += 2
+                j += 1
+                continue
+
+            # Reverse: reference ɝ decoded as a split vowel + "r" — credit
+            # the reference position once and absorb the following "r"
+            # frame instead of matching (and penalizing) it against
+            # whatever comes next in the reference.
+            if (target_p == R_COLORED_VOWEL and p != R_COLORED_VOWEL
+                    and j + 1 < len(chunk_phonemes) and chunk_phonemes[j + 1] == "r"):
+                yield {
+                    "phoneme": reference_phonemes[pointer],
+                    "position": pointer,
+                    "label": "correct",
+                    "decoded": p,
+                    "target_logit": target_lv,
+                    "decoded_logit": float(lv),
+                    "gop": 1.0,
+                    "score": 1.0,
+                }
+                pointer += 1
+                j += 2
+                continue
+
             if p == target_p or (target_ids and target_lv > logit_threshold) or target_in_top3:
                 label = "correct"
                 pos = pointer
@@ -215,6 +259,7 @@ def stream_decode_logits(logits_chunks, reference_phonemes, tokenizer):
                     "gop": gop,
                     "score": score,
                 }
+            j += 1
 
 
 def prosody_event(audio, text, sample_rate=16000):

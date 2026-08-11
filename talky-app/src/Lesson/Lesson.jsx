@@ -10,10 +10,14 @@ import { speakText, stopSpeech } from '../tts.js';
 import toast, { Toaster } from 'react-hot-toast';
 
 import Back from './Back.jsx';
+import LessonKidOverlay from './LessonKidOverlay.jsx';
+import LessonSummary from './LessonSummary.jsx';
+import { VIEW_MODES, useViewMode } from '../viewMode/viewMode.js';
 import { Waveform } from 'ldrs/react'
 import { io } from 'socket.io-client';
 import { useAuth0 } from '@auth0/auth0-react';
 import { useMatch } from 'react-router-dom';
+import { makeAuthFetch } from '../utils/authFetch.js';
 
 useGLTF.preload('/robot-draco.glb')
 useGLTF.preload('/seagull-2.glb')
@@ -31,22 +35,6 @@ function extractWordScores(res) {
     const avg = valid.length ? valid.reduce((a, b) => a + b, 0) / valid.length : 0;
     return { word, score: avg, timestamp: now };
   });
-}
-
-function summarizePhonemeDeltas(phonemeStats) {
-  const entries = Object.entries(phonemeStats)
-    .filter(([, v]) => v.deltas && v.deltas.length > 0)
-    .map(([phoneme, v]) => ({
-      phoneme,
-      avgDelta: v.deltas.reduce((a, b) => a + b, 0) / v.deltas.length,
-    }));
-  const improved = entries
-    .filter(e => e.avgDelta > PHONEME_TREND_MARGIN)
-    .sort((a, b) => b.avgDelta - a.avgDelta);
-  const needsWork = entries
-    .filter(e => e.avgDelta < -PHONEME_TREND_MARGIN)
-    .sort((a, b) => a.avgDelta - b.avgDelta);
-  return { improved, needsWork };
 }
 
 async function resampleTo16k(float32Array, fromSampleRate) {
@@ -490,8 +478,10 @@ const buildEmbedUrl = (videoId, startSeconds) => {
 
 export default function Lesson() {
   const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
-  const { user, isAuthenticated, isLoading: authLoading } = useAuth0();
+  const { user, isAuthenticated, isLoading: authLoading, getAccessTokenSilently } = useAuth0();
   const userId = isAuthenticated && user ? (user.sub || user.email) : 'demo';
+  const authFetch = useMemo(() => makeAuthFetch(getAccessTokenSilently), [getAccessTokenSilently]);
+  const [viewMode] = useViewMode();
 
   const [nextHover, setNextHover] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
@@ -540,8 +530,11 @@ export default function Lesson() {
   const introCanLeaveRef = useRef(false);
 
   const [greetingDone, setGreetingDone] = useState(false);
+  const greetingDoneRef = useRef(false);
 
   const handleIntroGreetingDone = () => {
+    if (greetingDoneRef.current) return;
+    greetingDoneRef.current = true;
     setGreetingDone(true);
     const currentSentence = cardData?.[String(currentSentenceIndex)] || cardData?.[currentSentenceIndex] || '';
     if (!currentSentence) {
@@ -556,6 +549,20 @@ export default function Lesson() {
     });
   };
 
+  // The camera/greeting sequence above only advances once the robot's GLTF
+  // model has loaded and its animations are ready (see CameraIntro's
+  // `!actions` guard). If the model fails to load — missing asset, no WebGL,
+  // SceneErrorBoundary catching a render error — that never happens, and the
+  // lesson would otherwise be stuck showing only the intro screen forever.
+  // Fall back to unlocking the lesson UI after a short grace period so the
+  // 3D scene stays decorative, not load-bearing.
+  useEffect(() => {
+    if (showIntro) return undefined;
+    const fallback = setTimeout(() => handleIntroGreetingDone(), 4000);
+    return () => clearTimeout(fallback);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showIntro]);
+
   const [lives, setLives] = useState(LESSON_START_LIVES);
   const [runningScore, setRunningScore] = useState(0);
   const [phonemeStats, setPhonemeStats] = useState({});
@@ -564,6 +571,87 @@ export default function Lesson() {
   const allWordScoresRef = useRef([]);
   const lessonFailedRef = useRef(false);
   const sentenceStrikeAppliedRef = useRef(false);
+
+  const phonemeStatsRef = useRef({});
+  const wordHistoryRef = useRef([]);
+  const wordResultsRef = useRef([]);
+  const sentenceResultsRef = useRef([]);
+  const prosodyHistoryRef = useRef([]);
+  const feedbackHistoryRef = useRef([]);
+  const currentSentenceIndexRef = useRef(1);
+  const attemptSavedRef = useRef(false);
+  const liveSnapshotRef = useRef(null);
+  const targetPhonemeRef = useRef(null);
+  const cardDataRef = useRef(null);
+  const livesRef = useRef(LESSON_START_LIVES);
+  const [thisAttempt, setThisAttempt] = useState(null);
+  const [comparisonAttempts, setComparisonAttempts] = useState({ first: null, previous: null });
+
+  useEffect(() => { targetPhonemeRef.current = targetPhoneme; }, [targetPhoneme]);
+  useEffect(() => { cardDataRef.current = cardData; }, [cardData]);
+  useEffect(() => { livesRef.current = lives; }, [lives]);
+
+  const buildAttemptPayload = (status, livesOverride) => {
+    const scores = allWordScoresRef.current;
+    const overallScore = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+    const phonemeStatsArr = Object.entries(phonemeStatsRef.current).map(([phoneme, v]) => ({
+      phoneme,
+      scores: v.scores,
+      deltas: v.deltas,
+    }));
+
+    let sentenceResults = sentenceResultsRef.current;
+    const idx = currentSentenceIndexRef.current;
+    if (status === 'failed' && wordResultsRef.current.some(Boolean)
+        && !sentenceResults.some(s => s.sentenceIndex === idx)) {
+      sentenceResults = [
+        ...sentenceResults,
+        {
+          sentenceIndex: idx,
+          sentence: cardDataRef.current?.[idx.toString()] || '',
+          partial: true,
+          words: wordResultsRef.current.filter(Boolean),
+        },
+      ];
+    }
+
+    return {
+      userId,
+      lessonId,
+      phoneme: targetPhonemeRef.current,
+      status,
+      overallScore,
+      livesRemaining: livesOverride ?? livesRef.current,
+      maxLives: LESSON_START_LIVES,
+      wordHistory: wordHistoryRef.current,
+      phonemeStats: phonemeStatsArr,
+      sentenceResults,
+      prosody: prosodyHistoryRef.current,
+      feedbackHistory: feedbackHistoryRef.current,
+    };
+  };
+
+  const saveLessonAttempt = async (status, livesOverride) => {
+    if (attemptSavedRef.current) return;
+    attemptSavedRef.current = true;
+    const payload = buildAttemptPayload(status, livesOverride);
+    liveSnapshotRef.current = payload;
+    try {
+      const res = await authFetch(`${API_BASE}/api/user/lessonAttempts`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      const saved = await res.json();
+      setThisAttempt(saved);
+      if (saved.attemptNumber > 1) {
+        const q = new URLSearchParams({ userId, lessonId, before: String(saved.attemptNumber) });
+        const cmp = await authFetch(`${API_BASE}/api/user/lessonAttempts?${q}`).then(r => r.json());
+        setComparisonAttempts(cmp);
+      }
+    } catch (err) {
+      console.error('Failed to save lesson attempt:', err);
+    }
+  };
 
   const socketRef = useRef(null);
   const audioContextRef = useRef(null);
@@ -599,6 +687,7 @@ export default function Lesson() {
       setWordResults(prev => {
         const next = [...prev];
         next[data.word_index] = { word: data.word, phonemes: data.phonemes };
+        wordResultsRef.current = next;
         return next;
       });
 
@@ -617,7 +706,11 @@ export default function Lesson() {
       const scores = allWordScoresRef.current;
       setRunningScore(scores.reduce((a, b) => a + b, 0) / scores.length);
 
-      setWordHistory(prev => [...prev, { word: data.word, score: data.score }]);
+      setWordHistory(prev => {
+        const next = [...prev, { word: data.word, score: data.score, timestamp: new Date().toISOString() }];
+        wordHistoryRef.current = next;
+        return next;
+      });
 
       if (data.phoneme_deltas && data.phoneme_deltas.length) {
         setPhonemeStats(prev => {
@@ -630,6 +723,7 @@ export default function Lesson() {
               : [...existing.deltas, pd.delta];
             next[pd.phoneme] = { scores: scores2, deltas: deltas2 };
           });
+          phonemeStatsRef.current = next;
           return next;
         });
       }
@@ -643,6 +737,7 @@ export default function Lesson() {
             socketRef.current?.emit('stop');
             stopRecording();
             setLessonFailed(true);
+            saveLessonAttempt('failed', next);
             setTimeout(() => socketRef.current?.disconnect(), 150);
           }
           return next;
@@ -657,6 +752,10 @@ export default function Lesson() {
 
     socket.on('prosody', (data) => {
       setProsody(data);
+      prosodyHistoryRef.current = [
+        ...prosodyHistoryRef.current,
+        { sentenceIndex: currentSentenceIndexRef.current, ...data },
+      ];
       if (prosodyTimeoutRef.current) {
         clearTimeout(prosodyTimeoutRef.current);
         prosodyTimeoutRef.current = null;
@@ -772,6 +871,10 @@ export default function Lesson() {
   }, [authLoading, userId, lessonId, API_BASE]);
 
   useEffect(() => {
+    currentSentenceIndexRef.current = currentSentenceIndex;
+  }, [currentSentenceIndex]);
+
+  useEffect(() => {
     if (wordsToIPA && currentSentenceIndex > 0) {
       const words = wordsToIPA[currentSentenceIndex - 1] || null;
       setCurrentWordsToIPA(words);
@@ -826,6 +929,15 @@ export default function Lesson() {
       if (sentencePassedRef.current) return;
       sentencePassedRef.current = true;
       wordScoresRef.current.push(...extractWordScores(data.res));
+      sentenceResultsRef.current = [
+        ...sentenceResultsRef.current,
+        {
+          sentenceIndex: currentSentenceIndexRef.current,
+          sentence: cardData?.[currentSentenceIndexRef.current.toString()] || '',
+          partial: false,
+          words: data.res || [],
+        },
+      ];
       actions?.ThumbsUp?.play?.();
       speakSentence("Great job!");
       setScore(s => (s ?? 0) + data.score);
@@ -842,6 +954,17 @@ export default function Lesson() {
       const feedbackMsg = String(data.feedback || 'No, try again.');
       setFeedbackText(feedbackMsg);
       speakSentence(feedbackMsg);
+      if (data.feedback_detail?.phoneme) {
+        feedbackHistoryRef.current = [
+          ...feedbackHistoryRef.current,
+          {
+            ...data.feedback_detail,
+            sentenceIndex: currentSentenceIndexRef.current,
+            sentence: cardDataRef.current?.[currentSentenceIndexRef.current.toString()] || '',
+            timestamp: new Date().toISOString(),
+          },
+        ];
+      }
     }
   };
 
@@ -997,10 +1120,10 @@ export default function Lesson() {
       }
       setIsFinished(true);
       const currentLessonId = parseInt(window.location.pathname.split('/').pop());
+      saveLessonAttempt('completed');
 
-      fetch(`${API_BASE}/api/user/updateUserProgress`, {
+      authFetch(`${API_BASE}/api/user/updateUserProgress`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId: userId,
           lessonId: currentLessonId,
@@ -1010,9 +1133,8 @@ export default function Lesson() {
       }).catch(err => console.error('Failed to update user progress:', err));
 
       try {
-        await fetch(`${API_BASE}/api/user/generatenextlesson`, {
+        await authFetch(`${API_BASE}/api/user/generatenextlesson`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ user_id: userId, currentLessonId: currentLessonId }),
         });
       } catch (err) {
@@ -1090,69 +1212,16 @@ export default function Lesson() {
     );
   }
 
-  if (lessonFailed) {
-    const { needsWork } = summarizePhonemeDeltas(phonemeStats);
+  if (lessonFailed || isFinished) {
     return (
-      <div style={screenStyle}>
-        <div>
-          <h1 style={{ fontSize: '3rem', marginBottom: '1rem', color: BAD }}>Out of Attempts</h1>
-          <p style={{ fontSize: '1.2rem', marginBottom: '0.5rem' }}>
-            You ran out of tries for this lesson — accuracy was {Math.round((runningScore || 0) * 100)}%.
-          </p>
-          {needsWork.length > 0 && (
-            <p style={{ fontSize: '1rem', marginBottom: '2rem', color: N3 }}>
-              Sounds to practice: {needsWork.map(n => n.phoneme).join(', ')}
-            </p>
-          )}
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
-            <button
-              onClick={() => window.location.reload()}
-              className="cut-chip"
-              style={buttonStyle()}
-            >
-              Try Lesson Again
-            </button>
-            <button
-              onClick={() => window.location.href = '/app'}
-              className="cut-chip"
-              style={buttonStyle('ghost')}
-            >
-              Back to Home
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (isFinished) {
-    const { improved, needsWork } = summarizePhonemeDeltas(phonemeStats);
-    return (
-      <div style={screenStyle}>
-        <div>
-          <h1 style={{ fontSize: '3rem', marginBottom: '1rem' }}>🎉 Lesson Complete!</h1>
-          <p style={{ fontSize: '1.2rem', marginBottom: '0.5rem' }}>
-            Overall accuracy: {Math.round((runningScore || 0) * 100)}%
-          </p>
-          {improved.length > 0 && (
-            <p style={{ fontSize: '1rem', marginBottom: '0.25rem', color: GOOD }}>
-              Most improved: {improved.map(i => i.phoneme).join(', ')}
-            </p>
-          )}
-          {needsWork.length > 0 && (
-            <p style={{ fontSize: '1rem', marginBottom: '1.5rem', color: N3 }}>
-              Keep practicing: {needsWork.map(i => i.phoneme).join(', ')}
-            </p>
-          )}
-          <button
-            onClick={() => window.location.href = '/app'}
-            className="cut-chip"
-            style={buttonStyle()}
-          >
-            Back to Home
-          </button>
-        </div>
-      </div>
+      <LessonSummary
+        status={lessonFailed ? 'failed' : 'completed'}
+        currentAttempt={thisAttempt || liveSnapshotRef.current}
+        comparisonAttempts={comparisonAttempts}
+        viewMode={viewMode}
+        onRetry={() => window.location.reload()}
+        onHome={() => window.location.href = '/app'}
+      />
     );
   }
 
@@ -1227,13 +1296,15 @@ export default function Lesson() {
       </CanvasErrorBoundary>
 
       <Back />
-      <PerformanceTracker
-        lives={lives}
-        maxLives={LESSON_START_LIVES}
-        runningScore={runningScore}
-        phonemeStats={phonemeStats}
-        wordHistory={wordHistory}
-      />
+      {viewMode === VIEW_MODES.TEACHER && (
+        <PerformanceTracker
+          lives={lives}
+          maxLives={LESSON_START_LIVES}
+          runningScore={runningScore}
+          phonemeStats={phonemeStats}
+          wordHistory={wordHistory}
+        />
+      )}
       <div
         style={{
           position: 'absolute',
@@ -1337,7 +1408,18 @@ export default function Lesson() {
         `}</style>
       </div>
 
-      {greetingDone && (
+      {greetingDone && viewMode === VIEW_MODES.STUDENT && (
+        <LessonKidOverlay
+          lives={lives}
+          maxLives={LESSON_START_LIVES}
+          wordHistory={wordHistory}
+          currentWordsToIPA={currentWordsToIPA}
+          wordResults={wordResults}
+          sentenceText={cardData ? cardData[currentSentenceIndex.toString()] : null}
+        />
+      )}
+
+      {greetingDone && viewMode === VIEW_MODES.TEACHER && (
       <div
         className="cut-card"
         style={{

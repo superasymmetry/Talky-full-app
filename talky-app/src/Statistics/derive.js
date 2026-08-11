@@ -1,11 +1,29 @@
-export const HEATMAP_DAYS = 91;
+export const HEATMAP_WEEKS = 26;
+export const HEATMAP_MONTHS = 6;
+export const HEATMAP_DAYS = HEATMAP_WEEKS * 7;
 export const WORD_LIST_LIMIT = 5;
 export const RECENT_LIMIT = 10;
 export const MIN_ATTEMPTS_FOR_RANKING = 2;
 
 const MS_PER_DAY = 86_400_000;
-const dayKey = (iso) => iso.slice(0, 10);
-const daysBetween = (a, b) => Math.floor((a - b) / MS_PER_DAY);
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+const pad2 = (n) => String(n).padStart(2, '0');
+
+/* Day keys are local dates, not UTC slices — a lesson at 8pm should land on the
+   day the user practised, not on tomorrow's cell west of Greenwich. */
+const ymd = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+const fromKey = (key) => {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d);
+};
+
+const dayKey = (value) => (
+  typeof value === 'string' && value.length === 10 ? value : ymd(new Date(value))
+);
+const daysBetween = (a, b) => Math.round((a - b) / MS_PER_DAY);
 
 const stamped = (history) => history.filter((h) => h?.timestamp);
 
@@ -17,35 +35,55 @@ export function uniqueActiveDays(history) {
 export function computeStreak(history, today = new Date()) {
   const days = uniqueActiveDays(history);
   let streak = 0;
-  let cursor = today;
+  let cursor = startOfDay(today);
   for (const day of days) {
-    if (daysBetween(cursor, new Date(day)) > 1) break;
+    const date = fromKey(day);
+    if (daysBetween(cursor, date) > 1) break;
     streak += 1;
-    cursor = new Date(day);
+    cursor = date;
   }
   return streak;
 }
 
-export function activityCells(history, days = HEATMAP_DAYS, today = new Date()) {
+/**
+ * Activity grid as whole calendar weeks: one column per week, Sunday at the top.
+ * The last column is the week containing `today`, so days after today come back
+ * as `null` padding rather than empty-looking cells.
+ */
+export function activityCells(history, weeks = HEATMAP_WEEKS, today = new Date()) {
   const counts = new Map();
   for (const h of stamped(history)) {
     const key = dayKey(h.timestamp);
     counts.set(key, (counts.get(key) || 0) + 1);
   }
 
-  const start = new Date(today);
-  start.setDate(start.getDate() - (days - 1));
+  const end = startOfDay(today);
+  const start = addDays(end, -(end.getDay() + (weeks - 1) * 7));
 
-  const padStart = start.getDay();
-  const cells = Array.from({ length: padStart }, () => null);
+  return Array.from({ length: weeks }, (_, w) =>
+    Array.from({ length: 7 }, (_, d) => {
+      const date = addDays(start, w * 7 + d);
+      if (date > end) return null;
+      const key = ymd(date);
+      return { date: key, count: counts.get(key) || 0 };
+    }),
+  );
+}
 
-  for (let i = 0; i < days; i++) {
-    const d = new Date(start);
-    d.setDate(start.getDate() + i);
-    const key = d.toISOString().slice(0, 10);
-    cells.push({ date: key, count: counts.get(key) || 0 });
-  }
-  return cells;
+/** Month tick per column where the month first appears, for the grid's top axis. */
+export function activityMonths(columns) {
+  const labels = [];
+  let previous = null;
+  columns.forEach((column, index) => {
+    const first = column.find(Boolean);
+    if (!first) return;
+    const month = Number(first.date.slice(5, 7));
+    if (month === previous) return;
+    previous = month;
+    labels.push({ index, label: MONTH_NAMES[month - 1] });
+  });
+  // Drop a leading tick that would collide with the next one.
+  return labels.filter((l, i) => !labels[i + 1] || labels[i + 1].index - l.index >= 3);
 }
 
 export function progressSeries(history, phoneme) {

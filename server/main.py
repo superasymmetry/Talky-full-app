@@ -1,4 +1,3 @@
-import collections
 import logging
 import eng_to_ipa as ipa
 import numpy as np
@@ -12,6 +11,8 @@ from database import client, db, users_collection, phoneme_video_cache
 from find_video import get_video_for_phoneme
 from user_routes import user_bp
 from score_routes import score_bp
+from lesson_attempt_routes import lesson_attempt_bp
+from teacher_notes_routes import teacher_notes_bp
 import threading
 import re
 import json
@@ -31,7 +32,7 @@ ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.environ.get(
         "ALLOWED_ORIGINS",
-        "https://talkwithtalky.org,https://d26pahabsgpl8k.cloudfront.net,http://localhost:3000,http://localhost:5173"
+        "https://talkwithtalky.org,https://d26pahabsgpl8k.cloudfront.net,http://localhost:3000,http://localhost:5173,http://localhost:5174"
     ).split(",")
 ]
 
@@ -65,6 +66,8 @@ def _handle_cors_preflight():
 
 app.register_blueprint(user_bp)
 app.register_blueprint(score_bp)
+app.register_blueprint(lesson_attempt_bp)
+app.register_blueprint(teacher_notes_bp)
 
 from tts.tts import tts_bp
 app.register_blueprint(tts_bp)
@@ -318,12 +321,16 @@ def lessons():
     words_to_ipa_list = []
     try:
         for sentence in sentences.values():
-            sentence_phonemes = collections.OrderedDict()
-            for word in sentence.split():
-                sentence_phonemes[word] = _word_to_phonemes(word)
+            # Keep one (word, phonemes) pair per word *occurrence*, not per unique
+            # word. A dict keyed by word (the old approach) silently collapsed
+            # repeated words like "the cat sat on the mat" down to one "the"
+            # entry, so the frontend only ever rendered/scored the first
+            # occurrence's phonemes.
+            words = sentence.split()
+            sentence_phonemes = [(word, _word_to_phonemes(word)) for word in words]
             expected_ipas.append(sentence_phonemes)
             words_to_ipa_list.append(
-                [{"word": w, "phonemes": p} for w, p in sentence_phonemes.items()]
+                [{"word": w, "phonemes": p} for w, p in sentence_phonemes]
             )
     except Exception as e:
         print(f"IPA computation error: {e}")
@@ -426,20 +433,135 @@ def wordbank():
 
     return jsonify(chat_completion.choices[0].message.content)
 
-def _generate_detailed_feedback(results, target_phoneme, avg):
-    weak_phonemes = sorted((p for r in results for p in r['phonemes']), key=lambda p: p['score'])[:5]
-    weak_summary = ", ".join(f"'{p['phoneme']}' (heard as '{p['decoded']}', score {p['score']:.2f})" for p in weak_phonemes)
+# Concrete tongue/lip/teeth/airflow placement cues per IPA phoneme, grounded in
+# standard articulation-therapy descriptions. Used to keep generated feedback
+# accurate instead of letting the LLM invent (and sometimes hallucinate)
+# placement instructions. Both wav2vec2-timit style symbols (r, dʒ) and the
+# CMU-derived symbols produced by arpabet_to_ipa (ɹ, ʤ, ə, etc.) are covered
+# since either can show up depending on which path built the phoneme.
+ARTICULATION_GUIDE = {
+    "p": "Press both lips together, build up a little air behind them, then release with a small puff — no voice, just air.",
+    "b": "Press both lips together like 'p', but buzz your voice as you release them.",
+    "t": "Put the tip of your tongue right behind your top front teeth (on the bumpy ridge), then release it with a quick puff of air.",
+    "d": "Same tongue spot as 't' — tip behind the top front teeth — but buzz your voice as you release.",
+    "k": "Lift the back of your tongue to touch the roof of your mouth near your throat, then let go with a puff of air — no voice.",
+    "g": "Same back-of-tongue spot as 'k', but add your voice as you release it.",
+    "f": "Rest your top teeth gently on your bottom lip and blow air through the gap — no voice.",
+    "v": "Same as 'f' — top teeth on bottom lip — but buzz your voice while the air flows.",
+    "s": "Keep your teeth almost closed, tongue tip close behind your top teeth without touching, and push air out in a steady hiss down the middle of your tongue.",
+    "z": "Same tongue and teeth position as 's', but turn your voice on so it buzzes instead of hisses.",
+    "ʃ": "Round your lips a little, pull your tongue back slightly from the 's' spot, and push air out for a long 'shh'.",
+    "ʒ": "Same mouth shape as 'ʃ', but add voice so it buzzes, like the middle sound in 'measure'.",
+    "tʃ": "Start by touching your tongue tip to the ridge behind your top teeth like 't', then release straight into a 'ʃ' (shh) — one quick puff, no voice.",
+    "dʒ": "Same tongue placement as 'tʃ', but voice it — start with a quick 'd' and release into a buzzing 'ʒ'.",
+    "ʤ": "Same tongue placement as 'tʃ', but voice it — start with a quick 'd' and release into a buzzing 'ʒ'.",
+    "m": "Press your lips together and hum the sound out through your nose.",
+    "n": "Put your tongue tip behind your top front teeth like 't', close your mouth, and hum through your nose.",
+    "ŋ": "Lift the back of your tongue to the same spot as 'k', but hum through your nose instead of releasing a puff — like the end of 'sing'.",
+    "l": "Touch just the tip of your tongue to the ridge behind your top teeth and let your voice flow around the sides of your tongue.",
+    "r": "Curl or bunch the middle of your tongue up and back without letting it touch the roof of your mouth, and round your lips slightly.",
+    "ɹ": "Curl or bunch the middle of your tongue up and back without letting it touch the roof of your mouth, and round your lips slightly.",
+    "w": "Round your lips into a small circle like you're about to whistle, then glide your tongue up toward the roof of your mouth as you voice it.",
+    "j": "Start with the middle of your tongue raised close to the roof of your mouth, almost like 'ee', then glide into the next vowel.",
+    "h": "Just breathe out a puff of air with your mouth shaped for the next vowel — no tongue contact at all.",
+    "ð": "Put your tongue tip lightly between your top and bottom front teeth and buzz your voice as air slips past it, like 'that'.",
+    "θ": "Same tongue-between-the-teeth spot as 'ð', but no voice — just a soft hiss of air, like 'think'.",
+    "a": "Drop your jaw open wide and keep your tongue low and flat in your mouth, like starting to say 'ah'.",
+    "ɑ": "Drop your jaw open wide and keep your tongue low and flat in your mouth, like starting to say 'ah'.",
+    "æ": "Open your jaw and spread your lips slightly with your tongue low and forward, like the vowel in 'cat'.",
+    "ʌ": "Relax your jaw halfway open with your tongue low and central, a short relaxed 'uh' like in 'cup'.",
+    "ə": "Keep your mouth relaxed and barely open — the lazy, neutral 'uh' sound, like the 'a' in 'sofa'.",
+    "e": "Raise the front of your tongue partway up with lips relaxed and slightly spread, like the vowel in 'bed'.",
+    "ɛ": "Raise the front of your tongue partway up with lips relaxed and slightly spread, like the vowel in 'bed'.",
+    "eɪ": "Start with your tongue mid-front like 'e', then glide the tongue up and forward toward 'ee' as you finish the sound.",
+    "i": "Raise the front of your tongue high and forward, close to the roof of your mouth, with lips spread like a smile.",
+    "ɪ": "Raise the front of your tongue high but relaxed, a little lower than 'ee', lips loosely spread, like the vowel in 'sit'.",
+    "o": "Round your lips into a circle and raise the back of your tongue partway up, like the vowel in 'go'.",
+    "ɔ": "Round your lips loosely and lower your jaw a bit more than 'o', tongue pulled back, like the vowel in 'saw'.",
+    "oʊ": "Start with rounded lips and the back of your tongue raised like 'o', then glide your lips into a tighter circle toward 'oo'.",
+    "ɔɪ": "Start with rounded lips like 'ɔ' (as in 'saw'), then glide your tongue up and forward toward 'ee'.",
+    "u": "Round your lips tightly into a small circle and raise the back of your tongue high, like the vowel in 'moon'.",
+    "ʊ": "Round your lips loosely and raise the back of your tongue high but relaxed, like the vowel in 'book'.",
+    "aʊ": "Start with your jaw dropped open for 'ah', then glide your lips into a rounded circle as your tongue rises, like 'ow' in 'cow'.",
+    "aɪ": "Start with your jaw dropped open for 'ah', then glide the front of your tongue up toward 'ee', like 'eye'.",
+    "ɝ": "Bunch or curl your tongue up and back like 'r' while keeping your voice on the whole time, like the vowel in 'bird'.",
+    "ɚ": "Bunch or curl your tongue up and back like 'r' while keeping your voice on the whole time, like the ending of 'butter'.",
+}
+
+DEFAULT_ARTICULATION_TIP = "Slow way down and exaggerate the sound so you can really feel where your tongue, lips, and teeth are while you make it."
+
+
+def _aggregate_phoneme_scores(results):
+    """Roll per-word phoneme scores up into per-phoneme stats across the whole
+    sentence, so feedback can point at the single sound that most needs work
+    instead of a somewhat-arbitrary slice of the raw (word, phoneme) pairs."""
+    agg = {}
+    for r in results:
+        for p in r.get('phonemes', []):
+            entry = agg.setdefault(p['phoneme'], {'total': 0.0, 'count': 0, 'words': []})
+            entry['total'] += p['score']
+            entry['count'] += 1
+            entry['words'].append((r['word'], p['score']))
+    return {
+        phoneme: {
+            'avg': v['total'] / v['count'],
+            'count': v['count'],
+            'words': v['words'],
+        }
+        for phoneme, v in agg.items()
+    }
+
+
+def _generate_detailed_feedback(results, target_phoneme, avg, baseline=None):
+    """Build speech-therapy-grade feedback: pick the single sound that most
+    needs work (favoring the lesson's target phoneme when it's still weak),
+    look up a real articulation cue for it, and have the model phrase that
+    into one encouraging, kid-facing explanation — rather than letting the
+    model invent its own (possibly wrong) mouth-placement advice.
+
+    Returns a dict with both the prose ('text') and the structured facts
+    behind it, so the frontend can persist/rank feedback across a lesson
+    without having to re-parse prose.
+    """
+    baseline = baseline or {}
+    agg = _aggregate_phoneme_scores(results)
+    if not agg:
+        return {'text': "Hmm, try again.", 'phoneme': None, 'word': None, 'score': None, 'tip': None}
+
+    if target_phoneme and target_phoneme in agg and agg[target_phoneme]['avg'] < 0.8:
+        weak_phoneme = target_phoneme
+    else:
+        weak_phoneme = min(agg, key=lambda p: agg[p]['avg'])
+
+    weak_word, weak_word_score = min(agg[weak_phoneme]['words'], key=lambda t: t[1])
+    tip = ARTICULATION_GUIDE.get(weak_phoneme, DEFAULT_ARTICULATION_TIP)
+
+    trend = ""
+    base_score = baseline.get(weak_phoneme)
+    if base_score is not None:
+        delta = agg[weak_phoneme]['avg'] - base_score
+        if delta > PHONEME_DELTA_MARGIN:
+            trend = f"Note: this is actually an improvement over their usual {base_score:.2f} average on this sound — mention they're making progress."
+        elif delta < -PHONEME_DELTA_MARGIN:
+            trend = f"Note: this is below their usual {base_score:.2f} average on this sound."
+
     word_summary = ", ".join(f"{r['word']} ({r['score']:.2f})" for r in results)
 
     prompt = f"""
-    A speech therapy student just finished a lesson practicing the "{target_phoneme}" sound.
-    Their overall accuracy score was {avg:.2f} (out of 1.0).
+    You are a licensed speech-language pathologist giving feedback to a child right
+    after a speech therapy practice sentence. The lesson is drilling the "{target_phoneme}" sound.
+    Overall sentence accuracy: {avg:.2f} (out of 1.0).
     Per-word scores: {word_summary}
-    Weakest phonemes: {weak_summary}
+    The sound that most needs work right now is /{weak_phoneme}/, heard weakest in
+    the word "{weak_word}" (score {weak_word_score:.2f}).
+    Correct articulation for /{weak_phoneme}/: {tip}
+    {trend}
 
-    Write one short (1 sentence), encouraging piece of feedback that:
-    - Names the specific sound(s) in the specific word(s) they struggled with
-    - Gives one concrete tip for improving that sound
+    Write feedback for the child, at most two short sentences, that:
+    - Names the word and the /{weak_phoneme}/ sound specifically
+    - Explains what to do with their tongue, lips, or teeth, using simple kid-friendly
+      language based ONLY on the articulation description above — do not invent a
+      different technique
     - Avoids generic phrases like "try again" or "good job"
     """
     try:
@@ -448,10 +570,18 @@ def _generate_detailed_feedback(results, target_phoneme, avg):
             messages=[{"role": "user", "content": prompt}],
             model="llama-3.1-8b-instant",
         )
-        return chat_completion.choices[0].message.content.strip()
+        text = chat_completion.choices[0].message.content.strip()
     except Exception:
         logger.exception("Groq feedback generation failed")
-        return "Hmm, try again."
+        text = f"Let's work on the /{weak_phoneme}/ sound in \"{weak_word}\": {tip}"
+
+    return {
+        'text': text,
+        'phoneme': weak_phoneme,
+        'word': weak_word,
+        'score': weak_word_score,
+        'tip': tip,
+    }
 
 def finalize_session(sid):
     session = sessions.pop(sid, None)
@@ -471,11 +601,15 @@ def finalize_session(sid):
         avg = weighted_sum / weight_total
     else:
         avg = 0.0
-    feedback = "Great job!" if avg >= 0.8 else _generate_detailed_feedback(results, target_phoneme, avg)
+    if avg >= 0.8:
+        feedback_detail = {'text': "Great job!", 'phoneme': None, 'word': None, 'score': None, 'tip': None}
+    else:
+        feedback_detail = _generate_detailed_feedback(results, target_phoneme, avg, session.get('baseline'))
     socketio.emit('result', {
         'score': avg,
         'passed': avg >= 0.8,
-        'feedback': feedback,
+        'feedback': feedback_detail['text'],
+        'feedback_detail': feedback_detail,
         'res': results,
     }, to=sid)
 
@@ -513,7 +647,8 @@ def handle_start(data):
     sentence = data.get('sentence', '')
     target_phoneme = data.get('target_phoneme')
     session = {'words_ipa': words_ipa, 'queue': chunk_queue, 'results': [],
-               'mode': mode, 'audio': [], 'target_phoneme': target_phoneme}
+               'mode': mode, 'audio': [], 'target_phoneme': target_phoneme,
+               'baseline': baseline}
     sessions[sid] = session
 
     def run():
