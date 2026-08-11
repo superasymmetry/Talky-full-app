@@ -1,4 +1,3 @@
-/* eslint-disable react/no-unknown-property, react/prop-types */
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { Canvas } from '@react-three/fiber'
