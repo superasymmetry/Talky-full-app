@@ -65,9 +65,13 @@ jobs:
 
       - name: Sync to S3
         run: |
-          aws s3 sync dist/ s3://talky-frontend-siyu --delete \
-            --exclude index.html \
+          aws s3 sync dist/assets/ s3://talky-frontend-siyu/assets/ --delete \
             --cache-control "public, max-age=31536000, immutable"
+
+          aws s3 sync dist/ s3://talky-frontend-siyu/ --delete \
+            --exclude "assets/*" \
+            --cache-control "public, max-age=3600"
+
           aws s3 cp dist/index.html s3://talky-frontend-siyu/index.html \
             --cache-control "no-cache, must-revalidate"
 
