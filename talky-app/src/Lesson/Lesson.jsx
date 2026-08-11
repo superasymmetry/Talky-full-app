@@ -499,7 +499,6 @@ export default function Lesson() {
   const [actions, setActions] = useState(null);
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(1);
   const [isFinished, setIsFinished] = useState(false);
-  const [doneSentence, setDoneSentence] = useState(false);
   const [feedbackText, setFeedbackText] = useState('');
   const [robotPos] = useState([-10, -1, 0]);
   const robotRef = useRef(null);
@@ -513,7 +512,6 @@ export default function Lesson() {
   const [introVideo, setIntroVideo] = useState(null);
   const [videoLoading, setVideoLoading] = useState(true);
   const [videoStarted, setVideoStarted] = useState(false);
-  const [score, setScore] = useState(0);
   const [wordsToIPA, setWordsToIPA] = useState(null);
   const [lessonWords, setLessonWords] = useState([]);
   const [currentWordsToIPA, setCurrentWordsToIPA] = useState(null);
@@ -828,8 +826,6 @@ export default function Lesson() {
       wordScoresRef.current.push(...extractWordScores(data.res));
       actions?.ThumbsUp?.play?.();
       speakSentence("Great job!");
-      setScore(s => (s ?? 0) + data.score);
-      setDoneSentence(true);
       actions?.Walking?.play?.();
       if (robotRef.current) {
         robotRef.current.translateZ(30 / 7);
@@ -838,7 +834,6 @@ export default function Lesson() {
       actions?.Idle?.play?.();
     } else {
       actions?.No?.play?.();
-      setScore(s => Math.max(0, (s ?? 0) - (100 - data.score)));
       const feedbackMsg = String(data.feedback || 'No, try again.');
       setFeedbackText(feedbackMsg);
       speakSentence(feedbackMsg);
@@ -982,7 +977,6 @@ export default function Lesson() {
 
   const goToNextSentence = async () => {
     sentencePassedRef.current = false;
-    setDoneSentence(false);
     if (cardData && cardData[(currentSentenceIndex + 1).toString()]) {
       stopSpeech();
       setCurrentSentenceIndex(prev => prev + 1);
@@ -1282,35 +1276,33 @@ export default function Lesson() {
           </div>
         )}
 
-        {true && (
-          <button
-            aria-label="Next lesson"
-            onMouseEnter={() => setNextHover(true)}
-            onMouseLeave={() => setNextHover(false)}
-            onClick={() => {
-              goToNextSentence();
-              stopSpeech()
-            }}
-            className="cut-chip"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              padding: '12px 18px',
-              border: 'none',
-              cursor: 'pointer',
-              background: nextHover ? WARN : ACCENT,
-              color: N8,
-              fontWeight: 700,
-              transition: 'background 180ms ease',
-            }}
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <path d="M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M12 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-        )}
+        <button
+          aria-label="Next lesson"
+          onMouseEnter={() => setNextHover(true)}
+          onMouseLeave={() => setNextHover(false)}
+          onClick={() => {
+            goToNextSentence();
+            stopSpeech()
+          }}
+          className="cut-chip"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '12px 18px',
+            border: 'none',
+            cursor: 'pointer',
+            background: nextHover ? WARN : ACCENT,
+            color: N8,
+            fontWeight: 700,
+            transition: 'background 180ms ease',
+          }}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <path d="M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M12 5l7 7-7 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
       </div>
 
       <div style={{ position: 'absolute', left: 24, bottom: 24, zIndex: 30 }}>

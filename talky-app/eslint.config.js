@@ -1,8 +1,9 @@
-import js from '@eslint/js'
+import { defineConfig, globalIgnores } from 'eslint/config'
+
 import globals from 'globals'
+import js from '@eslint/js'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
-import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
   globalIgnores(['dist']),
@@ -23,7 +24,19 @@ export default defineConfig([
       },
     },
     rules: {
-      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+      // No eslint-plugin-react here, so nothing marks JSX references as uses.
+      // Ignore capitalised identifiers (components) in both positions.
+      'no-unused-vars': [
+        'error',
+        { varsIgnorePattern: '^[A-Z_]', argsIgnorePattern: '^[A-Z_]' },
+      ],
+    },
+  },
+  {
+    // make npm run lint ignore these files: had "Fast refresh only works when a file only exports components..." error
+    files: ['src/Lesson/PracticeGame.jsx', 'src/SoundBank/SoundBank.jsx'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
     },
   },
   {

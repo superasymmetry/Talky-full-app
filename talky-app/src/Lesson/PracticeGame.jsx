@@ -1,12 +1,16 @@
-/* eslint-disable react/no-unknown-property, react/prop-types */
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import '../Statistics/Statistics.css'
+
 import * as THREE from 'three'
-import { Canvas } from '@react-three/fiber'
+
 import { OrbitControls, Text } from '@react-three/drei'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+
 import Back from './Back.jsx'
+import { Canvas } from '@react-three/fiber'
+
 // `cut-card` (n-7 panel + hairline edge + chamfered corners) and `cut-chip`
 // (the same chamfer for pills/buttons), shared with the Statistics dashboard.
-import '../Statistics/Statistics.css'
+
 
 // The Statistics palette, so this page's HUD reads as part of the same app.
 // Only the UI chrome uses these — the 3D board keeps its own gameplay colours.
