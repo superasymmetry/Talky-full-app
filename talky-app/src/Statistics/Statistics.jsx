@@ -25,19 +25,19 @@ import { useAuth0 } from '@auth0/auth0-react';
 import { useStatsData } from './useStatsData.js';
 
 const Layout = ({ children }) => (
-  <div className="bg-n-8 text-n-1 flex flex-col" style={{ position: 'fixed', inset: 0, overflow: 'hidden' }}>
+  <div className="bg-n-8 text-n-1 min-h-screen">
     <Header />
     <main
-      className="flex-1 min-h-0 px-5 lg:px-10 pb-5"
-      style={{ paddingTop: 'calc(var(--header-height, 112px) + 1rem)' }}
+      className="px-5 lg:px-10 pb-12"
+      style={{ paddingTop: 'calc(var(--header-height, 112px) + 1.5rem)' }}
     >
-      <div className="max-w-[87.5rem] h-full mx-auto flex flex-col min-h-0 gap-3">{children}</div>
+      <div className="max-w-[87.5rem] mx-auto flex flex-col gap-4">{children}</div>
     </main>
   </div>
 );
 
 const PageHeading = () => (
-  <header className="flex items-baseline gap-4 flex-wrap shrink-0">
+  <header className="flex items-baseline gap-4 flex-wrap">
     <h1 className="h5 m-0 text-n-1">Progress</h1>
   </header>
 );
@@ -94,8 +94,8 @@ export default function Statistics() {
     <Layout>
       <PageHeading />
 
-      <div className="flex-1 min-h-0 flex flex-col gap-3">
-        <div className="grid gap-3 grid-cols-2 lg:grid-cols-4 shrink-0">
+      <div className="flex flex-col gap-4">
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
           <LevelTile level={level} />
           <StatTile
             label="Day streak"
@@ -117,18 +117,18 @@ export default function Statistics() {
           />
         </div>
 
-        <div className="flex-1 min-h-0 grid gap-3 lg:grid-cols-[2fr_1fr]">
-          <div className="flex flex-col gap-3 min-h-0">
+        <div className="grid gap-4 items-start lg:grid-cols-[2fr_1fr]">
+          <div className="flex flex-col gap-4">
             <ProgressChart
               phonemes={playablePhonemes}
               selected={selected}
               onSelect={setSelected}
               series={series}
             />
-            <Heatmap cells={cells} />
+            <Heatmap columns={cells} />
           </div>
 
-          <div className="flex flex-col gap-3 min-h-0">
+          <div className="flex flex-col gap-4">
             <PhonemeMastery bars={bars} />
             <WordTabs hardest={hardest} improved={improved} recent={recent} />
           </div>

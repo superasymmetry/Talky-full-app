@@ -6,7 +6,7 @@ import {
   Area,
   Line,
 } from 'reaviz';
-import { HEATMAP_DAYS } from './derive.js';
+import { HEATMAP_MONTHS, activityMonths } from './derive.js';
 import './Statistics.css';
 
 const fmtPct = (v) => `${Math.round(v * 100)}%`;
@@ -93,7 +93,7 @@ const Legend = () => (
     {[0, 2, 5, 8].map((n) => (
       <span
         key={n}
-        className={`w-3 h-3 ${cellClass(n)}`}
+        className={`w-3 h-3 rounded-[2px] ${cellClass(n)}`}
         style={cellStyle(n)}
         aria-hidden
       />
@@ -102,27 +102,66 @@ const Legend = () => (
   </div>
 );
 
-export const Heatmap = ({ cells }) => (
-  <Card title={`Activity · last ${HEATMAP_DAYS} days`} className="shrink-0">
-    <div className="flex items-center justify-between gap-4 flex-wrap">
-      <div className="grid grid-rows-7 grid-flow-col gap-1 overflow-x-auto">
-        {cells.map((cell, i) =>
-          cell === null ? (
-            <div key={`pad-${i}`} className="w-3 h-3" aria-hidden />
-          ) : (
-            <div
-              key={cell.date}
-              title={`${cell.date}: ${cell.count} attempt${cell.count === 1 ? '' : 's'}`}
-              className={`w-3 h-3 ${cellClass(cell.count)}`}
-              style={cellStyle(cell.count)}
-            />
-          ),
-        )}
+/* Sunday-first rows; only alternate rows are labelled so the axis stays readable. */
+const WEEKDAY_LABELS = ['', 'Mon', '', 'Wed', '', 'Fri', ''];
+
+export const Heatmap = ({ columns }) => {
+  const months = activityMonths(columns);
+  const gridColumns = { gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))` };
+
+  return (
+    <Card
+      title={`Activity · last ${HEATMAP_MONTHS} months`}
+      action={<Legend />}
+    >
+      <div className="flex gap-2">
+        <div className="grid grid-rows-7 gap-1 shrink-0 mt-5">
+          {WEEKDAY_LABELS.map((label, i) => (
+            <span
+              key={i}
+              className="caption text-n-4 leading-none flex items-center h-full"
+            >
+              {label}
+            </span>
+          ))}
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="grid gap-1 mb-1 h-4" style={gridColumns}>
+            {months.map((month) => (
+              <span
+                key={month.index}
+                className="caption text-n-4 leading-none whitespace-nowrap"
+                style={{ gridColumnStart: month.index + 1 }}
+              >
+                {month.label}
+              </span>
+            ))}
+          </div>
+
+          <div className="grid gap-1" style={gridColumns}>
+            {columns.map((week, w) => (
+              <div key={w} className="grid grid-rows-7 gap-1">
+                {week.map((cell, d) =>
+                  cell === null ? (
+                    <div key={`pad-${w}-${d}`} className="aspect-square" aria-hidden />
+                  ) : (
+                    <div
+                      key={cell.date}
+                      title={`${cell.date}: ${cell.count} attempt${cell.count === 1 ? '' : 's'}`}
+                      className={`aspect-square rounded-[2px] ${cellClass(cell.count)}`}
+                      style={cellStyle(cell.count)}
+                    />
+                  ),
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
-      <Legend />
-    </div>
-  </Card>
-);
+    </Card>
+  );
+};
 
 const PhonemeChips = ({ phonemes, selected, onSelect }) => (
   <div className="flex flex-wrap gap-1.5 shrink-0">
@@ -150,9 +189,9 @@ export const ProgressChart = ({ phonemes, selected, onSelect, series }) => {
   const [chartRef, chartHeight] = useMeasuredHeight();
 
   return (
-    <Card title="Progress over time" className="flex-1">
+    <Card title="Progress over time">
       <PhonemeChips phonemes={phonemes} selected={selected} onSelect={onSelect} />
-      <div ref={chartRef} className="flex-1 min-h-0 mt-3">
+      <div ref={chartRef} className="mt-3 h-56 lg:h-72">
         {series.length === 0 ? (
           <div className="h-full flex items-center justify-center">
             <Empty>No history yet for this sound.</Empty>
@@ -193,7 +232,7 @@ export const PhonemeMastery = ({ bars, limit = MASTERY_LIMIT }) => {
   const hidden = bars.length - shown.length;
 
   return (
-    <Card title="Sound mastery" className="flex-1" bodyClassName="flex-1 min-h-0 overflow-hidden">
+    <Card title="Sound mastery">
       {bars.length === 0 ? (
         <Empty>Complete a lesson to start tracking sound mastery.</Empty>
       ) : (
@@ -238,7 +277,6 @@ export const WordTabs = ({ hardest, improved, recent }) => {
   return (
     <Card
       title="Word focus"
-      className="shrink-0"
       action={
         <div className="cut-group flex gap-1 p-1 bg-n-6 border border-n-1/10">
           {TAB_DEFS.map((t) => (
@@ -305,14 +343,16 @@ LevelTile.propTypes = {
 };
 
 Heatmap.propTypes = {
-  cells: PropTypes.arrayOf(
-    PropTypes.oneOfType([
-      PropTypes.oneOf([null]),
-      PropTypes.shape({
-        date: PropTypes.string.isRequired,
-        count: PropTypes.number.isRequired,
-      }),
-    ])
+  columns: PropTypes.arrayOf(
+    PropTypes.arrayOf(
+      PropTypes.oneOfType([
+        PropTypes.oneOf([null]),
+        PropTypes.shape({
+          date: PropTypes.string.isRequired,
+          count: PropTypes.number.isRequired,
+        }),
+      ])
+    )
   ).isRequired,
 };
 
