@@ -141,10 +141,22 @@ class TestLesson(unittest.TestCase):
             # (an unhandled GLTF/Draco load rejection with no error boundary
             # around it, which was tearing down the whole component tree).
             page.on("pageerror", lambda exc: print(f"PAGE ERROR: {exc}"))
-            page.on(
-                "console",
-                lambda msg: print(f"CONSOLE ERROR: {msg.text}") if msg.type == "error" else None,
-            )
+            # Log every console message, not just errors — Lesson.jsx already
+            # logs 'model loaded' when the on-device worker is ready and a
+            # console.table of decoded phonemes on every partial_result, so
+            # this is the most direct way to see whether the mocked
+            # socket.io traffic (partial_result/result events) ever actually
+            # reached the client, without relying on page.on("websocket"),
+            # which — confirmed by testing — only fires for real network
+            # WebSockets (e.g. Vite's own HMR socket), not ones synthesized
+            # by page.route_web_socket().
+            def _log_console(msg):
+                try:
+                    print(f"CONSOLE {msg.type.upper()}: {msg.text}")
+                except Exception as exc:  # noqa: BLE001 - never let a logging hiccup break the driver connection
+                    print(f"CONSOLE (unprintable): {exc}")
+
+            page.on("console", _log_console)
 
             # Mock the lesson API (CI has no seeded Mongo user and no real Groq key)
             page.route("**/api/lessons*", _mock_lessons)
