@@ -102,7 +102,6 @@ const Legend = () => (
   </div>
 );
 
-/* Sunday-first rows; only alternate rows are labelled so the axis stays readable. */
 const WEEKDAY_LABELS = ['', 'Mon', '', 'Wed', '', 'Fri', ''];
 
 export const Heatmap = ({ columns }) => {
