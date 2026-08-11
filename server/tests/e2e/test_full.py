@@ -131,42 +131,14 @@ def _mock_socketio(ws_route):
 class TestLesson(unittest.TestCase):
     def test_phoneme_colors_and_tooltip(self):
         with sync_playwright() as p:
-            # CI's headless Linux runner has no real GPU, so WebGL falls back
-            # to software rendering (SwiftShader). The 3D robot scene's
-            # Canvas gets recreated repeatedly here (glb 404 -> ErrorBoundary
-            # catch -> recreate -> fail again -> SceneErrorBoundary catch ->
-            # recreate again), and each recreation opens a new software WebGL
-            # context. On constrained CI hardware that churn is enough to
-            # lose the context entirely ("THREE.WebGLRenderer: Context
-            # Lost."), which crashes the renderer process — Chrome recovers
-            # by reloading the page, wiping all React state (including the
-            # phoneme scores this test is waiting for) out from under us.
-            # Disabling WebGL outright makes the very first Canvas mount fail
-            # fast and cleanly, so CanvasErrorBoundary catches it once and
-            # stays caught, instead of retrying into instability. The scene
-            # is decorative and irrelevant to what this test verifies.
             browser = p.chromium.launch(
                 headless=os.getenv("CI") == "true",
                 args=["--disable-webgl", "--disable-webgl2", "--disable-gpu"],
             )
             context = browser.new_context(permissions=["microphone"])
             page = context.new_page()
-
-            # Surface any client-side JS errors/console errors in the pytest
-            # output instead of letting them fail silently — this is what
-            # actually pointed at the root cause of the original timeout
-            # (an unhandled GLTF/Draco load rejection with no error boundary
-            # around it, which was tearing down the whole component tree).
             page.on("pageerror", lambda exc: print(f"PAGE ERROR: {exc}"))
-            # Log every console message, not just errors — Lesson.jsx already
-            # logs 'model loaded' when the on-device worker is ready and a
-            # console.table of decoded phonemes on every partial_result, so
-            # this is the most direct way to see whether the mocked
-            # socket.io traffic (partial_result/result events) ever actually
-            # reached the client, without relying on page.on("websocket"),
-            # which — confirmed by testing — only fires for real network
-            # WebSockets (e.g. Vite's own HMR socket), not ones synthesized
-            # by page.route_web_socket().
+            
             def _log_console(msg):
                 try:
                     print(f"CONSOLE {msg.type.upper()}: {msg.text}")
@@ -178,22 +150,10 @@ class TestLesson(unittest.TestCase):
             # Mock the lesson API (CI has no seeded Mongo user and no real Groq key)
             page.route("**/api/lessons*", _mock_lessons)
 
-            # Mock the 3D model assets so the test doesn't depend on network
-            # access or the Draco decoder being available in CI, and so a
-            # missing/broken model can never be the reason this test hangs.
             page.route("**/*.glb", _mock_glb)
 
             # Intercept socket.io WebSocket connections
             page.route_web_socket("**/socket.io/**", _mock_socketio)
-
-            # The client is configured to try both the "websocket" and
-            # "polling" transports (production fallback for restrictive
-            # proxies). Only the WebSocket path is mocked above, so block the
-            # HTTP long-polling handshake outright — otherwise it can reach
-            # the real, unseeded Flask/Mongo backend and establish a session
-            # engine.io then has to reconcile against the mocked WebSocket's
-            # fake sid, which silently breaks the "start" handshake instead
-            # of throwing anything this test would see.
             page.route("**/socket.io/**", lambda route: route.abort())
 
             # Mock getUserMedia to return a silent audio track (avoids microphone prompt)
@@ -205,10 +165,6 @@ class TestLesson(unittest.TestCase):
                 };
             """)
 
-            # This test asserts on the numeric phoneme score tooltips, which
-            # only render in teacher view — kid view (the default, see
-            # viewMode.js) shows star ratings instead. Force teacher view via
-            # the same localStorage key the view-mode toggle writes to.
             page.add_init_script("""
                 localStorage.setItem('talkyViewMode', 'teacher');
             """)
@@ -220,10 +176,6 @@ class TestLesson(unittest.TestCase):
 
             page.click("text=Record")
 
-            # Poll on the count directly rather than waiting for visibility of
-            # an arbitrary matched element — more robust once several scored
-            # spans exist, and gives a clearer timeout failure than
-            # wait_for_selector against a >10-count assertion.
             page.wait_for_function(
                 "document.querySelectorAll(\"span[title*='Score:']\").length > 10",
                 timeout=30000,
