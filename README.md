@@ -21,6 +21,8 @@ The Duolingo for speech therapy–we're making better speech accessible to all, 
 ## What is Talky?
 1 in 14 US children and over 3 million US adults have some sort of speech impediment. However, solutions to mitigate these impediments often have extremely high costs, with many services being over $1000 per month. We want to fix that for those who need it. Talky is an open-source, gamified speech evaluator to help you improve your speaking and pronounciation. With lessons and targeted practice exercises covering all common phoneme mispronounciations, and a [scientifically-backed](#credits) method for giving a detailed phoneme-level pronounciation score to each sentence spoken.
 
+https://github.com/user-attachments/assets/9bdbffd5-ac85-45cc-8389-98225c5bfa61
+
 <a id="how"></a>
 ## How is Talky made?
 Talky is made with many different technologies. Here we credit the major ones we've used.
