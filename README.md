@@ -24,9 +24,9 @@ The Duolingo for speech therapy–we're making better speech accessible to all, 
 <a id="how"></a>
 ## How is Talky made?
 Talky is made with many different technologies. Here we credit the major ones we've used.
+- **Our main feature is our Goodness of Pronounciation Algorithm ([this](#credits) Huggingface model, [this](#credits) algorithm for evaluation, and the forced alignment algorithm). I wrote about how we did this on my [personal website](https://cszeng.vercel.app/projects/2_talky/), and I have also open-sourced my approach here as a [PyPI library](http://github.com/superasymmetry/pronounce-assess).**
 - We run on a React + Vite frontend with a Flask backend. Our database uses MongoDB.
 - Backend is served on EC2, and frontend on CloudFront + S3.
-- Goodness of Pronounciation Algorithm ([this](#credits) Huggingface model, [this](#credits) algorithm for evaluation, and the forced alignment algorithm). I wrote about how we did this on my [personal website](https://cszeng.vercel.app/projects/2_talky/), and I have also open-sourced my approach here as a [PyPI library](http://github.com/superasymmetry/pronounce-assess).
 - WebSockets for real-time speech evaluation.
 - Three.js for WebGL rendering.
 - ElevenLabs for Text-to-Speech.
