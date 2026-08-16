@@ -230,6 +230,30 @@ def _resolve_target_phoneme(lesson, word_list):
             best_phoneme, best_overlap = phoneme, overlap
     return best_phoneme
 
+def _warmup_asr_async():
+    """Load the wav2vec2 processor (and, unless WARMUP_ASR_MODEL=0, the torch
+    model) in a background thread at import time, so the first streaming
+    session doesn't pay the several-second checkpoint load. Both loaders are
+    idempotent and lock-guarded, so a request that arrives mid-warmup simply
+    blocks on the same lock instead of loading twice.
+
+    Set WARMUP_ASR_MODEL=0 on deployments that only ever serve mode='logits'
+    sessions (where the client sends precomputed logits and the torch model is
+    never used) to keep the model out of memory.
+    """
+    def _warm():
+        try:
+            _load_processor_once()
+            if os.environ.get("WARMUP_ASR_MODEL", "1") != "0":
+                _load_model_once()
+        except Exception:
+            # Warmup is best-effort; the real request path will retry and can
+            # surface the failure properly.
+            logger.exception("ASR warmup failed")
+
+    threading.Thread(target=_warm, daemon=True).start()
+
+
 def _load_model_once():
     global _processor, _model, _feedback_model, _device
     if _processor is None or _model is None:
@@ -789,6 +813,11 @@ def home():
 @app.route("/health", methods=["GET", "HEAD"])
 def health():
     return jsonify({"status": "ok"})
+
+# Kick the speech-evaluation model load off at import time (i.e. when the app
+# boots under gunicorn/socketio too, not just under __main__), so it is warm
+# before the first lesson starts. Must stay below the loader definitions.
+_warmup_asr_async()
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))

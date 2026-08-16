@@ -14,6 +14,7 @@ import StudentDetail from './Students/StudentDetail.jsx';
 
 import { Auth0Provider, useAuth0 } from '@auth0/auth0-react'
 import LandingPage from './LandingPage/LandingPage.jsx'
+import { preloadWav2Vec2 } from './Lesson/wav2vec2Client.js'
 
 const domain = import.meta.env.VITE_AUTH0_DOMAIN;
 const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID;
@@ -22,6 +23,16 @@ const audience = import.meta.env.VITE_AUTH0_AUDIENCE;
 // eslint-disable-next-line react-refresh/only-export-components
 const UserCreator = ({ children }) => {
   const { user, isAuthenticated, getAccessTokenSilently } = useAuth0()
+
+  // Start downloading/compiling the on-device speech-evaluation model as soon
+  // as someone is signed in, rather than waiting for a lesson to open — the
+  // load takes long enough that a cold start made the first sentences of a
+  // lesson fall back to server-side audio scoring. Gated on auth so anonymous
+  // landing-page visitors don't pay for a model they'll never run.
+  useEffect(() => {
+    if (!isAuthenticated) return
+    preloadWav2Vec2()
+  }, [isAuthenticated])
 
   useEffect(() => {
     if (!isAuthenticated || !user) return
