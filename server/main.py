@@ -230,6 +230,21 @@ def _resolve_target_phoneme(lesson, word_list):
             best_phoneme, best_overlap = phoneme, overlap
     return best_phoneme
 
+# load the model from start
+def _warmup_asr_async():
+    def _warm():
+        try:
+            _load_processor_once()
+            if os.environ.get("WARMUP_ASR_MODEL", "1") != "0":
+                _load_model_once()
+        except Exception:
+            # Warmup is best-effort; the real request path will retry and can
+            # surface the failure properly.
+            logger.exception("ASR warmup failed")
+
+    threading.Thread(target=_warm, daemon=True).start()
+
+
 def _load_model_once():
     global _processor, _model, _feedback_model, _device
     if _processor is None or _model is None:
@@ -789,6 +804,8 @@ def home():
 @app.route("/health", methods=["GET", "HEAD"])
 def health():
     return jsonify({"status": "ok"})
+
+_warmup_asr_async()
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))

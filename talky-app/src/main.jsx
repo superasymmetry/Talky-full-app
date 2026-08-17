@@ -14,6 +14,7 @@ import StudentDetail from './Students/StudentDetail.jsx';
 
 import { Auth0Provider, useAuth0 } from '@auth0/auth0-react'
 import LandingPage from './LandingPage/LandingPage.jsx'
+import { preloadWav2Vec2 } from './Lesson/wav2vec2Client.js'
 
 const domain = import.meta.env.VITE_AUTH0_DOMAIN;
 const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID;
@@ -22,6 +23,11 @@ const audience = import.meta.env.VITE_AUTH0_AUDIENCE;
 // eslint-disable-next-line react-refresh/only-export-components
 const UserCreator = ({ children }) => {
   const { user, isAuthenticated, getAccessTokenSilently } = useAuth0()
+
+  useEffect(() => {
+    if (!isAuthenticated) return
+    preloadWav2Vec2()
+  }, [isAuthenticated])
 
   useEffect(() => {
     if (!isAuthenticated || !user) return

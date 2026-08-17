@@ -18,6 +18,7 @@ import { io } from 'socket.io-client';
 import { useAuth0 } from '@auth0/auth0-react';
 import { useMatch } from 'react-router-dom';
 import { makeAuthFetch } from '../utils/authFetch.js';
+import { getWav2Vec2Worker, subscribeWav2Vec2 } from './wav2vec2Client.js';
 
 useGLTF.preload('/robot-draco.glb')
 useGLTF.preload('/seagull-2.glb')
@@ -772,17 +773,9 @@ export default function Lesson() {
   }, [API_BASE]);
 
   useEffect(() => {
-    let worker;
-    try {
-      worker = new Worker(new URL('./wav2vec2Worker.js', import.meta.url), { type: 'module' });
-    } catch (err) {
-      console.warn('On-device wav2vec2 worker unavailable, streaming raw audio instead:', err);
-      return undefined;
-    }
-    workerRef.current = worker;
+    workerRef.current = getWav2Vec2Worker();
 
-    worker.onmessage = (e) => {
-      const msg = e.data;
+    const unsubscribe = subscribeWav2Vec2((msg) => {
       if (msg.type === 'ready') {
         console.log('model loaded');
         workerReadyRef.current = true;
@@ -805,10 +798,10 @@ export default function Lesson() {
         pendingChunksRef.current -= 1;
         onWorkerProgress();
       }
-    };
+    });
 
     return () => {
-      worker.terminate();
+      unsubscribe();
       workerRef.current = null;
       workerReadyRef.current = false;
     };
