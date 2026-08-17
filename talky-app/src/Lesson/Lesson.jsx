@@ -773,9 +773,6 @@ export default function Lesson() {
   }, [API_BASE]);
 
   useEffect(() => {
-    // The worker is a shared, app-lifetime singleton (preloaded at startup in
-    // main.jsx), so this only subscribes to it — it must not be terminated on
-    // unmount or every lesson would reload the model.
     workerRef.current = getWav2Vec2Worker();
 
     const unsubscribe = subscribeWav2Vec2((msg) => {
