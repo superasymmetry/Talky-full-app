@@ -24,11 +24,6 @@ const audience = import.meta.env.VITE_AUTH0_AUDIENCE;
 const UserCreator = ({ children }) => {
   const { user, isAuthenticated, getAccessTokenSilently } = useAuth0()
 
-  // Start downloading/compiling the on-device speech-evaluation model as soon
-  // as someone is signed in, rather than waiting for a lesson to open — the
-  // load takes long enough that a cold start made the first sentences of a
-  // lesson fall back to server-side audio scoring. Gated on auth so anonymous
-  // landing-page visitors don't pay for a model they'll never run.
   useEffect(() => {
     if (!isAuthenticated) return
     preloadWav2Vec2()
