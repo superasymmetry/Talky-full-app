@@ -188,15 +188,13 @@ def _missing_field_patch(user_id, user_doc):
 
 
 def _get_or_create_user(user_id, name=""):
-    '''The ONLY place a user doc should ever be created. Also backfills any
-    fields that are missing from an existing doc (schema added a field
-    after the doc already existed).'''
     existing = users_collection.find_one({"userId": user_id})
 
     if existing is None:
         defaults = _default_user_doc(user_id, name=name)
         try:
             users_collection.insert_one(defaults)
+            defaults.pop("_id", None)
             return defaults
         except DuplicateKeyError:
             # Lost a race with a concurrent request that inserted first —
@@ -210,6 +208,7 @@ def _get_or_create_user(user_id, name=""):
             {"$set": patch},
             return_document=ReturnDocument.AFTER,
         )
+    existing.pop("_id", None)
     return existing
 
 
@@ -418,7 +417,6 @@ def get_user_profile():
         return jsonify({"message": "Token missing sub claim"}), 401
 
     user = _get_or_create_user(user_id)
-    user.pop("_id", None)
     return jsonify(user)
 
 

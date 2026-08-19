@@ -6,11 +6,13 @@ import React, { useEffect, useRef, useState } from 'react'
 import Card from './Card.jsx'
 import Footer from './Footer.jsx'
 import Header from './Header/Header.jsx'
-import { useAuth0 } from '@auth0/auth0-react'
 import { makeAuthFetch } from './utils/authFetch.js'
+import { useAuth0 } from '@auth0/auth0-react'
+import { useUserProvisioned } from './utils/userProvisioned.js'
 
 function App() {
   const { user, isAuthenticated, isLoading, getAccessTokenSilently } = useAuth0();
+  const provisioned = useUserProvisioned();
   const scroller = useRef(null);
   const [lessons, setLessons] = useState([]);
   const [activeGoal, setActiveGoal] = useState(null);
@@ -19,6 +21,7 @@ function App() {
   useEffect(() => {
     if (isLoading) return;
     if (!isAuthenticated || !user) return;
+    if (!provisioned) return;
 
     const userId = user.sub || user.email;
     const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080';
@@ -46,7 +49,7 @@ function App() {
         setPendingAssignedLesson(data.pendingAssignedLesson || null);
       })
       .catch(err => console.error('Failed to fetch goal/assignment:', err));
-  }, [isAuthenticated, isLoading, user, getAccessTokenSilently]);
+  }, [isAuthenticated, isLoading, user, provisioned, getAccessTokenSilently]);
   const soundBankCard = { id: "soundbank", name: "Sound Bank", description: "Browse sound categories", to: "/soundbank" }
   const practiceCard = { id: "practice", name: "Practice Game", description: "Build your phoneme city!", to: "/practice-game" }
   const scrollBy = (delta) => scroller.current?.scrollBy({ left: delta, behavior: 'smooth' })

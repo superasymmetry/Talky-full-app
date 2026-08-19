@@ -1,4 +1,4 @@
-﻿import { StrictMode, useEffect } from 'react'
+﻿import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom'
 import './index.css'
@@ -15,6 +15,7 @@ import StudentDetail from './Students/StudentDetail.jsx';
 import { Auth0Provider, useAuth0 } from '@auth0/auth0-react'
 import LandingPage from './LandingPage/LandingPage.jsx'
 import { preloadWav2Vec2 } from './Lesson/wav2vec2Client.js'
+import { UserProvisionedContext } from './utils/userProvisioned.js'
 
 const domain = import.meta.env.VITE_AUTH0_DOMAIN;
 const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID;
@@ -23,6 +24,7 @@ const audience = import.meta.env.VITE_AUTH0_AUDIENCE;
 // eslint-disable-next-line react-refresh/only-export-components
 const UserCreator = ({ children }) => {
   const { user, isAuthenticated, getAccessTokenSilently } = useAuth0()
+  const [provisioned, setProvisioned] = useState(false)
 
   // Start downloading/compiling the on-device speech-evaluation model as soon
   // as someone is signed in, rather than waiting for a lesson to open — the
@@ -42,7 +44,7 @@ const UserCreator = ({ children }) => {
       try {
         const token = await getAccessTokenSilently()
         const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080'
-        await fetch(`${API_BASE}/api/user/adduser`, {
+        const res = await fetch(`${API_BASE}/api/user/adduser`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -50,16 +52,25 @@ const UserCreator = ({ children }) => {
           },
           body: JSON.stringify({ name: user.name || user.nickname || user.email })
         })
+        if (!res.ok) throw new Error(`adduser failed: ${res.status}`)
+        // Only now is the user document guaranteed to exist, so only now may
+        // anything below us fetch data keyed on it.
+        if (!cancelled) setProvisioned(true)
       } catch (err) {
         if (!cancelled) console.error('Failed to create user:', err)
       }
     }
 
+    setProvisioned(false)
     createUser()
     return () => { cancelled = true }
   }, [isAuthenticated, user, getAccessTokenSilently])
 
-  return children
+  return (
+    <UserProvisionedContext.Provider value={provisioned}>
+      {children}
+    </UserProvisionedContext.Provider>
+  )
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
