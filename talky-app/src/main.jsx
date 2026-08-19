@@ -32,6 +32,11 @@ const UserCreator = ({ children }) => {
   }, [isAuthenticated])
 
   useEffect(() => {
+    if (!isAuthenticated) return
+    preloadWav2Vec2()
+  }, [isAuthenticated])
+
+  useEffect(() => {
     if (!isAuthenticated || !user) return
     let cancelled = false
 
