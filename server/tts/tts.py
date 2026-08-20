@@ -13,6 +13,8 @@ from . import (
 
 import logging
 
+from rate_limit import rate_limited
+
 logger = logging.getLogger(__name__)
 
 # Blueprint for the backend TTS route.
@@ -28,6 +30,7 @@ def tts_voices():
 
 
 @tts_bp.route("/api/tts", methods=["POST"])
+@rate_limited('tts', max_requests=20, window_seconds=60)
 def tts():
 
     # Parse the incoming JSON body from the frontend.

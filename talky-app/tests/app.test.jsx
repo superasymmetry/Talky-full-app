@@ -4,6 +4,21 @@ import { MemoryRouter } from 'react-router-dom';
 
 import App from '../src/App';
 import SoundBank from '../src/SoundBank/SoundBank';
+import { UserProvisionedContext } from '../src/utils/userProvisioned.js';
+
+// App.jsx's lesson-fetching effect is gated on useUserProvisioned() (see
+// App.jsx:24) so it never fires before POST /api/user/adduser has resolved.
+// The mocked useAuth0 below always reports isAuthenticated, so tests must
+// provide "provisioned" explicitly or that gate stays permanently closed.
+function renderApp() {
+  return render(
+    <MemoryRouter>
+      <UserProvisionedContext.Provider value={true}>
+        <App />
+      </UserProvisionedContext.Provider>
+    </MemoryRouter>
+  );
+}
 
 // ----------------------
 // Auth mock (stable)
@@ -51,32 +66,18 @@ beforeEach(() => {
 describe('App', () => {
 
   it('renders without crashing', () => {
-    expect(() =>
-      render(
-        <MemoryRouter>
-          <App />
-        </MemoryRouter>
-      )
-    ).not.toThrow();
+    expect(() => renderApp()).not.toThrow();
   });
 
   it('has header and footer', () => {
-    render(
-      <MemoryRouter>
-        <App />
-      </MemoryRouter>
-    );
+    renderApp();
 
     expect(screen.getByRole('banner')).toBeInTheDocument();
     expect(screen.getByRole('contentinfo')).toBeInTheDocument();
   });
 
   it('renders sound bank entry point', () => {
-    render(
-      <MemoryRouter>
-        <App />
-      </MemoryRouter>
-    );
+    renderApp();
 
     const soundbank = screen.getByText(/Sound Bank/i);
     expect(soundbank).toBeInTheDocument();
@@ -94,11 +95,7 @@ describe('App', () => {
       json: async () => ({ lessons: mockLessons }),
     });
 
-    render(
-      <MemoryRouter>
-        <App />
-      </MemoryRouter>
-    );
+    renderApp();
 
     const lesson = await screen.findByText(/cat/i);
     expect(lesson).toBeInTheDocument();
@@ -116,11 +113,7 @@ describe('App', () => {
       json: async () => ({ lessons: mockLessons }),
     });
 
-    render(
-      <MemoryRouter>
-        <App />
-      </MemoryRouter>
-    );
+    renderApp();
 
     const cards = await screen.findAllByTestId('lesson-card');
     expect(cards).toHaveLength(mockLessons.length);
@@ -138,11 +131,7 @@ describe('App', () => {
       json: async () => ({ lessons: mockLessons }),
     });
 
-    render(
-      <MemoryRouter>
-        <App />
-      </MemoryRouter>
-    );
+    renderApp();
 
     const cards = await screen.findAllByTestId('lesson-card');
     const lastCard = cards[cards.length - 1];

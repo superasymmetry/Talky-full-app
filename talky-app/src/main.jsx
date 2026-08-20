@@ -16,6 +16,8 @@ import { Auth0Provider, useAuth0 } from '@auth0/auth0-react'
 import LandingPage from './LandingPage/LandingPage.jsx'
 import { preloadWav2Vec2 } from './Lesson/wav2vec2Client.js'
 import { UserProvisionedContext } from './utils/userProvisioned.js'
+import ErrorBoundary from './ErrorBoundary.jsx'
+import NotFound from './NotFound.jsx'
 
 const domain = import.meta.env.VITE_AUTH0_DOMAIN;
 const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID;
@@ -25,11 +27,6 @@ const audience = import.meta.env.VITE_AUTH0_AUDIENCE;
 const UserCreator = ({ children }) => {
   const { user, isAuthenticated, getAccessTokenSilently } = useAuth0()
   const [provisioned, setProvisioned] = useState(false)
-
-  useEffect(() => {
-    if (!isAuthenticated) return
-    preloadWav2Vec2()
-  }, [isAuthenticated])
 
   useEffect(() => {
     if (!isAuthenticated) return
@@ -97,23 +94,26 @@ const Auth0ProviderWithNavigate = ({ children }) => {
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <BrowserRouter>
-      <Auth0ProviderWithNavigate>
-        <UserCreator>
-          <Routes>
-            <Route path="/app" element={<App/>}/>
-            <Route path="/lessons/:id" element={<Lesson />}/>
-            <Route path="/soundbank" element={<SoundBank/>}/>
-            <Route path="/practice-game" element={<PracticeGame/>}/>
-            <Route path="/soundbank/:id" element={<SoundBankCategory/>}/>
-            <Route path="/voice-settings" element={<VoiceSettings/>}/>
-            <Route path="/profile" element={<Profile/>}/>
-            <Route path="/statistics" element={<Statistics/>}/>
-            <Route path="/students/:studentId" element={<StudentDetail/>}/>
-            <Route path="/" element={<LandingPage/>}/>
-          </Routes>
-        </UserCreator>
-      </Auth0ProviderWithNavigate>
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <Auth0ProviderWithNavigate>
+          <UserCreator>
+            <Routes>
+              <Route path="/app" element={<App/>}/>
+              <Route path="/lessons/:id" element={<Lesson />}/>
+              <Route path="/soundbank" element={<SoundBank/>}/>
+              <Route path="/practice-game" element={<PracticeGame/>}/>
+              <Route path="/soundbank/:id" element={<SoundBankCategory/>}/>
+              <Route path="/voice-settings" element={<VoiceSettings/>}/>
+              <Route path="/profile" element={<Profile/>}/>
+              <Route path="/statistics" element={<Statistics/>}/>
+              <Route path="/students/:studentId" element={<StudentDetail/>}/>
+              <Route path="/" element={<LandingPage/>}/>
+              <Route path="*" element={<NotFound/>}/>
+            </Routes>
+          </UserCreator>
+        </Auth0ProviderWithNavigate>
+      </BrowserRouter>
+    </ErrorBoundary>
   </StrictMode>,
 )

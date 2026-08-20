@@ -13,6 +13,8 @@ from user_routes import user_bp
 from score_routes import score_bp
 from lesson_attempt_routes import lesson_attempt_bp
 from teacher_notes_routes import teacher_notes_bp
+from auth import verify_token, AuthError
+from rate_limit import rate_limited
 import threading
 import re
 import json
@@ -88,6 +90,7 @@ _load_lock = threading.Lock()
 warmup_async()
 
 sessions = {}
+sessions_lock = threading.Lock()
 
 WORD_FAIL_SCORE_THRESHOLD = 0.3
 
@@ -291,11 +294,49 @@ def _get_lesson(user_id, lesson_id):
         return None, None, (jsonify({"error": "invalid lesson_id"}), 400)
     return user, lesson, None
 
+
+def _authorize_or_demo(user_id):
+    """Returns None if the caller may access user_id's lesson data, else a
+    (body, status) tuple to return immediately.
+
+    "demo" is a deliberate, unauthenticated guest identity the frontend
+    exposes (the landing page's "Try Our Demo" button, and Lesson.jsx's
+    fallback to userId "demo" whenever isAuthenticated is false) — it must
+    stay reachable with no token. Every other user_id is a real account, so
+    it requires a bearer token whose subject matches it; without this check
+    anyone could pass an arbitrary real user_id and read/overwrite that
+    person's lesson content with no credentials at all.
+    """
+    if user_id == 'demo':
+        return None
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        return jsonify({"message": "Missing Authorization header"}), 401
+    parts = auth_header.split()
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        return jsonify({"message": "Invalid Authorization header"}), 401
+    try:
+        payload = verify_token(parts[1])
+    except AuthError as e:
+        return jsonify({"message": e.message}), e.status_code
+    if payload.get("sub") != user_id:
+        return jsonify({"message": "Not authorized for this user"}), 403
+    return None
+
+
 @app.route('/api/lessons', methods=['GET', 'POST'])
 def lessons():
     user_id = request.args.get('user_id')
     lesson_id = request.args.get('lesson_id')
     force_regenerate = request.args.get('regenerate') == 'true'
+
+    auth_err = _authorize_or_demo(user_id)
+    if auth_err:
+        return auth_err
+    if user_id == 'demo':
+        # Guests can read whatever is already cached, but can't trigger a
+        # fresh (billed) generation on demand.
+        force_regenerate = False
 
     user, lesson, err = _get_lesson(user_id, lesson_id)
     if err:
@@ -328,7 +369,11 @@ def lessons():
     )
 
     sentences_str = chat_completion.choices[0].message.content
-    sentences = json.loads(sentences_str)
+    try:
+        sentences = json.loads(sentences_str)
+    except (TypeError, ValueError):
+        logger.exception("Failed to parse Groq lesson-sentence response as JSON")
+        return jsonify({"error": "Failed to generate lesson content, please try again."}), 502
     if "sentences" in sentences and isinstance(sentences["sentences"], dict):
         sentences = sentences["sentences"]
 
@@ -380,6 +425,10 @@ def lesson_intro_video():
     user_id = request.args.get('user_id')
     lesson_id = request.args.get('lesson_id')
 
+    auth_err = _authorize_or_demo(user_id)
+    if auth_err:
+        return auth_err
+
     user, lesson, err = _get_lesson(user_id, lesson_id)
     if err:
         return err
@@ -403,6 +452,7 @@ def lesson_intro_video():
     })
 
 @app.route('/api/wordbank', methods=['GET', 'POST'])
+@rate_limited('wordbank', max_requests=20, window_seconds=60)
 def wordbank():
     '''For wordbank: generates a list of 16 words based on a sound category
         Inputs: JSON with "category" field (e.g., "L-sounds", "animals", etc.)
@@ -446,7 +496,14 @@ def wordbank():
         response_format={"type": "json_object"}
     )
 
-    return jsonify(chat_completion.choices[0].message.content)
+    words_str = chat_completion.choices[0].message.content
+    try:
+        words = json.loads(words_str)
+    except (TypeError, ValueError):
+        logger.exception("Failed to parse Groq wordbank response as JSON")
+        return jsonify({"error": "Failed to generate word bank, please try again."}), 502
+
+    return jsonify(words)
 
 # Concrete tongue/lip/teeth/airflow placement cues per IPA phoneme, grounded in
 # standard articulation-therapy descriptions. Used to keep generated feedback
@@ -599,7 +656,8 @@ def _generate_detailed_feedback(results, target_phoneme, avg, baseline=None):
     }
 
 def finalize_session(sid):
-    session = sessions.pop(sid, None)
+    with sessions_lock:
+        session = sessions.pop(sid, None)
     if not session:
         return
     results = session['results']
@@ -635,8 +693,31 @@ def handle_connect(auth=None):
 @socketio.on('start')
 def handle_start(data):
     sid = request.sid
-    words_ipa = data['words_ipa']
+    if not isinstance(data, dict) or not isinstance(data.get('words_ipa'), list) or not data.get('sentence'):
+        emit('error', {'message': 'Malformed start payload'})
+        return
+
     user_id = data.get('userId')
+    # "demo" is the unauthenticated guest identity the frontend falls back to
+    # when isAuthenticated is false (see Lesson.jsx) — it must stay reachable
+    # with no token. Any other userId is a real account and must prove it
+    # owns that id, or anyone could read/pollute another user's phoneme
+    # baseline data and progress just by guessing/knowing their user id.
+    if user_id and user_id != 'demo':
+        token = data.get('token')
+        if not token:
+            emit('error', {'message': 'Missing auth token'})
+            return
+        try:
+            payload = verify_token(token)
+        except AuthError:
+            emit('error', {'message': 'Invalid or expired auth token'})
+            return
+        if payload.get('sub') != user_id:
+            emit('error', {'message': 'Not authorized for this user'})
+            return
+
+    words_ipa = data['words_ipa']
 
     baseline = {}
     if user_id:
@@ -664,7 +745,8 @@ def handle_start(data):
     session = {'words_ipa': words_ipa, 'queue': chunk_queue, 'results': [],
                'mode': mode, 'audio': [], 'target_phoneme': target_phoneme,
                'baseline': baseline}
-    sessions[sid] = session
+    with sessions_lock:
+        sessions[sid] = session
 
     def run():
         word_phoneme_scores = [[None] * len(w['phonemes']) for w in words_ipa]
@@ -756,11 +838,12 @@ def handle_start(data):
                 logger.exception("Prosody evaluation failed")
 
     threading.Thread(target=run, daemon=True).start()
-    print(f"Session started for {sid}: {data['sentence']}")
+    print(f"Session started for {sid}: {sentence}")
 
 @socketio.on('chunk')
 def handle_chunk(data):
-    session = sessions.get(request.sid)
+    with sessions_lock:
+        session = sessions.get(request.sid)
     if not session:
         return
     arr = np.frombuffer(data, dtype=np.float32)
@@ -772,7 +855,8 @@ def handle_chunk(data):
 def handle_logits_chunk(data):
     """Receive precomputed wav2vec2 logits for one audio chunk.
     Payload: {'frames': int, 'data': float32 bytes of shape (frames, vocab)}."""
-    session = sessions.get(request.sid)
+    with sessions_lock:
+        session = sessions.get(request.sid)
     if not session or session.get('mode') != 'logits':
         return
     try:
@@ -786,23 +870,29 @@ def handle_logits_chunk(data):
 
 @socketio.on('stop')
 def handle_stop():
-    session = sessions.get(request.sid)
+    with sessions_lock:
+        session = sessions.get(request.sid)
     if session:
         session['queue'].put(None)
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    session = sessions.pop(request.sid, None)
+    with sessions_lock:
+        session = sessions.pop(request.sid, None)
     if session:
         session['queue'].put(None)
 
 @app.route("/", methods=["GET"])
 def home():
-    users = list(users_collection.find({}, {"_id": 0}))
-    return jsonify(users)
+    return jsonify({"service": "talky-api", "status": "ok"})
 
 @app.route("/health", methods=["GET", "HEAD"])
 def health():
+    try:
+        client.admin.command('ping')
+    except Exception:
+        logger.exception("Health check: MongoDB ping failed")
+        return jsonify({"status": "unhealthy", "reason": "database unavailable"}), 503
     return jsonify({"status": "ok"})
 
 _warmup_asr_async()
