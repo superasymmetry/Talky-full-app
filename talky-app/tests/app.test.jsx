@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import App from '../src/App';
 import SoundBank from '../src/SoundBank/SoundBank';
 import { UserProvisionedContext } from '../src/utils/userProvisioned.js';
+import { useAuth0 } from '@auth0/auth0-react';
 
 // App.jsx's lesson-fetching effect is gated on useUserProvisioned() (see
 // App.jsx:24) so it never fires before POST /api/user/adduser has resolved.
@@ -37,13 +38,12 @@ function renderApp() {
 const mockUser = { sub: 'test-user', email: 'test@example.com' };
 const getAccessTokenSilently = async () => 'test-token';
 
+// useAuth0 is a vi.fn() (not a plain arrow function) so individual tests can
+// override it with mockReturnValue/mockReturnValueOnce - e.g. the signed-out
+// test below needs isAuthenticated: false, which the shared default doesn't
+// provide.
 vi.mock('@auth0/auth0-react', () => ({
-  useAuth0: () => ({
-    isLoading: false,
-    isAuthenticated: true,
-    user: mockUser,
-    getAccessTokenSilently,
-  }),
+  useAuth0: vi.fn(),
 }));
 
 // ----------------------
@@ -56,6 +56,14 @@ beforeEach(() => {
   fetch.mockResolvedValue({
     ok: true,
     json: async () => ({ lessons: [] }),
+  });
+
+  useAuth0.mockReturnValue({
+    isLoading: false,
+    isAuthenticated: true,
+    user: mockUser,
+    getAccessTokenSilently,
+    loginWithRedirect: vi.fn(),
   });
 });
 
@@ -137,6 +145,21 @@ describe('App', () => {
     const lastCard = cards[cards.length - 1];
 
     expect(lastCard).toHaveTextContent(/lesson|bird|dog|cat/i);
+  });
+
+  it('shows a sign-in prompt instead of a blank page when signed out', () => {
+    useAuth0.mockReturnValue({
+      isLoading: false,
+      isAuthenticated: false,
+      user: null,
+      getAccessTokenSilently,
+      loginWithRedirect: vi.fn(),
+    });
+
+    renderApp();
+
+    expect(screen.getByText(/sign in to see your lessons/i)).toBeInTheDocument();
+    expect(screen.queryAllByTestId('lesson-card')).toHaveLength(0);
   });
 
 });

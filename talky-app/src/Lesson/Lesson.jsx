@@ -672,6 +672,13 @@ export default function Lesson() {
   const audioContextRef = useRef(null);
   const processorRef = useRef(null);
   const streamRef = useRef(null);
+  // React state updates (isRecording) aren't visible synchronously, so a
+  // rapid double-click can invoke startRecording twice before the first
+  // call's setIsRecording(true) has rendered - each invocation would open
+  // its own getUserMedia stream + AudioContext and clobber the refs to the
+  // previous one, leaking a live microphone. A ref flips synchronously, so
+  // it closes that gap.
+  const isStartingRecordingRef = useRef(false);
   const accumChunksRef = useRef([]);
   const chunkIntervalRef = useRef(null);
   const pendingSessionRef = useRef(null);
@@ -1032,6 +1039,16 @@ export default function Lesson() {
   };
 
   const startRecording = async () => {
+    if (isStartingRecordingRef.current || isRecording) return;
+    isStartingRecordingRef.current = true;
+    try {
+      await startRecordingInner();
+    } finally {
+      isStartingRecordingRef.current = false;
+    }
+  };
+
+  const startRecordingInner = async () => {
     if (sentencePassedRef.current) {
       toast("You've already passed this exercise! Click Next to continue.", { icon: '✅' });
       return;

@@ -9,11 +9,11 @@ import SoundBankCategory from './SoundBank/SoundBankCategory.jsx'
 import VoiceSettings from './SoundBank/VoiceSettings.jsx'
 import Profile from './Auth0/Profile.jsx'
 import PracticeGame from './Lesson/PracticeGame.jsx'
-import Statistics from './Statistics/Statistics.jsx';
-import StudentDetail from './Students/StudentDetail.jsx';
+import Statistics from './Statistics/Statistics.jsx'
+import StudentDetail from './Students/StudentDetail.jsx'
+import LandingPage from './LandingPage/LandingPage.jsx'
 
 import { Auth0Provider, useAuth0 } from '@auth0/auth0-react'
-import LandingPage from './LandingPage/LandingPage.jsx'
 import { preloadWav2Vec2 } from './Lesson/wav2vec2Client.js'
 import { UserProvisionedContext } from './utils/userProvisioned.js'
 import ErrorBoundary from './ErrorBoundary.jsx'

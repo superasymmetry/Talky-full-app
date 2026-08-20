@@ -81,7 +81,11 @@ export default function LessonKidOverlay({ lives, maxLives, wordHistory, current
 
       {wordHistory.length > 0 && (
         <div style={{
-          position: 'absolute', bottom: 24, left: 24, zIndex: 20,
+          // bottom: 90 (not 24) deliberately - the Record/Stop button in
+          // Lesson.jsx sits at left:24, bottom:24 with zIndex 30, and this
+          // pill used to share that exact anchor point, so it rendered
+          // right on top of/behind the record button instead of above it.
+          position: 'absolute', bottom: 90, left: 24, zIndex: 20,
           display: 'flex', alignItems: 'center', gap: 6,
           background: N7, borderRadius: 999, padding: '8px 16px', color: N1,
         }}>

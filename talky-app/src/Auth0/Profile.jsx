@@ -132,6 +132,21 @@ const Profile = () => {
   const [linking, setLinking] = useState(false);
   const [linkMessage, setLinkMessage] = useState('');
 
+  const [pendingTeacherRequest, setPendingTeacherRequest] = useState(null);
+  const [respondingToRequest, setRespondingToRequest] = useState(false);
+
+  const [children, setChildren] = useState([]);
+  const [childSearchQuery, setChildSearchQuery] = useState('');
+  const [childSearchResults, setChildSearchResults] = useState([]);
+  const [childSearching, setChildSearching] = useState(false);
+  const [requestingChildId, setRequestingChildId] = useState(null);
+
+  const [pendingParentRequests, setPendingParentRequests] = useState([]);
+  const [respondingToParentId, setRespondingToParentId] = useState(null);
+
+  const [assessmentResults, setAssessmentResults] = useState(null);
+  const [retaking, setRetaking] = useState(false);
+
   async function fetchProfile() {
     const profileRes = await authFetch(`${API_BASE}/api/getUserProfile`);
     if (!profileRes.ok) {
@@ -143,6 +158,9 @@ const Profile = () => {
     setRole(profile.role ?? 'Student');
     setSavedRole(profile.role ?? 'Student');
     setConnectCode(profile.connectCode ?? '');
+    setPendingTeacherRequest(profile.pendingTeacherRequest ?? null);
+    setPendingParentRequests(profile.pendingParentRequests ?? []);
+    setAssessmentResults(profile.assessmentResults ?? null);
     return profile;
   }
 
@@ -151,6 +169,14 @@ const Profile = () => {
     if (res.ok) {
       const json = await res.json();
       setStudents(json.students || []);
+    }
+  }
+
+  async function fetchChildren() {
+    const res = await authFetch(`${API_BASE}/api/user/myChildren`);
+    if (res.ok) {
+      const json = await res.json();
+      setChildren(json.children || []);
     }
   }
 
@@ -167,6 +193,8 @@ const Profile = () => {
       await fetchRoster();
     } else if (currentRole === 'Student') {
       await fetchMyTeacher();
+    } else if (currentRole === 'Parent') {
+      await fetchChildren();
     }
   }
 
@@ -185,6 +213,21 @@ const Profile = () => {
     }
   }
 
+  async function runChildSearch(query) {
+    setChildSearching(true);
+    try {
+      const res = await authFetch(`${API_BASE}/api/user/searchChildren?q=${encodeURIComponent(query)}`);
+      if (res.ok) {
+        const json = await res.json();
+        setChildSearchResults(json.students || []);
+      }
+    } catch (err) {
+      console.error('Child search failed', err);
+    } finally {
+      setChildSearching(false);
+    }
+  }
+
   async function loadEverything() {
     setLoadError(false);
 
@@ -200,10 +243,12 @@ const Profile = () => {
 
     const currentRole = profile.role ?? 'Student';
     try {
+      // No longer auto-searches with a blank query on load - that used to
+      // hand a self-declared "Teacher" a list of the first 50 children in
+      // the whole database (name + age) with zero effort. A teacher now has
+      // to type an actual name before seeing anyone (see MIN_STUDENT_SEARCH_QUERY_LEN
+      // in server/user_routes.py).
       await fetchLinkedData(currentRole);
-      if (currentRole === 'Teacher') {
-        await runSearch('');
-      }
     } catch (err) {
       console.error('Failed to load roster/teacher data', err);
     }
@@ -221,6 +266,13 @@ const Profile = () => {
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery, savedRole, profileLoaded]);
+
+  useEffect(() => {
+    if (savedRole !== 'Parent' || !profileLoaded) return;
+    const handle = setTimeout(() => runChildSearch(childSearchQuery), 300);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [childSearchQuery, savedRole, profileLoaded]);
 
   if (isLoading) return <p style={{ color: '#94a3b8', textAlign: 'center', marginTop: '4rem' }}>Loading profile...</p>;
   if (!isAuthenticated) return <p style={{ color: '#94a3b8', textAlign: 'center', marginTop: '4rem' }}>Please log in to view your profile, statistics, and more.</p>;
@@ -272,9 +324,12 @@ const Profile = () => {
         const profile = await fetchProfile();
         if (profile.role === 'Teacher') {
           await fetchRoster();
-          await runSearch('');
+          if (searchQuery.trim()) await runSearch(searchQuery);
         } else if (profile.role === 'Student') {
           await fetchMyTeacher();
+        } else if (profile.role === 'Parent') {
+          await fetchChildren();
+          if (childSearchQuery.trim()) await runChildSearch(childSearchQuery);
         }
         alert('Profile saved');
       } else {
@@ -291,21 +346,45 @@ const Profile = () => {
   const handleAddStudent = async (studentId) => {
     try {
       setAddingId(studentId);
+      // This only sends a link request now - the student has to accept it
+      // (see handleRespondToRequest below) before they show up in the
+      // roster, so a self-declared "Teacher" can't attach to a child's
+      // account without that child's say-so.
       const res = await authFetch(`${API_BASE}/api/user/addStudent`, {
         method: 'POST',
         body: JSON.stringify({ studentId })
       });
       const json = await res.json();
       if (res.ok) {
-        await fetchRoster();
         await runSearch(searchQuery);
       } else {
-        alert(json.message || 'Could not add student');
+        alert(json.message || 'Could not send request');
       }
     } catch (err) {
-      console.error('Failed to add student', err);
+      console.error('Failed to request student', err);
     } finally {
       setAddingId(null);
+    }
+  }
+
+  const handleRespondToRequest = async (accept) => {
+    try {
+      setRespondingToRequest(true);
+      const res = await authFetch(`${API_BASE}/api/user/respondToTeacherRequest`, {
+        method: 'POST',
+        body: JSON.stringify({ accept })
+      });
+      const json = await res.json();
+      if (res.ok) {
+        setPendingTeacherRequest(null);
+        if (accept) await fetchMyTeacher();
+      } else {
+        alert(json.message || 'Could not respond to request');
+      }
+    } catch (err) {
+      console.error('Failed to respond to teacher request', err);
+    } finally {
+      setRespondingToRequest(false);
     }
   }
 
@@ -352,6 +431,80 @@ const Profile = () => {
       setMyTeacher(null);
     } catch (err) {
       console.error('Failed to remove teacher', err);
+    }
+  }
+
+  const handleRequestChild = async (studentId) => {
+    try {
+      setRequestingChildId(studentId);
+      const res = await authFetch(`${API_BASE}/api/user/requestChildLink`, {
+        method: 'POST',
+        body: JSON.stringify({ studentId })
+      });
+      const json = await res.json();
+      if (res.ok) {
+        await runChildSearch(childSearchQuery);
+      } else {
+        alert(json.message || 'Could not send request');
+      }
+    } catch (err) {
+      console.error('Failed to request child link', err);
+    } finally {
+      setRequestingChildId(null);
+    }
+  }
+
+  const handleRemoveChild = async (studentId) => {
+    try {
+      await authFetch(`${API_BASE}/api/user/removeChild`, {
+        method: 'POST',
+        body: JSON.stringify({ studentId })
+      });
+      await fetchChildren();
+      await runChildSearch(childSearchQuery);
+    } catch (err) {
+      console.error('Failed to remove child', err);
+    }
+  }
+
+  const handleRespondToParentRequest = async (parentId, accept) => {
+    try {
+      setRespondingToParentId(parentId);
+      const res = await authFetch(`${API_BASE}/api/user/respondToParentRequest`, {
+        method: 'POST',
+        body: JSON.stringify({ parentId, accept })
+      });
+      const json = await res.json();
+      if (res.ok) {
+        setPendingParentRequests((prev) => prev.filter((p) => p.parentId !== parentId));
+      } else {
+        alert(json.message || 'Could not respond to request');
+      }
+    } catch (err) {
+      console.error('Failed to respond to parent request', err);
+    } finally {
+      setRespondingToParentId(null);
+    }
+  }
+
+  const handleRetakeAssessment = async () => {
+    if (!confirm("Redo your intake assessment? This resets your scores for the assessed sounds and gives you 6 new short lessons to test them again.")) {
+      return;
+    }
+    try {
+      setRetaking(true);
+      const res = await authFetch(`${API_BASE}/api/user/retakeAssessment`, { method: 'POST' });
+      const json = await res.json();
+      if (res.ok) {
+        setAssessmentResults(null);
+        alert("Assessment reset — head to Home to start it.");
+      } else {
+        alert(json.message || 'Could not start a retake');
+      }
+    } catch (err) {
+      console.error('Failed to retake assessment', err);
+    } finally {
+      setRetaking(false);
     }
   }
 
@@ -483,6 +636,7 @@ const Profile = () => {
               >
                 <option style={{ backgroundColor: '#171c3a' }}>Student</option>
                 <option style={{ backgroundColor: '#171c3a' }}>Teacher</option>
+                <option style={{ backgroundColor: '#171c3a' }}>Parent</option>
               </select>
               {roleIsUnsaved && (
                 <p style={{ color: '#f5a962', fontSize: '0.78rem', marginBottom: '1rem' }}>
@@ -583,6 +737,8 @@ const Profile = () => {
                         </div>
                         {s.inMyRoster ? (
                           <span style={{ color: '#4ade80', fontSize: '0.78rem', fontWeight: 600 }}>Added</span>
+                        ) : s.hasPendingRequestFromMe ? (
+                          <span style={{ color: '#6b7194', fontSize: '0.78rem' }}>Request sent</span>
                         ) : s.hasOtherTeacher ? (
                           <span style={{ color: '#6b7194', fontSize: '0.78rem' }}>Has a teacher</span>
                         ) : (
@@ -592,7 +748,101 @@ const Profile = () => {
                             className="talky-add-btn"
                             style={{ ...smallActionBtnStyle, padding: '0.3rem 0.8rem', fontSize: '0.78rem', cursor: addingId === s.userId ? 'default' : 'pointer' }}
                           >
-                            {addingId === s.userId ? 'Adding...' : 'Add'}
+                            {addingId === s.userId ? 'Sending...' : 'Request'}
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            ) : savedRole === 'Parent' ? (
+              <>
+                <h3 style={{ color: '#f1f5f9', fontSize: '1.15rem', fontWeight: 700, marginBottom: '1.1rem' }}>
+                  My Children
+                </h3>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {children.length === 0 ? (
+                    <p style={{ color: '#6b7194', fontSize: '0.9rem' }}>
+                      No children linked yet — search below to send a request.
+                    </p>
+                  ) : children.map((c) => (
+                    <Link
+                      key={c.userId}
+                      to={`/students/${c.userId}`}
+                      style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: '0.75rem 0.9rem', borderRadius: '0.6rem', textDecoration: 'none',
+                        backgroundColor: '#171c3a', border: '1px solid rgba(255,255,255,0.06)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <div>
+                        <div style={{ color: '#f1f5f9', fontWeight: 600, fontSize: '0.95rem' }}>
+                          {c.nickname || c.name || 'Unnamed'}
+                        </div>
+                        <div style={{ color: '#8b91ad', fontSize: '0.8rem', marginTop: '0.15rem' }}>
+                          {c.age ? `Age ${c.age} · ` : ''}
+                          {c.overallScore !== null ? `${Math.round(c.overallScore * 100)}% avg` : 'No attempts yet'}
+                          {` · ${c.lessonsDone} lesson${c.lessonsDone === 1 ? '' : 's'} done`}
+                        </div>
+                      </div>
+                      <button
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleRemoveChild(c.userId); }}
+                        className="talky-remove-btn"
+                        style={{
+                          background: 'none', border: 'none', color: '#6b7194',
+                          fontSize: '1.1rem', cursor: 'pointer', padding: '0.25rem 0.5rem',
+                        }}
+                        aria-label={`Remove ${c.nickname || c.name}`}
+                      >
+                        ×
+                      </button>
+                    </Link>
+                  ))}
+                </div>
+
+                <div style={{ marginTop: '1.75rem', paddingTop: '1.5rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                  <label style={labelStyle}>Find your child</label>
+                  <input
+                    className="talky-profile-input"
+                    type="text"
+                    placeholder="Search by name or nickname..."
+                    value={childSearchQuery}
+                    onChange={(e) => setChildSearchQuery(e.target.value)}
+                    style={{ ...inputStyle, width: '100%', marginBottom: '0.9rem' }}
+                  />
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '220px', overflowY: 'auto' }}>
+                    {childSearching && (
+                      <p style={{ color: '#6b7194', fontSize: '0.85rem' }}>Searching...</p>
+                    )}
+                    {!childSearching && childSearchResults.length === 0 && (
+                      <p style={{ color: '#6b7194', fontSize: '0.85rem' }}>No students found.</p>
+                    )}
+                    {!childSearching && childSearchResults.map((s) => (
+                      <div key={s.userId} style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: '0.6rem 0.8rem', borderRadius: '0.5rem',
+                        backgroundColor: '#12162e', border: '1px solid rgba(255,255,255,0.05)',
+                      }}>
+                        <div style={{ color: '#dfe3f5', fontSize: '0.88rem' }}>
+                          {s.nickname || s.name || 'Unnamed'}
+                          {s.age ? <span style={{ color: '#6b7194' }}> · Age {s.age}</span> : null}
+                        </div>
+                        {s.inMyChildren ? (
+                          <span style={{ color: '#4ade80', fontSize: '0.78rem', fontWeight: 600 }}>Added</span>
+                        ) : s.hasPendingRequestFromMe ? (
+                          <span style={{ color: '#6b7194', fontSize: '0.78rem' }}>Request sent</span>
+                        ) : (
+                          <button
+                            onClick={() => handleRequestChild(s.userId)}
+                            disabled={requestingChildId === s.userId}
+                            className="talky-add-btn"
+                            style={{ ...smallActionBtnStyle, padding: '0.3rem 0.8rem', fontSize: '0.78rem', cursor: requestingChildId === s.userId ? 'default' : 'pointer' }}
+                          >
+                            {requestingChildId === s.userId ? 'Sending...' : 'Request'}
                           </button>
                         )}
                       </div>
@@ -602,9 +852,111 @@ const Profile = () => {
               </>
             ) : (
               <>
+                {assessmentResults && (
+                  <div style={{
+                    padding: '1rem 1.1rem', borderRadius: '0.6rem', marginBottom: '1.5rem',
+                    backgroundColor: '#171c3a', border: '1px solid rgba(255,255,255,0.06)',
+                  }}>
+                    <h3 style={{ color: '#f1f5f9', fontSize: '1.1rem', fontWeight: 700, marginBottom: '0.25rem' }}>
+                      Your Assessment Results
+                    </h3>
+                    <p style={{ color: '#6b7194', fontSize: '0.78rem', marginBottom: '0.9rem' }}>
+                      {new Date(assessmentResults.completedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {assessmentResults.phonemeScores.map((p) => (
+                        <div key={p.phoneme} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem' }}>
+                          <span style={{ color: '#dfe3f5', fontFamily: 'monospace' }}>/{p.phoneme}/</span>
+                          <span style={{ color: p.avgScore == null ? '#6b7194' : '#f1f5f9' }}>
+                            {p.avgScore == null ? 'no data' : `${Math.round(p.avgScore * 100)}%`}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <button
+                      onClick={handleRetakeAssessment}
+                      disabled={retaking}
+                      className="talky-remove-btn"
+                      style={{
+                        marginTop: '1rem', padding: '0.4rem 0.9rem', backgroundColor: 'transparent',
+                        color: '#8b91ad', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '0.6rem',
+                        fontSize: '0.8rem', cursor: retaking ? 'default' : 'pointer',
+                      }}
+                    >
+                      {retaking ? 'Starting...' : "Doesn't look right? Retake assessment"}
+                    </button>
+                  </div>
+                )}
+
                 <h3 style={{ color: '#f1f5f9', fontSize: '1.15rem', fontWeight: 700, marginBottom: '1.25rem' }}>
                   My Teacher
                 </h3>
+
+                {pendingParentRequests.map((req) => (
+                  <div key={req.parentId} style={{
+                    padding: '0.9rem 1rem', borderRadius: '0.6rem', marginBottom: '1.25rem',
+                    backgroundColor: '#1f2547', border: '1px solid rgba(245, 169, 98, 0.35)',
+                  }}>
+                    <p style={{ color: '#f1f5f9', fontSize: '0.9rem', marginBottom: '0.75rem' }}>
+                      <strong>{req.parentName || 'A parent'}</strong> wants to link to your account.
+                    </p>
+                    <div style={{ display: 'flex', gap: '0.6rem' }}>
+                      <button
+                        onClick={() => handleRespondToParentRequest(req.parentId, true)}
+                        disabled={respondingToParentId === req.parentId}
+                        className="talky-add-btn"
+                        style={{ ...smallActionBtnStyle, padding: '0.4rem 1rem', cursor: respondingToParentId === req.parentId ? 'default' : 'pointer' }}
+                      >
+                        Accept
+                      </button>
+                      <button
+                        onClick={() => handleRespondToParentRequest(req.parentId, false)}
+                        disabled={respondingToParentId === req.parentId}
+                        className="talky-remove-btn"
+                        style={{
+                          padding: '0.4rem 1rem', backgroundColor: 'transparent', color: '#8b91ad',
+                          border: '1px solid rgba(255,255,255,0.15)', borderRadius: '0.6rem',
+                          fontSize: '0.82rem', cursor: respondingToParentId === req.parentId ? 'default' : 'pointer',
+                        }}
+                      >
+                        Decline
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+                {pendingTeacherRequest && (
+                  <div style={{
+                    padding: '0.9rem 1rem', borderRadius: '0.6rem', marginBottom: '1.25rem',
+                    backgroundColor: '#1f2547', border: '1px solid rgba(245, 169, 98, 0.35)',
+                  }}>
+                    <p style={{ color: '#f1f5f9', fontSize: '0.9rem', marginBottom: '0.75rem' }}>
+                      <strong>{pendingTeacherRequest.teacherName || 'A teacher'}</strong> wants to add you to their roster.
+                    </p>
+                    <div style={{ display: 'flex', gap: '0.6rem' }}>
+                      <button
+                        onClick={() => handleRespondToRequest(true)}
+                        disabled={respondingToRequest}
+                        className="talky-add-btn"
+                        style={{ ...smallActionBtnStyle, padding: '0.4rem 1rem', cursor: respondingToRequest ? 'default' : 'pointer' }}
+                      >
+                        Accept
+                      </button>
+                      <button
+                        onClick={() => handleRespondToRequest(false)}
+                        disabled={respondingToRequest}
+                        className="talky-remove-btn"
+                        style={{
+                          padding: '0.4rem 1rem', backgroundColor: 'transparent', color: '#8b91ad',
+                          border: '1px solid rgba(255,255,255,0.15)', borderRadius: '0.6rem',
+                          fontSize: '0.82rem', cursor: respondingToRequest ? 'default' : 'pointer',
+                        }}
+                      >
+                        Decline
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {myTeacher ? (
                   <div style={{

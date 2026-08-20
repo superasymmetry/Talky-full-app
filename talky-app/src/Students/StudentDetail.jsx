@@ -401,6 +401,12 @@ export default function StudentDetail() {
   const [detailStatus, setDetailStatus] = useState('loading');
   const [attempts, setAttempts] = useState([]);
   const [attemptsLoading, setAttemptsLoading] = useState(true);
+  // A Parent can view this page too (see _authorize_student_access), but
+  // only a Teacher may set goals/assign lessons - the backend already
+  // enforces that via _require_teacher_of, this just keeps a Parent from
+  // seeing write controls that would only fail with a 403 if they used them.
+  const [viewerRole, setViewerRole] = useState(null);
+  const [downloading, setDownloading] = useState(null);
 
   const loadDetail = async () => {
     try {
@@ -436,8 +442,34 @@ export default function StudentDetail() {
     if (authLoading || !isAuthenticated) return;
     loadDetail();
     loadAttempts();
+    authFetch(`${API_BASE}/api/getUserProfile`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((profile) => { if (profile) setViewerRole(profile.role); })
+      .catch((err) => console.error('Failed to load viewer profile', err));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, isAuthenticated, studentId]);
+
+  const handleDownloadReport = async (format) => {
+    setDownloading(format);
+    try {
+      const res = await authFetch(`${API_BASE}/api/user/student/${studentId}/report.${format}`);
+      if (!res.ok) throw new Error(`Report download failed: ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `talky-progress-${studentId}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to download report', err);
+      alert('Could not download the report — please try again.');
+    } finally {
+      setDownloading(null);
+    }
+  };
 
   if (authLoading) return <Layout><Card>Loading…</Card></Layout>;
   if (!isAuthenticated) return <Layout><Card>Please log in.</Card></Layout>;
@@ -454,28 +486,50 @@ export default function StudentDetail() {
     <Layout>
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <Link to="/profile" className="caption text-n-3 hover:text-n-1">← Back to roster</Link>
+          <Link to="/profile" className="caption text-n-3 hover:text-n-1">
+            ← Back to {viewerRole === 'Parent' ? 'my children' : 'roster'}
+          </Link>
           <h1 className="h5 m-0 mt-1 text-n-1">{detail.nickname || detail.name || 'Student'}</h1>
           {detail.age && <p className="caption text-n-4">Age {detail.age}</p>}
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => handleDownloadReport('pdf')}
+            disabled={downloading === 'pdf'}
+            className="cut-chip px-3 py-1.5 text-sm bg-n-6 text-n-2 border border-n-1/10 hover:border-color-1/60"
+          >
+            {downloading === 'pdf' ? 'Preparing…' : 'Download PDF'}
+          </button>
+          <button
+            type="button"
+            onClick={() => handleDownloadReport('csv')}
+            disabled={downloading === 'csv'}
+            className="cut-chip px-3 py-1.5 text-sm bg-n-6 text-n-2 border border-n-1/10 hover:border-color-1/60"
+          >
+            {downloading === 'csv' ? 'Preparing…' : 'Download CSV'}
+          </button>
         </div>
       </div>
 
       <StatisticsPanel userId={studentId} />
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <GoalPanel
-          studentId={studentId}
-          activeGoal={detail.activeGoal}
-          onChanged={loadDetail}
-          authFetch={authFetch}
-        />
-        <AssignmentPanel
-          studentId={studentId}
-          pendingAssignedLesson={detail.pendingAssignedLesson}
-          onChanged={loadDetail}
-          authFetch={authFetch}
-        />
-      </div>
+      {viewerRole === 'Teacher' && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <GoalPanel
+            studentId={studentId}
+            activeGoal={detail.activeGoal}
+            onChanged={loadDetail}
+            authFetch={authFetch}
+          />
+          <AssignmentPanel
+            studentId={studentId}
+            pendingAssignedLesson={detail.pendingAssignedLesson}
+            onChanged={loadDetail}
+            authFetch={authFetch}
+          />
+        </div>
+      )}
 
       <AttemptsPanel attempts={attempts} loading={attemptsLoading} />
 

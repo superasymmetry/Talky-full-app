@@ -13,6 +13,7 @@ from user_routes import user_bp
 from score_routes import score_bp
 from lesson_attempt_routes import lesson_attempt_bp
 from teacher_notes_routes import teacher_notes_bp
+from report_routes import report_bp
 from auth import verify_token, AuthError
 from rate_limit import rate_limited
 import threading
@@ -70,6 +71,7 @@ app.register_blueprint(user_bp)
 app.register_blueprint(score_bp)
 app.register_blueprint(lesson_attempt_bp)
 app.register_blueprint(teacher_notes_bp)
+app.register_blueprint(report_bp)
 
 from tts.tts import tts_bp
 app.register_blueprint(tts_bp)
@@ -350,32 +352,46 @@ def lessons():
                     _sanitize_for_log(lesson_id), _sanitize_for_log(user_id))
         return jsonify(cached)
 
-    prompt = f"""
-    Your tasks is to generate a list of 7 sentences for speech therapy practice. 
-    Please generate the sentences based on these words: {word_list}.
-    Each sentence should be between 5-10 words long. Please return the sentences in JSON format as follows:
-    {{
-        1: "first sentence",
-        2: "second sentence",
-        ...
-        7: "seventh sentence"
-        }}
-    """
-    client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
-    chat_completion = client.chat.completions.create(
-        messages=[{"role": "user", "content": prompt}],
-        model="llama-3.1-8b-instant",
-        response_format={"type": "json_object"}
-    )
+    if lesson.get('is_assessment'):
+        # The intake assessment needs to stay fast and free (it runs on
+        # every signup, before the user has done anything else), so it
+        # skips the LLM call entirely and uses the lesson's own word list
+        # directly as the "sentences" instead. Deliberately just the bare
+        # word, not a carrier phrase like "Say {word}." - the per-word
+        # scoring UI treats every word in the sentence as something to score
+        # and rate with stars, so a wrapper word like "Say" showed up
+        # alongside the real target word as a meaningless extra score.
+        sentences = {
+            str(i + 1): word
+            for i, word in enumerate(word_list)
+        }
+    else:
+        prompt = f"""
+        Your tasks is to generate a list of 7 sentences for speech therapy practice.
+        Please generate the sentences based on these words: {word_list}.
+        Each sentence should be between 5-10 words long. Please return the sentences in JSON format as follows:
+        {{
+            1: "first sentence",
+            2: "second sentence",
+            ...
+            7: "seventh sentence"
+            }}
+        """
+        client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+        chat_completion = client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model="llama-3.1-8b-instant",
+            response_format={"type": "json_object"}
+        )
 
-    sentences_str = chat_completion.choices[0].message.content
-    try:
-        sentences = json.loads(sentences_str)
-    except (TypeError, ValueError):
-        logger.exception("Failed to parse Groq lesson-sentence response as JSON")
-        return jsonify({"error": "Failed to generate lesson content, please try again."}), 502
-    if "sentences" in sentences and isinstance(sentences["sentences"], dict):
-        sentences = sentences["sentences"]
+        sentences_str = chat_completion.choices[0].message.content
+        try:
+            sentences = json.loads(sentences_str)
+        except (TypeError, ValueError):
+            logger.exception("Failed to parse Groq lesson-sentence response as JSON")
+            return jsonify({"error": "Failed to generate lesson content, please try again."}), 502
+        if "sentences" in sentences and isinstance(sentences["sentences"], dict):
+            sentences = sentences["sentences"]
 
     expected_ipas = []
     words_to_ipa_list = []

@@ -5,6 +5,9 @@ import {
   AreaSeries,
   Area,
   Line,
+  LinearYAxis,
+  LinearYAxisTickSeries,
+  LinearYAxisTickLabel,
 } from 'reaviz';
 import { HEATMAP_MONTHS, activityMonths } from './derive.js';
 import './Statistics.css';
@@ -209,6 +212,22 @@ export const ProgressChart = ({ phonemes, selected, onSelect, series }) => {
                   interpolation="smooth"
                 />
               }
+              // Scores are 0-1 fractions; reaviz's default y-axis rounds
+              // raw values to ~1 decimal for its labels, which for a small
+              // range (e.g. 0.28 and 0.35) rendered visually-duplicate
+              // ticks like "0.3, 0.3". Formatting as whole-percent instead
+              // both reads more naturally for a score and gives each tick
+              // enough resolution to look distinct.
+              yAxis={
+                <LinearYAxis
+                  type="value"
+                  tickSeries={
+                    <LinearYAxisTickSeries
+                      label={<LinearYAxisTickLabel format={(v) => `${Math.round(v * 100)}%`} />}
+                    />
+                  }
+                />
+              }
             />
           )
         )}
@@ -227,12 +246,13 @@ const masteryColor = (pct) => {
 };
 
 export const PhonemeMastery = ({ bars, limit = MASTERY_LIMIT }) => {
-  const shown = bars.slice(0, limit);
-  const hidden = bars.length - shown.length;
+  const { tried, untried } = bars;
+  const shown = tried.slice(0, limit);
+  const hidden = tried.length - shown.length;
 
   return (
     <Card title="Sound mastery">
-      {bars.length === 0 ? (
+      {tried.length === 0 ? (
         <Empty>Complete a lesson to start tracking sound mastery.</Empty>
       ) : (
         <>
@@ -256,6 +276,11 @@ export const PhonemeMastery = ({ bars, limit = MASTERY_LIMIT }) => {
             <p className="caption text-n-4 mt-2">+{hidden} more sound{hidden === 1 ? '' : 's'}</p>
           )}
         </>
+      )}
+      {untried.length > 0 && (
+        <p className="caption text-n-4 mt-3 pt-3 border-t border-n-1/10">
+          Not tried yet: <span className="font-mono">{untried.join(', ')}</span>
+        </p>
       )}
     </Card>
   );
@@ -369,7 +394,10 @@ ProgressChart.propTypes = {
 };
 
 PhonemeMastery.propTypes = {
-  bars: PropTypes.array.isRequired,
+  bars: PropTypes.shape({
+    tried: PropTypes.arrayOf(PropTypes.shape({ key: PropTypes.string, data: PropTypes.number })).isRequired,
+    untried: PropTypes.arrayOf(PropTypes.string).isRequired,
+  }).isRequired,
   limit: PropTypes.number,
 };
 
