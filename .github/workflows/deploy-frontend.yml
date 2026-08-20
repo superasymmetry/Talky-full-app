@@ -36,6 +36,7 @@ jobs:
           VITE_AUTH0_DOMAIN: dev-d4hp725rjhg8hatu.us.auth0.com
           VITE_AUTH0_CLIENT_ID: ${{ secrets.VITE_AUTH0_CLIENT_ID }}
           VITE_AUTH0_AUDIENCE: https://api.talky.app
+          VITE_W2V2_MODEL: stringbot/wav2vec2-xls-r-300m-timit-phoneme-onnx
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
