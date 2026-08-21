@@ -12,14 +12,14 @@ def _require_role(caller_id, expected_role):
 
 
 def _authorize_student_access(caller_id, student_id):
-    '''Returns (student_doc, None) if caller_id IS student_id or is that
-    student's linked teacher; otherwise (None, error_response).'''
     student = users_collection.find_one({"userId": student_id})
     if not student:
         return None, (jsonify({"message": "Student not found"}), 404)
     if caller_id == student_id:
         return student, None
     if student.get("teacherId") == caller_id:
+        return student, None
+    if caller_id in (student.get("parentIds") or []):
         return student, None
     return None, (jsonify({"message": "Not authorized for this student"}), 403)
 

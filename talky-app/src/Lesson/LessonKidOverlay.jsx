@@ -1,7 +1,7 @@
 import '../Statistics/Statistics.css';
 
-import { scoreToStars } from './summaryDerive.js';
 import { Waveform } from 'ldrs/react';
+import { scoreToStars } from './summaryDerive.js';
 
 const N1 = '#FFFFFF';
 const N6 = '#252134';
@@ -81,7 +81,7 @@ export default function LessonKidOverlay({ lives, maxLives, wordHistory, current
 
       {wordHistory.length > 0 && (
         <div style={{
-          position: 'absolute', bottom: 24, left: 24, zIndex: 20,
+          position: 'absolute', bottom: 90, left: 24, zIndex: 20,
           display: 'flex', alignItems: 'center', gap: 6,
           background: N7, borderRadius: 999, padding: '8px 16px', color: N1,
         }}>

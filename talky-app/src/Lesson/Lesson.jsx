@@ -6,19 +6,19 @@ import * as THREE from 'three'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Cloud, Clouds, ContactShadows, Environment, OrbitControls, Sky, useAnimations, useGLTF } from '@react-three/drei'
 import { Component, Suspense, forwardRef, useEffect, useMemo, useRef, useState } from 'react'
+import { VIEW_MODES, useViewMode } from '../viewMode/viewMode.js';
+import { getWav2Vec2Worker, subscribeWav2Vec2 } from './wav2vec2Client.js';
 import { speakText, stopSpeech } from '../tts.js';
 import toast, { Toaster } from 'react-hot-toast';
 
 import Back from './Back.jsx';
 import LessonKidOverlay from './LessonKidOverlay.jsx';
 import LessonSummary from './LessonSummary.jsx';
-import { VIEW_MODES, useViewMode } from '../viewMode/viewMode.js';
 import { Waveform } from 'ldrs/react'
 import { io } from 'socket.io-client';
+import { makeAuthFetch } from '../utils/authFetch.js';
 import { useAuth0 } from '@auth0/auth0-react';
 import { useMatch } from 'react-router-dom';
-import { makeAuthFetch } from '../utils/authFetch.js';
-import { getWav2Vec2Worker, subscribeWav2Vec2 } from './wav2vec2Client.js';
 
 useGLTF.preload('/robot-draco.glb')
 useGLTF.preload('/seagull-2.glb')
@@ -482,6 +482,12 @@ export default function Lesson() {
   const { user, isAuthenticated, isLoading: authLoading, getAccessTokenSilently } = useAuth0();
   const userId = isAuthenticated && user ? (user.sub || user.email) : 'demo';
   const authFetch = useMemo(() => makeAuthFetch(getAccessTokenSilently), [getAccessTokenSilently]);
+  
+  // pick which fetch function to use: either authFetch or fetch
+  const lessonFetch = useMemo(
+    () => (isAuthenticated ? authFetch : (url, options) => fetch(url, options)),
+    [isAuthenticated, authFetch]
+  );
   const [viewMode] = useViewMode();
 
   const [nextHover, setNextHover] = useState(false)
@@ -640,6 +646,9 @@ export default function Lesson() {
         method: 'POST',
         body: JSON.stringify(payload),
       });
+      if (!res.ok) {
+        throw new Error(`Save failed: ${res.status}`);
+      }
       const saved = await res.json();
       setThisAttempt(saved);
       if (saved.attemptNumber > 1) {
@@ -649,6 +658,11 @@ export default function Lesson() {
       }
     } catch (err) {
       console.error('Failed to save lesson attempt:', err);
+      // Let the summary screen fall back to the live-computed snapshot
+      // (liveSnapshotRef) instead of silently showing a blank/zeroed
+      // "Lesson Complete" screen as if the save had actually succeeded.
+      attemptSavedRef.current = false;
+      toast.error("Couldn't save your results — showing this session's scores only.");
     }
   };
 
@@ -656,6 +670,7 @@ export default function Lesson() {
   const audioContextRef = useRef(null);
   const processorRef = useRef(null);
   const streamRef = useRef(null);
+  const isStartingRecordingRef = useRef(false);
   const accumChunksRef = useRef([]);
   const chunkIntervalRef = useRef(null);
   const pendingSessionRef = useRef(null);
@@ -811,7 +826,7 @@ export default function Lesson() {
     if (authLoading || !lessonId) return;
     let cancelled = false;
 
-    fetch(`${API_BASE}/api/lessons?user_id=${encodeURIComponent(userId)}&lesson_id=${encodeURIComponent(lessonId)}`, {
+    lessonFetch(`${API_BASE}/api/lessons?user_id=${encodeURIComponent(userId)}&lesson_id=${encodeURIComponent(lessonId)}`, {
       cache: 'no-store',
     })
       .then((response) => response.json())
@@ -833,14 +848,14 @@ export default function Lesson() {
       });
 
     return () => { cancelled = true; };
-  }, [authLoading, userId, lessonId, API_BASE]);
+  }, [authLoading, userId, lessonId, API_BASE, lessonFetch]);
 
   useEffect(() => {
     if (authLoading || !lessonId) return;
     let cancelled = false;
 
     setVideoLoading(true);
-    fetch(`${API_BASE}/api/lessons/intro-video?user_id=${encodeURIComponent(userId)}&lesson_id=${encodeURIComponent(lessonId)}`)
+    lessonFetch(`${API_BASE}/api/lessons/intro-video?user_id=${encodeURIComponent(userId)}&lesson_id=${encodeURIComponent(lessonId)}`)
       .then((response) => response.json())
       .then((data) => {
         if (cancelled) return;
@@ -859,7 +874,7 @@ export default function Lesson() {
       .finally(() => { if (!cancelled) setVideoLoading(false); });
 
     return () => { cancelled = true; };
-  }, [authLoading, userId, lessonId, API_BASE]);
+  }, [authLoading, userId, lessonId, API_BASE, lessonFetch]);
 
   useEffect(() => {
     currentSentenceIndexRef.current = currentSentenceIndex;
@@ -1016,6 +1031,16 @@ export default function Lesson() {
   };
 
   const startRecording = async () => {
+    if (isStartingRecordingRef.current || isRecording) return;
+    isStartingRecordingRef.current = true;
+    try {
+      await startRecordingInner();
+    } finally {
+      isStartingRecordingRef.current = false;
+    }
+  };
+
+  const startRecordingInner = async () => {
     if (sentencePassedRef.current) {
       toast("You've already passed this exercise! Click Next to continue.", { icon: '✅' });
       return;
@@ -1043,7 +1068,12 @@ export default function Lesson() {
 
     const socket = socketRef.current;
     if (socket.connected) socket.disconnect();
-    pendingSessionRef.current = { sentence, words_ipa, userId, mode: sessionModeRef.current, target_phoneme: targetPhoneme };
+    // The server only accepts a userId other than "demo" when it's backed by
+    // a valid token for that same subject (see handle_start in main.py) - an
+    // authenticated learner's real progress/baseline must not be readable or
+    // writable by an unauthenticated caller who merely knows their user id.
+    const token = isAuthenticated ? await getAccessTokenSilently().catch(() => null) : null;
+    pendingSessionRef.current = { sentence, words_ipa, userId, mode: sessionModeRef.current, target_phoneme: targetPhoneme, token };
     socket.connect();
 
     let stream;

@@ -1,13 +1,18 @@
-import { useEffect, useRef, useState } from 'react';
-import PropTypes from 'prop-types';
+import './Statistics.css';
+
 import {
+  Area,
   AreaChart,
   AreaSeries,
-  Area,
   Line,
+  LinearYAxis,
+  LinearYAxisTickLabel,
+  LinearYAxisTickSeries,
 } from 'reaviz';
 import { HEATMAP_MONTHS, activityMonths } from './derive.js';
-import './Statistics.css';
+import { useEffect, useRef, useState } from 'react';
+
+import PropTypes from 'prop-types';
 
 const fmtPct = (v) => `${Math.round(v * 100)}%`;
 
@@ -209,6 +214,16 @@ export const ProgressChart = ({ phonemes, selected, onSelect, series }) => {
                   interpolation="smooth"
                 />
               }
+              yAxis={
+                <LinearYAxis
+                  type="value"
+                  tickSeries={
+                    <LinearYAxisTickSeries
+                      label={<LinearYAxisTickLabel format={(v) => `${Math.round(v * 100)}%`} />}
+                    />
+                  }
+                />
+              }
             />
           )
         )}
@@ -227,12 +242,13 @@ const masteryColor = (pct) => {
 };
 
 export const PhonemeMastery = ({ bars, limit = MASTERY_LIMIT }) => {
-  const shown = bars.slice(0, limit);
-  const hidden = bars.length - shown.length;
+  const { tried, untried } = bars;
+  const shown = tried.slice(0, limit);
+  const hidden = tried.length - shown.length;
 
   return (
     <Card title="Sound mastery">
-      {bars.length === 0 ? (
+      {tried.length === 0 ? (
         <Empty>Complete a lesson to start tracking sound mastery.</Empty>
       ) : (
         <>
@@ -256,6 +272,11 @@ export const PhonemeMastery = ({ bars, limit = MASTERY_LIMIT }) => {
             <p className="caption text-n-4 mt-2">+{hidden} more sound{hidden === 1 ? '' : 's'}</p>
           )}
         </>
+      )}
+      {untried.length > 0 && (
+        <p className="caption text-n-4 mt-3 pt-3 border-t border-n-1/10">
+          Not tried yet: <span className="font-mono">{untried.join(', ')}</span>
+        </p>
       )}
     </Card>
   );
@@ -369,7 +390,10 @@ ProgressChart.propTypes = {
 };
 
 PhonemeMastery.propTypes = {
-  bars: PropTypes.array.isRequired,
+  bars: PropTypes.shape({
+    tried: PropTypes.arrayOf(PropTypes.shape({ key: PropTypes.string, data: PropTypes.number })).isRequired,
+    untried: PropTypes.arrayOf(PropTypes.string).isRequired,
+  }).isRequired,
   limit: PropTypes.number,
 };
 

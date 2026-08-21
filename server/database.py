@@ -15,7 +15,16 @@ teacher_notes_collection = db["teacher_notes"]
 
 users_collection.create_index("userId", unique=True)
 
-phoneme_video_cache.create_index("phoneme", unique=True)
+# Drop the legacy single-field unique index if a pre-existing deployment still has it. can remove soon
+try:
+    existing_indexes = phoneme_video_cache.index_information()
+    legacy = existing_indexes.get("phoneme_1")
+    if legacy and legacy.get("unique") and legacy.get("key") == [("phoneme", 1)]:
+        phoneme_video_cache.drop_index("phoneme_1")
+except Exception as e:
+    print(f"WARNING: could not drop legacy phoneme_video_cache index: {e}")
+
+phoneme_video_cache.create_index([("phoneme", 1), ("word_key", 1)], unique=True)
 
 lesson_attempts_collection.create_index(
     [("userId", 1), ("lessonId", 1), ("attemptNumber", 1)], unique=True

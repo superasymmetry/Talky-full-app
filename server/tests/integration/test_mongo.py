@@ -101,9 +101,9 @@ class TestMongoDB(unittest.TestCase):
         
     def test_generate_next_lesson(self):
         max_lesson_before = self.users_collection.find_one({"userId": self.test_user_id})['maxLessonId']
-        
+
         response = self.flask_client.post('/api/user/generatenextlesson',
-            json={'user_id': self.test_user_id, 'currentLessonId': max_lesson_before - 1},
+            json={'user_id': self.test_user_id, 'currentLessonId': max_lesson_before},
             content_type='application/json',
             headers=AUTH_HEADERS,
         )

@@ -70,9 +70,22 @@ class EndpointTest(unittest.TestCase):
         import main
         client = main.app.test_client()
         sentences = {str(i): f"sentence number {i} for practice" for i in range(1, 8)}
-        with patch.object(main, "Groq", return_value=_mock_groq_completion(sentences)):
-            response = client.get('/api/lessons', query_string={'user_id': TEST_USER_ID, 'lesson_id': '1'})
+        p1, p2, p3 = _auth_patches()
+        with p1, p2, p3, patch.object(main, "Groq", return_value=_mock_groq_completion(sentences)):
+            response = client.get(
+                '/api/lessons',
+                query_string={'user_id': TEST_USER_ID, 'lesson_id': '1'},
+                headers={"Authorization": "Bearer test-token"},
+            )
         self.assertEqual(response.status_code, 200)
+
+    def test_api_lessons_requires_auth_for_real_user(self):
+        # A real user_id must be authenticated as itself - only "demo" (the
+        # frontend's unauthenticated guest identity) may skip the token.
+        import main
+        client = main.app.test_client()
+        response = client.get('/api/lessons', query_string={'user_id': TEST_USER_ID, 'lesson_id': '1'})
+        self.assertEqual(response.status_code, 401)
 
     def test_database_write_and_read(self):
         import database

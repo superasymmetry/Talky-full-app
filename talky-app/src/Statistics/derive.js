@@ -96,11 +96,16 @@ export function progressSeries(history, phoneme) {
     .filter(Boolean);
 }
 
+// show sorted scorebars on the side 
 export function masteryBars(phonemeScores) {
-  return phonemeScores
+  const tried = phonemeScores
     .filter((p) => p.attempts > 0 && p.avgScore != null)
     .sort((a, b) => a.avgScore - b.avgScore)
     .map((p) => ({ key: p.phoneme, data: Math.round(p.avgScore * 100) }));
+  const untried = phonemeScores
+    .filter((p) => !(p.attempts > 0 && p.avgScore != null))
+    .map((p) => p.phoneme);
+  return { tried, untried };
 }
 
 function groupByWord(wordScores) {

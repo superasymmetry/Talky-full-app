@@ -81,16 +81,17 @@ describe('hardestWords / mostImprovedWords', () => {
 });
 
 describe('masteryBars', () => {
-  it('drops untouched phonemes and sorts weakest first', () => {
+  it('splits into scored bars (weakest first) and an untried list', () => {
     const bars = masteryBars([
       { phoneme: 'r', attempts: 5, avgScore: 0.4 },
       { phoneme: 's', attempts: 0, avgScore: null },
       { phoneme: 'l', attempts: 2, avgScore: 0.9 },
     ]);
-    expect(bars).toEqual([
+    expect(bars.tried).toEqual([
       { key: 'r', data: 40 },
       { key: 'l', data: 90 },
     ]);
+    expect(bars.untried).toEqual(['s']);
   });
 });
 

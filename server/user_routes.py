@@ -15,14 +15,11 @@ user_bp = Blueprint("user_bp", __name__)
 USER_ID_REQUIRED = "user_id is required"
 NOT_AUTHORIZED_FOR_USER = "Not authorized for this user"
 
-VALID_ROLES = {"Student", "Teacher"}
+VALID_ROLES = {"Student", "Teacher", "Parent"}
 
 CONNECT_CODE_ALPHABET = string.ascii_uppercase + string.digits
 
-# Word picks below don't need to be unpredictable in any security sense —
-# secrets.SystemRandom just avoids flagging the stdlib `random` module
-# (seeded, not cryptographically safe) as a security hotspot for a spot it's
-# not actually used securely from.
+# avoid flagging the stdlib random module
 _rng = secrets.SystemRandom()
 
 MAX_SEARCH_RESULTS = 50
@@ -123,6 +120,36 @@ phoneme_word_bank = {
 }
 
 
+# Phonemes probed by the new-user intake assessment, chosen for a spread
+# across the articulation categories SLPs commonly screen for in children
+# (fricative, liquid x2, postalveolar fricative, affricate, plosive) while
+# staying short enough to finish in one sitting.
+ASSESSMENT_PHONEMES = ["s", "r", "l", "ʃ", "tʃ", "k"]
+
+
+def _build_assessment_queue():
+    '''One (phoneme, words) pair per ASSESSMENT_PHONEMES entry, in order.
+    Consumed one at a time by generatenextlesson via pendingAssessmentQueue
+    (see _pick_next_lesson_phoneme_and_words) - each assessment lesson only
+    unlocks after the previous one is finished, exactly like any other
+    lesson, rather than all 6 being handed out and unlockable at once.
+    '''
+    return [
+        (phoneme, _rng.sample(phoneme_word_bank.get(phoneme, ["practice", "word"]), k=2))
+        for phoneme in ASSESSMENT_PHONEMES
+    ]
+
+
+def _assessment_lesson(lesson_id, phoneme, words):
+    return {
+        "id": str(lesson_id),
+        "phoneme": phoneme,
+        "words": words,
+        "score": 0,
+        "is_assessment": True,
+    }
+
+
 def _default_user_doc(user_id, name=""):
     '''Full default schema for a brand-new user.'''
     phonemes = ["l", "r", "p", "b", "t", "d", "k", "g", "f", "v", "s", "z",
@@ -131,6 +158,11 @@ def _default_user_doc(user_id, name=""):
     phoneme_scores = [{"phoneme": ph, "avgScore": None, "attempts": None} for ph in phonemes]
     initial_history = dict.fromkeys(phonemes, 0)
     initial_history["timestamp"] = _utc_now_iso()
+
+    # only build the first assessment lesson, the rest come from generatenextlesson
+    queue = _build_assessment_queue()
+    first_phoneme, first_words = queue[0]
+    remaining_queue = [{"phoneme": p, "words": w} for p, w in queue[1:]]
 
     return {
         "userId": user_id,
@@ -141,22 +173,25 @@ def _default_user_doc(user_id, name=""):
         "connectCode": _generate_unique_connect_code(),
         "teacherId": None,
         "students": [],
+
+        # parent-side fields
+        "children": [],
+        "parentIds": [],
+        "pendingParentRequests": [],
         "progress": {
             "phonemeScores": phoneme_scores,
             "wordScores": []
         },
         "history": [initial_history],
-        "lessons": [
-            {"id": "1", "phoneme": "r", "words": ["rainbow", "racecar"], "score": 0},
-            {"id": "2", "phoneme": "r", "words": ["red", "read"], "score": 0},
-            {"id": "3", "phoneme": "l", "words": ["lion", "leaf"], "score": 0},
-            {"id": "4", "phoneme": "l", "words": ["letter", "learn"], "score": 0},
-        ],
+        "lessons": [_assessment_lesson(1, first_phoneme, first_words)],
         "level": {"current": 1, "subpoints": 20, "maxval": 100},
-        "maxLessonId": 4,
+        "maxLessonId": 1,
+        "pendingAssessmentQueue": remaining_queue,
+        "assessmentResults": None,
         "gameState": _build_default_game_state(),
         "activeGoal": None,
         "pendingAssignedLesson": None,
+        "pendingTeacherRequest": None,
     }
 
 
@@ -184,6 +219,18 @@ def _missing_field_patch(user_id, user_doc):
         patch["activeGoal"] = None
     if "pendingAssignedLesson" not in user_doc:
         patch["pendingAssignedLesson"] = None
+    if "pendingTeacherRequest" not in user_doc:
+        patch["pendingTeacherRequest"] = None
+    if "children" not in user_doc:
+        patch["children"] = []
+    if "parentIds" not in user_doc:
+        patch["parentIds"] = []
+    if "pendingParentRequests" not in user_doc:
+        patch["pendingParentRequests"] = []
+    if "pendingAssessmentQueue" not in user_doc:
+        patch["pendingAssessmentQueue"] = []
+    if "assessmentResults" not in user_doc:
+        patch["assessmentResults"] = None
     return patch
 
 
@@ -283,10 +330,19 @@ def get_user_lessons():
     if err:
         return err
 
-    user = users_collection.find_one({"userId": user_id}, {"lessons": 1, "_id": 0})
+    user = users_collection.find_one(
+        {"userId": user_id}, {"lessons": 1, "pendingAssessmentQueue": 1, "_id": 0}
+    )
     if not user or "lessons" not in user:
         return jsonify({"error": "User not found or lessons data missing"}), 404
-    return jsonify({"lessons": user["lessons"]})
+    return jsonify({
+        "lessons": user["lessons"],
+        # How many assessment lessons haven't been generated yet - lets the
+        # dashboard render locked placeholder cards for them instead of the
+        # list just growing one at a time with nothing to show for what's
+        # still ahead.
+        "assessmentRemaining": len(user.get("pendingAssessmentQueue") or []),
+    })
 
 
 @user_bp.route('/api/user/game-state', methods=['GET', 'POST'])
@@ -356,18 +412,43 @@ def _weakest_phoneme(phoneme_scores):
 
 
 def _pick_next_lesson_phoneme_and_words(user):
-    '''Returns (phoneme, words, consumed_assignment) for the next auto-generated lesson.'''
+    '''Returns (phoneme, words, consumed_assignment, is_assessment) for the
+    next auto-generated lesson. Draining pendingAssessmentQueue takes
+    priority over everything else, so both the original intake assessment
+    and a retake (see retake_assessment) unlock one assessment lesson at a
+    time - exactly like every other lesson only unlocking after the
+    previous one - instead of handing out the whole batch at once.'''
+    queue = user.get("pendingAssessmentQueue") or []
+    if queue:
+        item = queue[0]
+        return item["phoneme"], item["words"], False, True
+
     pending = user.get("pendingAssignedLesson")
     if pending:
         # Teacher hand-picked the exact phoneme + words for this one lesson.
-        return pending["phoneme"], pending["words"], True
+        return pending["phoneme"], pending["words"], True, False
 
     active_goal = user.get("activeGoal")
     # Standing teacher-set focus phoneme overrides auto weakest-phoneme
     # selection until the teacher clears/changes it.
     phoneme = active_goal["phoneme"] if active_goal else _weakest_phoneme(user['progress']['phonemeScores'])
     words = _rng.sample(phoneme_word_bank.get(phoneme, ["practice", "word"]), k=2)
-    return phoneme, words, False
+    return phoneme, words, False, False
+
+
+def _assessment_results_snapshot(phoneme_scores):
+    scores_by_phoneme = {p["phoneme"]: p for p in phoneme_scores}
+    return {
+        "phonemeScores": [
+            {
+                "phoneme": ph,
+                "avgScore": scores_by_phoneme.get(ph, {}).get("avgScore"),
+                "attempts": scores_by_phoneme.get(ph, {}).get("attempts"),
+            }
+            for ph in ASSESSMENT_PHONEMES
+        ],
+        "completedAt": _utc_now_iso(),
+    }
 
 
 @user_bp.route('/api/user/generatenextlesson', methods=['GET', 'POST'])
@@ -386,11 +467,20 @@ def generatenextlesson():
         return jsonify({"error": "User not found"}), 404
     maxLessonId = user.get("maxLessonId", 0)
 
-    if not (currentLessonId == maxLessonId - 1):
+    # Every lesson - assessment or real - is only ever generated one at a
+    # time, right after the previous one (the current max) finishes. This
+    # used to be `currentLessonId == maxLessonId - 1` to preserve a 1-lesson
+    # lookahead buffer, but that buffer only ever existed because the
+    # original signup bulk-created 4 real lessons at once; now that real
+    # lessons are generated on demand same as assessment ones, that gate had
+    # nothing left to buffer against and would 400 forever starting from
+    # the very first real lesson, permanently blocking progress.
+    eligible = (currentLessonId == maxLessonId)
+    if not eligible:
         return jsonify({"message": "Not eligible for new lesson yet"}), 400
 
     next_lesson_id = str(maxLessonId + 1)
-    phoneme, words, consumed_assignment = _pick_next_lesson_phoneme_and_words(user)
+    phoneme, words, consumed_assignment, is_assessment = _pick_next_lesson_phoneme_and_words(user)
 
     new_lesson = {
         "id": next_lesson_id,
@@ -398,16 +488,79 @@ def generatenextlesson():
         "words": words,
         "score": 0,
     }
+    if is_assessment:
+        new_lesson["is_assessment"] = True
 
     update = {
         "$push": {"lessons": new_lesson},
         "$set": {"maxLessonId": maxLessonId + 1},
     }
+    if is_assessment:
+        update["$set"]["pendingAssessmentQueue"] = (user.get("pendingAssessmentQueue") or [])[1:]
     if consumed_assignment:
         update["$unset"] = {"pendingAssignedLesson": ""}
 
+    # The lesson the user just finished (currentLessonId) - if it was an
+    # assessment lesson and we're now handing out a non-assessment one, the
+    # assessment (original or a retake) just completed, so snapshot the
+    # scores for the results view (Profile.jsx) before they keep changing.
+    current_lesson = next(
+        (l for l in user.get('lessons', []) if str(l.get('id')) == str(currentLessonId)), None
+    )
+    if not is_assessment and current_lesson and current_lesson.get('is_assessment'):
+        update["$set"]["assessmentResults"] = _assessment_results_snapshot(
+            user.get("progress", {}).get("phonemeScores", [])
+        )
+
     users_collection.update_one({"userId": user_id}, update)
     return jsonify({f"lessons.{next_lesson_id}": new_lesson}), 200
+
+
+@user_bp.route('/api/user/retakeAssessment', methods=['POST'])
+@requires_auth
+def retake_assessment():
+    '''Lets a student redo the intake assessment if the results don't seem
+    accurate: resets the assessed phonemes' averages, queues a fresh
+    assessment pass (drained one lesson at a time by generatenextlesson,
+    same as the original), and immediately creates the first lesson of that
+    pass so there's something to play right away.'''
+    user_id = g.current_user.get("sub")
+    if not user_id:
+        return jsonify({"message": "Token missing sub claim"}), 401
+
+    user = users_collection.find_one({"userId": user_id})
+    if not user:
+        return jsonify({"message": "User not found"}), 404
+    if user.get("role") != "Student":
+        return jsonify({"message": "Only a Student can retake the assessment"}), 403
+
+    maxLessonId = user.get("maxLessonId", 0)
+    next_lesson_id = maxLessonId + 1
+
+    queue = _build_assessment_queue()
+    first_phoneme, first_words = queue[0]
+    remaining_queue = [{"phoneme": p, "words": w} for p, w in queue[1:]]
+    new_lesson = _assessment_lesson(next_lesson_id, first_phoneme, first_words)
+
+    reset_scores = [
+        {**entry, "avgScore": None, "attempts": None}
+        if entry.get("phoneme") in ASSESSMENT_PHONEMES else entry
+        for entry in user.get("progress", {}).get("phonemeScores", [])
+    ]
+
+    users_collection.update_one(
+        {"userId": user_id},
+        {
+            "$push": {"lessons": new_lesson},
+            "$set": {
+                "maxLessonId": next_lesson_id,
+                "pendingAssessmentQueue": remaining_queue,
+                "progress.phonemeScores": reset_scores,
+                "assessmentResults": None,
+            },
+        }
+    )
+    return jsonify({"lesson": new_lesson}), 200
 
 @user_bp.route("/api/getUserProfile", methods=["GET"])
 @requires_auth
@@ -484,15 +637,32 @@ def update_user_profile():
                 {"userId": user_id},
                 {"$set": {"students": []}}
             )
-        elif previous_role == "Student" and current_doc.get("teacherId"):
-            old_teacher_id = current_doc["teacherId"]
-            users_collection.update_one(
-                {"userId": old_teacher_id},
-                {"$pull": {"students": user_id}}
-            )
+        elif previous_role == "Student":
+            if current_doc.get("teacherId"):
+                old_teacher_id = current_doc["teacherId"]
+                users_collection.update_one(
+                    {"userId": old_teacher_id},
+                    {"$pull": {"students": user_id}}
+                )
+            for parent_id in current_doc.get("parentIds", []):
+                users_collection.update_one(
+                    {"userId": parent_id},
+                    {"$pull": {"children": user_id}}
+                )
             users_collection.update_one(
                 {"userId": user_id},
-                {"$set": {"teacherId": None}}
+                {"$set": {"teacherId": None, "parentIds": [], "pendingTeacherRequest": None,
+                          "pendingParentRequests": []}}
+            )
+        if previous_role == "Parent":
+            for child_id in current_doc.get("children", []):
+                users_collection.update_one(
+                    {"userId": child_id, "parentIds": user_id},
+                    {"$pull": {"parentIds": user_id}}
+                )
+            users_collection.update_one(
+                {"userId": user_id},
+                {"$set": {"children": []}}
             )
 
     return jsonify({"message": "Profile updated successfully", "updated": update_fields}), 200
@@ -535,6 +705,9 @@ def link_by_code():
     return jsonify({"message": "Linked successfully", "teacherId": teacher_id}), 200
 
 
+MIN_STUDENT_SEARCH_QUERY_LEN = 2
+
+
 @user_bp.route("/api/user/searchStudents", methods=["GET"])
 @requires_auth
 def search_students():
@@ -547,21 +720,32 @@ def search_students():
         return err
 
     query = (request.args.get("q") or "").strip()
-    mongo_filter = {"role": "Student"}
-    if query:
-        mongo_filter["$or"] = [
+    # A blank/near-blank query used to return the first 50 students in the
+    # whole database, name+age included, to anyone who'd merely set their
+    # own role to "Teacher" (self-service, unverified) - the profile page
+    # even triggered it automatically on load. Requiring an actual search
+    # term means a self-declared teacher can only look up a *specific* known
+    # child by name, not browse the roster of every child on the platform.
+    if len(query) < MIN_STUDENT_SEARCH_QUERY_LEN:
+        return jsonify({"students": []}), 200
+
+    mongo_filter = {
+        "role": "Student",
+        "$or": [
             {"name": {"$regex": query, "$options": "i"}},
             {"nickname": {"$regex": query, "$options": "i"}},
-        ]
+        ],
+    }
 
     cursor = users_collection.find(
         mongo_filter,
-        {"userId": 1, "name": 1, "nickname": 1, "age": 1, "teacherId": 1, "_id": 0}
+        {"userId": 1, "name": 1, "nickname": 1, "age": 1, "teacherId": 1, "pendingTeacherRequest": 1, "_id": 0}
     ).limit(MAX_SEARCH_RESULTS)
 
     my_students = set(caller.get("students", []))
     results = []
     for s in cursor:
+        pending = s.get("pendingTeacherRequest") or {}
         results.append({
             "userId": s["userId"],
             "name": s.get("name", ""),
@@ -569,6 +753,7 @@ def search_students():
             "age": s.get("age"),
             "inMyRoster": s["userId"] in my_students,
             "hasOtherTeacher": bool(s.get("teacherId")) and s.get("teacherId") != caller_id,
+            "hasPendingRequestFromMe": pending.get("teacherId") == caller_id,
         })
 
     return jsonify({"students": results}), 200
@@ -577,6 +762,12 @@ def search_students():
 @user_bp.route("/api/user/addStudent", methods=["POST"])
 @requires_auth
 def add_student():
+    '''Sends a link request rather than linking immediately: a self-declared
+    "Teacher" (role is unverified - anyone can set it on their own profile)
+    must not be able to attach themselves to a child's account just by
+    finding that child via search. The student has to see and approve the
+    request (see respond_to_teacher_request) before any link is created.
+    '''
     data = request.get_json() or {}
     student_id = data.get("studentId")
     if not student_id:
@@ -595,19 +786,249 @@ def add_student():
         return jsonify({"message": "Student not found"}), 404
     if student.get("role") != "Student":
         return jsonify({"message": "That user is not a student"}), 400
-    if student.get("teacherId") and student["teacherId"] != caller_id:
+    if student.get("teacherId") == caller_id:
+        return jsonify({"message": "That student is already in your roster"}), 200
+    if student.get("teacherId"):
         return jsonify({"message": "That student already has a different teacher"}), 400
+    existing_request = student.get("pendingTeacherRequest")
+    if existing_request and existing_request.get("teacherId") == caller_id:
+        return jsonify({"message": "Request already sent — waiting on the student to respond"}), 200
+
+    pending_request = {
+        "teacherId": caller_id,
+        "teacherName": caller.get("name") or caller.get("nickname") or "A teacher",
+        "requestedAt": _utc_now_iso(),
+    }
+    users_collection.update_one(
+        {"userId": student_id},
+        {"$set": {"pendingTeacherRequest": pending_request}}
+    )
+
+    return jsonify({"message": "Request sent — waiting on the student to accept"}), 200
+
+
+@user_bp.route("/api/user/respondToTeacherRequest", methods=["POST"])
+@requires_auth
+def respond_to_teacher_request():
+    '''Student-only: accept or decline a pending teacher link request. This
+    is the only way addStudent's request actually becomes a link.'''
+    data = request.get_json(silent=True) or {}
+    accept = bool(data.get("accept"))
+
+    caller_id = g.current_user.get("sub")
+    if not caller_id:
+        return jsonify({"message": "Token missing sub claim"}), 401
+
+    caller, err = _require_role(caller_id, "Student")
+    if err:
+        return err
+
+    pending = caller.get("pendingTeacherRequest")
+    if not pending:
+        return jsonify({"message": "No pending request"}), 400
+
+    teacher_id = pending["teacherId"]
+    users_collection.update_one(
+        {"userId": caller_id},
+        {"$unset": {"pendingTeacherRequest": ""}}
+    )
+
+    if not accept:
+        return jsonify({"message": "Request declined"}), 200
+
+    # Re-check the teacher still exists/holds the role and the student
+    # hasn't been claimed by someone else in the meantime.
+    teacher = users_collection.find_one({"userId": teacher_id, "role": "Teacher"})
+    if not teacher:
+        return jsonify({"message": "That teacher account no longer exists"}), 404
+    if caller.get("teacherId") and caller["teacherId"] != teacher_id:
+        return jsonify({"message": "You're already linked to a different teacher"}), 400
+
+    users_collection.update_one(
+        {"userId": teacher_id},
+        {"$addToSet": {"students": caller_id}}
+    )
+    users_collection.update_one(
+        {"userId": caller_id},
+        {"$set": {"teacherId": teacher_id}}
+    )
+
+    return jsonify({"message": "Linked successfully", "teacherId": teacher_id}), 200
+
+
+MIN_CHILD_SEARCH_QUERY_LEN = 2
+
+
+@user_bp.route("/api/user/searchChildren", methods=["GET"])
+@requires_auth
+def search_children():
+    # parent-equivalent of searchStudents
+    caller_id = g.current_user.get("sub")
+    caller, err = _require_role(caller_id, "Parent")
+    if err:
+        return err
+
+    query = (request.args.get("q") or "").strip()
+    if len(query) < MIN_CHILD_SEARCH_QUERY_LEN:
+        return jsonify({"students": []}), 200
+
+    mongo_filter = {
+        "role": "Student",
+        "$or": [
+            {"name": {"$regex": query, "$options": "i"}},
+            {"nickname": {"$regex": query, "$options": "i"}},
+        ],
+    }
+    cursor = users_collection.find(
+        mongo_filter,
+        {"userId": 1, "name": 1, "nickname": 1, "age": 1, "parentIds": 1,
+         "pendingParentRequests": 1, "_id": 0}
+    ).limit(MAX_SEARCH_RESULTS)
+
+    my_children = set(caller.get("children", []))
+    results = []
+    for s in cursor:
+        pending_ids = {p.get("parentId") for p in (s.get("pendingParentRequests") or [])}
+        results.append({
+            "userId": s["userId"],
+            "name": s.get("name", ""),
+            "nickname": s.get("nickname", ""),
+            "age": s.get("age"),
+            "inMyChildren": s["userId"] in my_children,
+            "hasPendingRequestFromMe": caller_id in pending_ids,
+        })
+
+    return jsonify({"students": results}), 200
+
+
+@user_bp.route("/api/user/requestChildLink", methods=["POST"])
+@requires_auth
+def request_child_link():
+    # send link request from parent to child
+    data = request.get_json(silent=True) or {}
+    student_id = data.get("studentId")
+    if not student_id:
+        return jsonify({"message": "studentId is required"}), 400
+
+    caller_id = g.current_user.get("sub")
+    caller, err = _require_role(caller_id, "Parent")
+    if err:
+        return err
+
+    student = users_collection.find_one({"userId": student_id})
+    if not student:
+        return jsonify({"message": "Student not found"}), 404
+    if student.get("role") != "Student":
+        return jsonify({"message": "That user is not a student"}), 400
+    if caller_id in (student.get("parentIds") or []):
+        return jsonify({"message": "You're already linked to this student"}), 200
+
+    pending_list = student.get("pendingParentRequests") or []
+    if any(p.get("parentId") == caller_id for p in pending_list):
+        return jsonify({"message": "Request already sent — waiting on the student to respond"}), 200
+
+    pending_request = {
+        "parentId": caller_id,
+        "parentName": caller.get("name") or caller.get("nickname") or "A parent",
+        "requestedAt": _utc_now_iso(),
+    }
+    users_collection.update_one(
+        {"userId": student_id},
+        {"$push": {"pendingParentRequests": pending_request}}
+    )
+
+    return jsonify({"message": "Request sent — waiting on the student to accept"}), 200
+
+
+@user_bp.route("/api/user/respondToParentRequest", methods=["POST"])
+@requires_auth
+def respond_to_parent_request():
+    '''Student-only: accept or decline one specific pending parent request
+    (a student can have more than one pending at once, so the caller must
+    say which parentId they're responding to).'''
+    data = request.get_json(silent=True) or {}
+    parent_id = data.get("parentId")
+    accept = bool(data.get("accept"))
+    if not parent_id:
+        return jsonify({"message": "parentId is required"}), 400
+
+    caller_id = g.current_user.get("sub")
+    caller, err = _require_role(caller_id, "Student")
+    if err:
+        return err
+
+    pending_list = caller.get("pendingParentRequests") or []
+    if not any(p.get("parentId") == parent_id for p in pending_list):
+        return jsonify({"message": "No pending request from that parent"}), 400
 
     users_collection.update_one(
         {"userId": caller_id},
-        {"$addToSet": {"students": student_id}}
+        {"$pull": {"pendingParentRequests": {"parentId": parent_id}}}
+    )
+
+    if not accept:
+        return jsonify({"message": "Request declined"}), 200
+
+    parent = users_collection.find_one({"userId": parent_id, "role": "Parent"})
+    if not parent:
+        return jsonify({"message": "That parent account no longer exists"}), 404
+
+    users_collection.update_one(
+        {"userId": parent_id},
+        {"$addToSet": {"children": caller_id}}
+    )
+    users_collection.update_one(
+        {"userId": caller_id},
+        {"$addToSet": {"parentIds": parent_id}}
+    )
+
+    return jsonify({"message": "Linked successfully", "parentId": parent_id}), 200
+
+
+@user_bp.route("/api/user/removeChild", methods=["POST"])
+@requires_auth
+def remove_child():
+    # for parent to unlink themselves from child
+    data = request.get_json(silent=True) or {}
+    student_id = data.get("studentId")
+    if not student_id:
+        return jsonify({"message": "studentId is required"}), 400
+
+    caller_id = g.current_user.get("sub")
+    err = _require_role(caller_id, "Parent")[1]
+    if err:
+        return err
+
+    users_collection.update_one(
+        {"userId": caller_id},
+        {"$pull": {"children": student_id}}
     )
     users_collection.update_one(
         {"userId": student_id},
-        {"$set": {"teacherId": caller_id}}
+        {"$pull": {"parentIds": caller_id}}
     )
 
-    return jsonify({"message": "Student added"}), 200
+    return jsonify({"message": "Removed"}), 200
+
+
+@user_bp.route("/api/user/myChildren", methods=["GET"])
+@requires_auth
+def get_my_children():
+    caller_id = g.current_user.get("sub")
+    caller, err = _require_role(caller_id, "Parent")
+    if err:
+        return err
+
+    child_ids = caller.get("children", [])
+    children = list(users_collection.find({"userId": {"$in": child_ids}}))
+    result = [{
+        "userId": c["userId"],
+        "name": c.get("name", ""),
+        "nickname": c.get("nickname", ""),
+        "age": c.get("age"),
+        **_progress_summary(c)
+    } for c in children]
+    return jsonify({"children": result}), 200
 
 
 @user_bp.route("/api/user/unlink", methods=["POST"])

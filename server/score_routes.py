@@ -1,6 +1,7 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, g
 from database import users_collection
 from datetime import datetime
+from auth import requires_auth
 
 score_bp = Blueprint("score_bp", __name__)
 
@@ -29,6 +30,7 @@ def update_running_average(category_list, key_name, key_value, score):
 
 
 @score_bp.route("/api/scoreAudio", methods=["POST"])
+@requires_auth
 def score_audio():
     data = request.get_json()
 
@@ -39,6 +41,9 @@ def score_audio():
             return jsonify({"message": f"Missing field: {field}"}), 400
 
     user_id = data["userId"]
+    if g.current_user.get("sub") != user_id:
+        return jsonify({"message": "Not authorized for this user"}), 403
+
     word = data["word"]
     phoneme = data["phoneme"]
     position = data["position"]
@@ -57,11 +62,21 @@ def score_audio():
     if not user:
         return jsonify({"message": "User not found"}), 404
 
+    # progress.{syllableScores,positionScores,soundTypeScores} aren't part of
+    # the default user schema (see _default_user_doc in user_routes.py, which
+    # only creates phonemeScores/wordScores) - default them to an empty list
+    # instead of indexing directly, or every real account 500s here.
+    progress = user.setdefault("progress", {})
+    progress.setdefault("phonemeScores", [])
+    progress.setdefault("syllableScores", [])
+    progress.setdefault("positionScores", [])
+    progress.setdefault("soundTypeScores", [])
+
     # --- Update running averages ---
-    update_running_average(user["progress"]["phonemeScores"], "phoneme", phoneme, score)
-    update_running_average(user["progress"]["syllableScores"], "syllables", syllables, score)
-    update_running_average(user["progress"]["positionScores"], "position", position, score)
-    update_running_average(user["progress"]["soundTypeScores"], "type", sound_type, score)
+    update_running_average(progress["phonemeScores"], "phoneme", phoneme, score)
+    update_running_average(progress["syllableScores"], "syllables", syllables, score)
+    update_running_average(progress["positionScores"], "position", position, score)
+    update_running_average(progress["soundTypeScores"], "type", sound_type, score)
 
     # --- Update history and lastUpdated ---
     users_collection.update_one(

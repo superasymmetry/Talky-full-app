@@ -1,39 +1,31 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
 
 import App from '../src/App';
+import { MemoryRouter } from 'react-router-dom';
 import SoundBank from '../src/SoundBank/SoundBank';
+import { UserProvisionedContext } from '../src/utils/userProvisioned.js';
+import { useAuth0 } from '@auth0/auth0-react';
 
-// ----------------------
-// Auth mock (stable)
-// ----------------------
-// App.jsx only fetches lessons for an authenticated user (the dashboard
-// requires login, matching the backend's requires_auth endpoints), so the
-// mock needs to look logged-in for the data-fetching tests below to see
-// any lessons at all.
-//
-// `user` and `getAccessTokenSilently` must be stable references across
-// renders — the real Auth0 SDK memoizes both, and App.jsx's data-fetching
-// effect depends on them. Returning a fresh object/function from useAuth0()
-// on every render makes those dependencies "change" every time, re-running
-// the effect after every setState it triggers and spinning into an infinite
-// render loop.
+function renderApp() {
+  return render(
+    <MemoryRouter>
+      <UserProvisionedContext.Provider value={true}>
+        <App />
+      </UserProvisionedContext.Provider>
+    </MemoryRouter>
+  );
+}
+
+
 const mockUser = { sub: 'test-user', email: 'test@example.com' };
 const getAccessTokenSilently = async () => 'test-token';
 
 vi.mock('@auth0/auth0-react', () => ({
-  useAuth0: () => ({
-    isLoading: false,
-    isAuthenticated: true,
-    user: mockUser,
-    getAccessTokenSilently,
-  }),
+  useAuth0: vi.fn(),
 }));
 
-// ----------------------
-// Global fetch mock (centralized)
-// ----------------------
+// global fetch mock
 global.fetch = vi.fn();
 
 beforeEach(() => {
@@ -42,41 +34,32 @@ beforeEach(() => {
     ok: true,
     json: async () => ({ lessons: [] }),
   });
+
+  useAuth0.mockReturnValue({
+    isLoading: false,
+    isAuthenticated: true,
+    user: mockUser,
+    getAccessTokenSilently,
+    loginWithRedirect: vi.fn(),
+  });
 });
 
-// ----------------------
-// Tests
-// ----------------------
-
+// tests -------------------------
 describe('App', () => {
 
   it('renders without crashing', () => {
-    expect(() =>
-      render(
-        <MemoryRouter>
-          <App />
-        </MemoryRouter>
-      )
-    ).not.toThrow();
+    expect(() => renderApp()).not.toThrow();
   });
 
   it('has header and footer', () => {
-    render(
-      <MemoryRouter>
-        <App />
-      </MemoryRouter>
-    );
+    renderApp();
 
     expect(screen.getByRole('banner')).toBeInTheDocument();
     expect(screen.getByRole('contentinfo')).toBeInTheDocument();
   });
 
   it('renders sound bank entry point', () => {
-    render(
-      <MemoryRouter>
-        <App />
-      </MemoryRouter>
-    );
+    renderApp();
 
     const soundbank = screen.getByText(/Sound Bank/i);
     expect(soundbank).toBeInTheDocument();
@@ -94,11 +77,7 @@ describe('App', () => {
       json: async () => ({ lessons: mockLessons }),
     });
 
-    render(
-      <MemoryRouter>
-        <App />
-      </MemoryRouter>
-    );
+    renderApp();
 
     const lesson = await screen.findByText(/cat/i);
     expect(lesson).toBeInTheDocument();
@@ -116,11 +95,7 @@ describe('App', () => {
       json: async () => ({ lessons: mockLessons }),
     });
 
-    render(
-      <MemoryRouter>
-        <App />
-      </MemoryRouter>
-    );
+    renderApp();
 
     const cards = await screen.findAllByTestId('lesson-card');
     expect(cards).toHaveLength(mockLessons.length);
@@ -138,16 +113,27 @@ describe('App', () => {
       json: async () => ({ lessons: mockLessons }),
     });
 
-    render(
-      <MemoryRouter>
-        <App />
-      </MemoryRouter>
-    );
+    renderApp();
 
     const cards = await screen.findAllByTestId('lesson-card');
     const lastCard = cards[cards.length - 1];
 
     expect(lastCard).toHaveTextContent(/lesson|bird|dog|cat/i);
+  });
+
+  it('shows a sign-in prompt instead of a blank page when signed out', () => {
+    useAuth0.mockReturnValue({
+      isLoading: false,
+      isAuthenticated: false,
+      user: null,
+      getAccessTokenSilently,
+      loginWithRedirect: vi.fn(),
+    });
+
+    renderApp();
+
+    expect(screen.getByText(/sign in to see your lessons/i)).toBeInTheDocument();
+    expect(screen.queryAllByTestId('lesson-card')).toHaveLength(0);
   });
 
 });
