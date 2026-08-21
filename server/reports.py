@@ -1,7 +1,4 @@
-"""Builds the parent/teacher-facing progress report (CSV + PDF) that a
-guardian can hand to a licensed SLP. Pure data-formatting - no Flask/auth
-here, so it's easy to unit test without a request context.
-"""
+# Builds the parent/teacher-facing progress report (CSV + PDF)
 import csv
 import io
 from datetime import datetime, timezone

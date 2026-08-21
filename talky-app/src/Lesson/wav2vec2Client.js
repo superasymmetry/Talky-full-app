@@ -19,13 +19,11 @@ function ensureWorker() {
   return worker;
 }
 
-/** Start loading the model now. Safe to call repeatedly; only the first call
- *  creates the worker. */
+// start loading the model
 export function preloadWav2Vec2() {
   ensureWorker();
 }
 
-/** The shared worker, or null if module workers aren't supported here. */
 export function getWav2Vec2Worker() {
   return ensureWorker();
 }

@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { useAuth0 } from '@auth0/auth0-react';
+import { useEffect, useMemo, useState } from 'react';
 
-import Header from '../Header/Header.jsx';
 import { Card } from '../Statistics/components.jsx';
+import Header from '../Header/Header.jsx';
 import StatisticsPanel from '../Statistics/StatisticsPanel.jsx';
-import { topFeedback } from '../Lesson/summaryDerive.js';
 import { makeAuthFetch } from '../utils/authFetch.js';
+import { topFeedback } from '../Lesson/summaryDerive.js';
+import { useAuth0 } from '@auth0/auth0-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
@@ -401,10 +401,7 @@ export default function StudentDetail() {
   const [detailStatus, setDetailStatus] = useState('loading');
   const [attempts, setAttempts] = useState([]);
   const [attemptsLoading, setAttemptsLoading] = useState(true);
-  // A Parent can view this page too (see _authorize_student_access), but
-  // only a Teacher may set goals/assign lessons - the backend already
-  // enforces that via _require_teacher_of, this just keeps a Parent from
-  // seeing write controls that would only fail with a 403 if they used them.
+  // a parent or teacher viewing this student
   const [viewerRole, setViewerRole] = useState(null);
   const [downloading, setDownloading] = useState(null);
 

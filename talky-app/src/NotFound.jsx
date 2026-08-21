@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 
+// generic not found page
 export default function NotFound() {
   return (
     <div style={{

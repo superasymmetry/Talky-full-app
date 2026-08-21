@@ -15,11 +15,7 @@ teacher_notes_collection = db["teacher_notes"]
 
 users_collection.create_index("userId", unique=True)
 
-# Drop the legacy single-field unique index if a pre-existing deployment
-# still has it - find_video.py upserts on the compound (phoneme, word_key)
-# key, so a lingering "phoneme"-only unique index raises DuplicateKeyError
-# for every word set beyond a phoneme's first, permanently breaking
-# intro-video caching for that phoneme.
+# Drop the legacy single-field unique index if a pre-existing deployment still has it. can remove soon
 try:
     existing_indexes = phoneme_video_cache.index_information()
     legacy = existing_indexes.get("phoneme_1")

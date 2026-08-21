@@ -7,13 +7,10 @@ import Card from './Card.jsx'
 import Footer from './Footer.jsx'
 import Header from './Header/Header.jsx'
 import { makeAuthFetch } from './utils/authFetch.js'
+import { scoreToStars } from './Lesson/summaryDerive.js'
 import { useAuth0 } from '@auth0/auth0-react'
 import { useUserProvisioned } from './utils/userProvisioned.js'
-import { scoreToStars } from './Lesson/summaryDerive.js'
 
-// Must match len(ASSESSMENT_PHONEMES) in server/user_routes.py - cosmetic
-// only (used for the "Assessment N/6" label), so a mismatch would just make
-// that count look slightly off, not break anything.
 const TOTAL_ASSESSMENT_STEPS = 6;
 
 function starString(score) {
@@ -21,11 +18,7 @@ function starString(score) {
   return '⭐'.repeat(filled) + '☆'.repeat(3 - filled);
 }
 
-// The trailing contiguous run of is_assessment lessons, i.e. the *current*
-// assessment pass. A retake appends a fresh run of is_assessment lessons
-// after some real ones, so scanning from the end (stopping at the first
-// non-assessment lesson) isolates that new pass instead of also pulling in
-// the original, already-completed one.
+// to decide whether to show the assessment batch or normal lessons
 function currentAssessmentBatch(rawLessons) {
   const batch = [];
   for (let i = rawLessons.length - 1; i >= 0; i--) {
@@ -42,9 +35,7 @@ function App() {
   const [lessons, setLessons] = useState([]);
   const [activeGoal, setActiveGoal] = useState(null);
   const [pendingAssignedLesson, setPendingAssignedLesson] = useState(null);
-  // True while the newest lesson the user has is still part of the intake
-  // assessment (see is_assessment in server/user_routes.py) - i.e. they
-  // haven't finished it yet, so no real personalized lesson exists.
+  
   const [inAssessmentPhase, setInAssessmentPhase] = useState(false);
 
   useEffect(() => {
@@ -59,22 +50,13 @@ function App() {
     authFetch(`${API_BASE}/api/user/lessons?user_id=${userId}`)
       .then(res => res.ok ? res.json() : Promise.reject(new Error('Failed to fetch lessons')))
       .then(data => {
-        // is_assessment lessons are the intake test (see
-        // _build_assessment_queue in server/user_routes.py). Once a pass
-        // finishes, its cards disappear from the dashboard entirely -
-        // while one is active (original or a retake), only its cards show;
-        // once it's done, only real lessons show, numbered from 1 again
-        // regardless of their actual backend id.
+        
         const rawLessons = data.lessons || [];
         const batch = currentAssessmentBatch(rawLessons);
         const nowInAssessment = batch.length > 0;
         const nonAssessmentLessons = rawLessons.filter(l => !l.is_assessment);
         const visibleLessons = nowInAssessment ? batch : nonAssessmentLessons;
 
-        // Every lesson unlocks one at a time, right after the previous one
-        // finishes (see the generatenextlesson gate in
-        // server/user_routes.py) - so every entry except the last one here
-        // has already been completed, and the last is the one to play now.
         const lessonsArray = visibleLessons.map((lesson, i) => {
           const isCurrent = i === visibleLessons.length - 1;
           return {
@@ -90,10 +72,6 @@ function App() {
           };
         });
 
-        // Assessment lessons not yet generated (still waiting in
-        // pendingAssessmentQueue server-side) get a locked placeholder card
-        // instead of just not showing up at all, so the full 6-step
-        // progress is visible from the start.
         if (nowInAssessment) {
           const remaining = data.assessmentRemaining || 0;
           for (let i = 0; i < remaining; i++) {
@@ -127,10 +105,7 @@ function App() {
   const practiceCard = { id: "practice", name: "Practice Game", description: "Build your phoneme city!", to: "/practice-game" }
   const scrollBy = (delta) => scroller.current?.scrollBy({ left: delta, behavior: 'smooth' })
 
-  // Without this, visiting /app while signed out (or after a session
-  // expires) rendered the full dashboard shell with nothing in it - the
-  // lessons effect above bails out early on !isAuthenticated, so `lessons`
-  // just stays empty forever with no explanation to the user.
+  // Without this, visiting /app while signed out (or after a session expires) rendered the full dashboard shell with nothing in it
   if (!isLoading && (!isAuthenticated || !user)) {
     return (
       <div className="dashboard-shell">

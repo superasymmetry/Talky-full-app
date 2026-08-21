@@ -1,10 +1,6 @@
 import { Component } from 'react';
 
-// App-wide fallback: without this, an uncaught render error anywhere in the
-// tree (Profile, Statistics, SoundBank, PracticeGame, ...) unmounts the
-// whole app and leaves the user staring at a blank white screen with no way
-// back. Lesson.jsx already has narrower boundaries around its 3D canvas;
-// this is the top-level catch-all for everything else.
+// App-wide fallback generic error page
 export default class ErrorBoundary extends Component {
   constructor(props) {
     super(props);

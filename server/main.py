@@ -298,17 +298,6 @@ def _get_lesson(user_id, lesson_id):
 
 
 def _authorize_or_demo(user_id):
-    """Returns None if the caller may access user_id's lesson data, else a
-    (body, status) tuple to return immediately.
-
-    "demo" is a deliberate, unauthenticated guest identity the frontend
-    exposes (the landing page's "Try Our Demo" button, and Lesson.jsx's
-    fallback to userId "demo" whenever isAuthenticated is false) — it must
-    stay reachable with no token. Every other user_id is a real account, so
-    it requires a bearer token whose subject matches it; without this check
-    anyone could pass an arbitrary real user_id and read/overwrite that
-    person's lesson content with no credentials at all.
-    """
     if user_id == 'demo':
         return None
     auth_header = request.headers.get("Authorization")
@@ -336,8 +325,7 @@ def lessons():
     if auth_err:
         return auth_err
     if user_id == 'demo':
-        # Guests can read whatever is already cached, but can't trigger a
-        # fresh (billed) generation on demand.
+        # demo user cannot triger a forced regenerate
         force_regenerate = False
 
     user, lesson, err = _get_lesson(user_id, lesson_id)
@@ -353,14 +341,6 @@ def lessons():
         return jsonify(cached)
 
     if lesson.get('is_assessment'):
-        # The intake assessment needs to stay fast and free (it runs on
-        # every signup, before the user has done anything else), so it
-        # skips the LLM call entirely and uses the lesson's own word list
-        # directly as the "sentences" instead. Deliberately just the bare
-        # word, not a carrier phrase like "Say {word}." - the per-word
-        # scoring UI treats every word in the sentence as something to score
-        # and rate with stars, so a wrapper word like "Say" showed up
-        # alongside the real target word as a meaningless extra score.
         sentences = {
             str(i + 1): word
             for i, word in enumerate(word_list)
@@ -397,11 +377,6 @@ def lessons():
     words_to_ipa_list = []
     try:
         for sentence in sentences.values():
-            # Keep one (word, phonemes) pair per word *occurrence*, not per unique
-            # word. A dict keyed by word (the old approach) silently collapsed
-            # repeated words like "the cat sat on the mat" down to one "the"
-            # entry, so the frontend only ever rendered/scored the first
-            # occurrence's phonemes.
             words = sentence.split()
             sentence_phonemes = [(word, _word_to_phonemes(word)) for word in words]
             expected_ipas.append(sentence_phonemes)
@@ -521,12 +496,7 @@ def wordbank():
 
     return jsonify(words)
 
-# Concrete tongue/lip/teeth/airflow placement cues per IPA phoneme, grounded in
-# standard articulation-therapy descriptions. Used to keep generated feedback
-# accurate instead of letting the LLM invent (and sometimes hallucinate)
-# placement instructions. Both wav2vec2-timit style symbols (r, dʒ) and the
-# CMU-derived symbols produced by arpabet_to_ipa (ɹ, ʤ, ə, etc.) are covered
-# since either can show up depending on which path built the phoneme.
+
 ARTICULATION_GUIDE = {
     "p": "Press both lips together, build up a little air behind them, then release with a small puff — no voice, just air.",
     "b": "Press both lips together like 'p', but buzz your voice as you release them.",

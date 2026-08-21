@@ -19,10 +19,7 @@ VALID_ROLES = {"Student", "Teacher", "Parent"}
 
 CONNECT_CODE_ALPHABET = string.ascii_uppercase + string.digits
 
-# Word picks below don't need to be unpredictable in any security sense —
-# secrets.SystemRandom just avoids flagging the stdlib `random` module
-# (seeded, not cryptographically safe) as a security hotspot for a spot it's
-# not actually used securely from.
+# avoid flagging the stdlib random module
 _rng = secrets.SystemRandom()
 
 MAX_SEARCH_RESULTS = 50
@@ -162,9 +159,7 @@ def _default_user_doc(user_id, name=""):
     initial_history = dict.fromkeys(phonemes, 0)
     initial_history["timestamp"] = _utc_now_iso()
 
-    # Only the first assessment lesson is created up front - the rest come
-    # one at a time from generatenextlesson draining pendingAssessmentQueue,
-    # same as every other lesson only unlocking after the previous one.
+    # only build the first assessment lesson, the rest come from generatenextlesson
     queue = _build_assessment_queue()
     first_phoneme, first_words = queue[0]
     remaining_queue = [{"phoneme": p, "words": w} for p, w in queue[1:]]
@@ -178,8 +173,8 @@ def _default_user_doc(user_id, name=""):
         "connectCode": _generate_unique_connect_code(),
         "teacherId": None,
         "students": [],
-        # Parent-side fields. Unlike teacherId (one teacher, exclusive), a
-        # student can have more than one linked parent, so these are lists.
+
+        # parent-side fields
         "children": [],
         "parentIds": [],
         "pendingParentRequests": [],
@@ -867,12 +862,7 @@ MIN_CHILD_SEARCH_QUERY_LEN = 2
 @user_bp.route("/api/user/searchChildren", methods=["GET"])
 @requires_auth
 def search_children():
-    '''Parent-only equivalent of searchStudents. Kept as its own endpoint
-    rather than branching inside searchStudents: the relationship rules are
-    genuinely different (a child can have many parents, so there's no
-    "already has a different parent" block the way there is for the single
-    exclusive teacherId), and duplicating a short query beats adding more
-    conditional branches to the already-hardened teacher search path.'''
+    # parent-equivalent of searchStudents
     caller_id = g.current_user.get("sub")
     caller, err = _require_role(caller_id, "Parent")
     if err:
@@ -914,10 +904,7 @@ def search_children():
 @user_bp.route("/api/user/requestChildLink", methods=["POST"])
 @requires_auth
 def request_child_link():
-    '''Sends a link request from a Parent to a child's account - same
-    consent-required shape as addStudent/respondToTeacherRequest above, so a
-    self-declared "Parent" can't attach to a child without that child (or
-    whoever controls their account) approving it.'''
+    # send link request from parent to child
     data = request.get_json(silent=True) or {}
     student_id = data.get("studentId")
     if not student_id:
@@ -1001,9 +988,7 @@ def respond_to_parent_request():
 @user_bp.route("/api/user/removeChild", methods=["POST"])
 @requires_auth
 def remove_child():
-    '''Parent-only: unlink self from a child. Deliberately one-directional
-    for v1 - a student removing a specific parent isn't exposed yet (see the
-    feature notes); parents can always remove themselves.'''
+    # for parent to unlink themselves from child
     data = request.get_json(silent=True) or {}
     student_id = data.get("studentId")
     if not student_id:

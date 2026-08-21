@@ -96,10 +96,7 @@ export function progressSeries(history, phoneme) {
     .filter(Boolean);
 }
 
-/** Splits the full phoneme roster (not just the handful actually attempted)
- * into scored bars (weakest first) and the plain list of sounds with no
- * attempts yet - so "why do I only see 4 sounds" has a visible answer
- * (the other ~20 are listed as not tried yet) instead of just vanishing. */
+// show sorted scorebars on the side 
 export function masteryBars(phonemeScores) {
   const tried = phonemeScores
     .filter((p) => p.attempts > 0 && p.avgScore != null)

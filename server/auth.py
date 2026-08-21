@@ -28,10 +28,7 @@ class AuthError(Exception):
 
 
 def get_jwks(force_refresh=False):
-    """Cached JWKS lookup with a TTL, so a key rotation on Auth0's side is
-    picked up within the hour instead of requiring a server restart. Callers
-    that fail to find a matching kid should retry with force_refresh=True to
-    pick up a rotation immediately instead of waiting out the TTL."""
+    # re fetches the JWKS so it's not stale, otherwise fetch from cache
     global _jwks, _jwks_fetched_at
     now = time.monotonic()
     if _jwks is None or force_refresh or (now - _jwks_fetched_at) > JWKS_TTL_SECONDS:
@@ -59,18 +56,12 @@ def _find_rsa_key(jwks, kid):
 
 
 def verify_token(token):
-    """Verifies a bearer token and returns its decoded payload, or raises
-    AuthError. Split out from requires_auth so non-route callers (e.g. the
-    SocketIO handlers, which have no Flask route decorator to hang off of)
-    can reuse the same verification logic."""
     unverified_header = jwt.get_unverified_header(token)
     kid = unverified_header.get("kid")
 
     jwks = get_jwks()
     rsa_key = _find_rsa_key(jwks, kid)
     if not rsa_key:
-        # Might be a legitimate key rotation - refresh once and retry before
-        # giving up, instead of rejecting every token until the TTL expires.
         jwks = get_jwks(force_refresh=True)
         rsa_key = _find_rsa_key(jwks, kid)
     if not rsa_key:

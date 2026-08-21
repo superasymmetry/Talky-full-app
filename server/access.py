@@ -12,10 +12,6 @@ def _require_role(caller_id, expected_role):
 
 
 def _authorize_student_access(caller_id, student_id):
-    '''Returns (student_doc, None) if caller_id IS student_id, is that
-    student's linked teacher, or is one of that student's linked parents
-    (see parentIds - a student can have more than one, unlike the single
-    teacherId); otherwise (None, error_response).'''
     student = users_collection.find_one({"userId": student_id})
     if not student:
         return None, (jsonify({"message": "Student not found"}), 404)

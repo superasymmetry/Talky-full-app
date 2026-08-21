@@ -1,16 +1,18 @@
-import { useEffect, useRef, useState } from 'react';
-import PropTypes from 'prop-types';
+import './Statistics.css';
+
 import {
+  Area,
   AreaChart,
   AreaSeries,
-  Area,
   Line,
   LinearYAxis,
-  LinearYAxisTickSeries,
   LinearYAxisTickLabel,
+  LinearYAxisTickSeries,
 } from 'reaviz';
 import { HEATMAP_MONTHS, activityMonths } from './derive.js';
-import './Statistics.css';
+import { useEffect, useRef, useState } from 'react';
+
+import PropTypes from 'prop-types';
 
 const fmtPct = (v) => `${Math.round(v * 100)}%`;
 
@@ -212,12 +214,6 @@ export const ProgressChart = ({ phonemes, selected, onSelect, series }) => {
                   interpolation="smooth"
                 />
               }
-              // Scores are 0-1 fractions; reaviz's default y-axis rounds
-              // raw values to ~1 decimal for its labels, which for a small
-              // range (e.g. 0.28 and 0.35) rendered visually-duplicate
-              // ticks like "0.3, 0.3". Formatting as whole-percent instead
-              // both reads more naturally for a score and gives each tick
-              // enough resolution to look distinct.
               yAxis={
                 <LinearYAxis
                   type="value"

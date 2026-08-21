@@ -1,12 +1,4 @@
-"""Minimal in-memory per-IP rate limiter.
-
-Deliberately dependency-free (no Flask-Limiter/Redis): the app deploys as a
-single process on a single EC2 host (see .github/workflows/deploy-backend.yml),
-so a process-local window is enough to stop naive scripted abuse of the
-unauthenticated, cost-bearing endpoints (LLM/TTS generation) without adding
-infra. If the app ever scales to multiple instances this should move to a
-shared store instead.
-"""
+# in-memory per-IP rate limiter.
 import time
 import threading
 from collections import defaultdict, deque

@@ -6,19 +6,19 @@ import * as THREE from 'three'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Cloud, Clouds, ContactShadows, Environment, OrbitControls, Sky, useAnimations, useGLTF } from '@react-three/drei'
 import { Component, Suspense, forwardRef, useEffect, useMemo, useRef, useState } from 'react'
+import { VIEW_MODES, useViewMode } from '../viewMode/viewMode.js';
+import { getWav2Vec2Worker, subscribeWav2Vec2 } from './wav2vec2Client.js';
 import { speakText, stopSpeech } from '../tts.js';
 import toast, { Toaster } from 'react-hot-toast';
 
 import Back from './Back.jsx';
 import LessonKidOverlay from './LessonKidOverlay.jsx';
 import LessonSummary from './LessonSummary.jsx';
-import { VIEW_MODES, useViewMode } from '../viewMode/viewMode.js';
 import { Waveform } from 'ldrs/react'
 import { io } from 'socket.io-client';
+import { makeAuthFetch } from '../utils/authFetch.js';
 import { useAuth0 } from '@auth0/auth0-react';
 import { useMatch } from 'react-router-dom';
-import { makeAuthFetch } from '../utils/authFetch.js';
-import { getWav2Vec2Worker, subscribeWav2Vec2 } from './wav2vec2Client.js';
 
 useGLTF.preload('/robot-draco.glb')
 useGLTF.preload('/seagull-2.glb')
@@ -482,10 +482,8 @@ export default function Lesson() {
   const { user, isAuthenticated, isLoading: authLoading, getAccessTokenSilently } = useAuth0();
   const userId = isAuthenticated && user ? (user.sub || user.email) : 'demo';
   const authFetch = useMemo(() => makeAuthFetch(getAccessTokenSilently), [getAccessTokenSilently]);
-  // The backend only requires a token when userId isn't the unauthenticated
-  // "demo" guest identity (see _authorize_or_demo in server/main.py) - for a
-  // signed-in learner it must be their real token, so lesson content can't
-  // be read/regenerated for an arbitrary user id with no credentials.
+  
+  // pick which fetch function to use: either authFetch or fetch
   const lessonFetch = useMemo(
     () => (isAuthenticated ? authFetch : (url, options) => fetch(url, options)),
     [isAuthenticated, authFetch]
@@ -672,12 +670,6 @@ export default function Lesson() {
   const audioContextRef = useRef(null);
   const processorRef = useRef(null);
   const streamRef = useRef(null);
-  // React state updates (isRecording) aren't visible synchronously, so a
-  // rapid double-click can invoke startRecording twice before the first
-  // call's setIsRecording(true) has rendered - each invocation would open
-  // its own getUserMedia stream + AudioContext and clobber the refs to the
-  // previous one, leaking a live microphone. A ref flips synchronously, so
-  // it closes that gap.
   const isStartingRecordingRef = useRef(false);
   const accumChunksRef = useRef([]);
   const chunkIntervalRef = useRef(null);

@@ -1,16 +1,12 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
 
 import App from '../src/App';
+import { MemoryRouter } from 'react-router-dom';
 import SoundBank from '../src/SoundBank/SoundBank';
 import { UserProvisionedContext } from '../src/utils/userProvisioned.js';
 import { useAuth0 } from '@auth0/auth0-react';
 
-// App.jsx's lesson-fetching effect is gated on useUserProvisioned() (see
-// App.jsx:24) so it never fires before POST /api/user/adduser has resolved.
-// The mocked useAuth0 below always reports isAuthenticated, so tests must
-// provide "provisioned" explicitly or that gate stays permanently closed.
 function renderApp() {
   return render(
     <MemoryRouter>
@@ -21,34 +17,15 @@ function renderApp() {
   );
 }
 
-// ----------------------
-// Auth mock (stable)
-// ----------------------
-// App.jsx only fetches lessons for an authenticated user (the dashboard
-// requires login, matching the backend's requires_auth endpoints), so the
-// mock needs to look logged-in for the data-fetching tests below to see
-// any lessons at all.
-//
-// `user` and `getAccessTokenSilently` must be stable references across
-// renders — the real Auth0 SDK memoizes both, and App.jsx's data-fetching
-// effect depends on them. Returning a fresh object/function from useAuth0()
-// on every render makes those dependencies "change" every time, re-running
-// the effect after every setState it triggers and spinning into an infinite
-// render loop.
+
 const mockUser = { sub: 'test-user', email: 'test@example.com' };
 const getAccessTokenSilently = async () => 'test-token';
 
-// useAuth0 is a vi.fn() (not a plain arrow function) so individual tests can
-// override it with mockReturnValue/mockReturnValueOnce - e.g. the signed-out
-// test below needs isAuthenticated: false, which the shared default doesn't
-// provide.
 vi.mock('@auth0/auth0-react', () => ({
   useAuth0: vi.fn(),
 }));
 
-// ----------------------
-// Global fetch mock (centralized)
-// ----------------------
+// global fetch mock
 global.fetch = vi.fn();
 
 beforeEach(() => {
@@ -67,10 +44,7 @@ beforeEach(() => {
   });
 });
 
-// ----------------------
-// Tests
-// ----------------------
-
+// tests -------------------------
 describe('App', () => {
 
   it('renders without crashing', () => {
